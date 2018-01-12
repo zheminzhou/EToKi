@@ -36,7 +36,9 @@ externals = dict(
     # EnSign
     ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32', 
     blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn', 
-    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',     
+    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb', 
+    # 
+    fasttree = '{HOME}/biosoft/FastTreeMP', 
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
 
