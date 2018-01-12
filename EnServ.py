@@ -7,6 +7,7 @@ def string2numeric_hash(text):
 
 parameters = dict(
     prefix = 'EnBase', 
+	reIndex = True, 
     fasta = [],
     id = 0.85, 
 )

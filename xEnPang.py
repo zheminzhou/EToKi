@@ -5,68 +5,32 @@ from collections import Counter
 from time import gmtime, strftime
 from multiprocessing import Pool
 
-codons = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",
-          "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
-          "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",
-          "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
-          "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",
-          "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
-          "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",
-          "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
-          "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",
-          "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
-          "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",
-          "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
-          "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",
-          "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
-          "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",
-          "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
-
-complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G'}
-
-codons4 = dict(codons.items())
-codons4['TGA'] = 'W'
-
-def rc(seq) :
-    return ''.join([complement.get(b, 'N') for b in reversed(seq.upper())])
-
-def transeq(seq, frame=1, transl_table=11) :
-    gtable = codons if transl_table != 4 else codons4
-    if str(frame).upper() == 'F' :
-        frames = [1,2,3]
-    elif str(frame).upper() == 'R' :
-        frames = [4,5,6]
-    elif str(frame).upper() == '6' :
-        frames = range(1,7)
-    else :
-        frames = [int(frame)]
-
-    if isinstance(seq, dict) :
-        trans_seq = {}
-        for n,s in seq.iteritems() :
-            #print n, len(s)
-            for frame in frames :
-                trans_name = '{0}_{1}'.format(n, frame)
-                if frame <= 3 :
-                    trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
-                else :
-                    trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
-        return trans_seq
-    else :
-        if len(frames) == 1 :
-            frame = frames[0]
-            if frame <= 3 :
-                return ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(seq[(frame-1):])]*3))])
-            else :
-                return ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(seq)[(frame-4):])]*3))])
-        else :
-            trans_seq = []
-            for frame in frames :
-                if frame <= 3 :
-                    trans_seq.append( ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(seq[(frame-1):])]*3))]) )
-                else :
-                    trans_seq.append( ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(seq)[(frame-4):])]*3))]) )
-            return trans_seq
+def transeq(self, seq, frame=1, transl_table=11) :
+	gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
+			  "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
+			  "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
+			  "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
+			  "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
+			  "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
+			  "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
+			  "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
+	
+	complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
+	def rc(seq) :
+		return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
+	
+	frames = {'F': [1,2,3], 
+			  'R': [4,5,6], 
+			  '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
+	trans_seq = {}
+	for n,s in seq.iteritems() :
+		for frame in frames :
+			trans_name = '{0}_{1}'.format(n, frame)
+			if frame <= 3 :
+				trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
+			else :
+				trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
+	return trans_seq
 
 def get_similar_pairs(self_bsn) :
     def get_similar(bsn, ortho_pairs) :
