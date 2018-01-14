@@ -4,33 +4,68 @@ import subprocess, os, numpy as np
 from collections import Counter
 from time import gmtime, strftime
 from multiprocessing import Pool
+from EnConf import externals, logger
 
-def transeq(self, seq, frame=1, transl_table=11) :
-	gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
-			  "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
-			  "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
-			  "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
-			  "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
-			  "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
-			  "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
-			  "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
-	
-	complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
-	def rc(seq) :
-		return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
-	
-	frames = {'F': [1,2,3], 
-			  'R': [4,5,6], 
-			  '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
-	trans_seq = {}
-	for n,s in seq.iteritems() :
-		for frame in frames :
-			trans_name = '{0}_{1}'.format(n, frame)
-			if frame <= 3 :
-				trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
-			else :
-				trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
-	return trans_seq
+def readGFF(fnames) :
+    if isinstance(fnames, basestring) : fnames = [fnames]
+    seq, cds = {}, {}
+    for fname in fnames :
+        p = subprocess.Popen(['zcat', fname], stdout = subprocess.PIPE) if fname.upper().endswith('.GZ') else subprocess.Popen(['cat', fname], stdout = subprocess.PIPE)
+        for line in p.stdout :
+            if line.startswith('#') : continue
+            if line.startswith('>') :
+                name = line[1:].strip().split()[0]
+                assert name not in seq, logger('Error: duplicated sequence name {0}'.format(name))
+                seq[name] = [fname, []]
+            else :
+                part = line.strip().split('\t')
+                if len(part) > 1 :
+                    if part[2] == 'CDS' :
+                        name = re.findall(r'ID=([^;]+)', part[8])
+                        if name is None :
+                            name = re.findall(r'Name=([^;]+)', part[8])
+                        assert name is None, logger('Error: CDS has not name. {0}'.format(line))
+                        name = '{0}__{1}'.format(part[0], name[0])
+                        assert name not in cds, logger('Error: duplicated CDS. {0}'.format(line))
+                        cds[name] = [fname, part[0], int(part[3]), int(part[4]), part[6], None]
+                else :
+                    seq[name].append(part[0])
+    for n, s in seq.iteritems() :
+        s[1] = ''.join(s[1])
+    for n, c in cds.iteritems() :
+        c[5] = seq[c[1]][(c[2]-1): c[3]]
+        if c[4] == '-' :
+            c[5] = rc(c[5])
+        c[6] = transeq({'n':c[5]})['n_1']
+    return seq, cds
+
+complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
+def rc(seq) :
+    return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
+
+def transeq(seq, frame=1, transl_table=11) :
+    gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
+              "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
+              "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
+              "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
+              "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
+              "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
+              "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
+              "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
+
+
+    frames = {'F': [1,2,3],
+              'R': [4,5,6],
+              '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
+    trans_seq = {}
+    for n,s in seq.iteritems() :
+        for frame in frames :
+            trans_name = '{0}_{1}'.format(n, frame)
+            if frame <= 3 :
+                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
+            else :
+                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
+    return trans_seq
 
 def get_similar_pairs(self_bsn) :
     def get_similar(bsn, ortho_pairs) :
@@ -38,7 +73,7 @@ def get_similar_pairs(self_bsn) :
             return
         matched_aa = {}
         len_aa = int(bsn[0][12])/3
-        for part in bsn : 
+        for part in bsn :
             s_i, e_i, s_j, e_j = [ int(x) for x in part[6:10] ]
             frame_i, frame_j = s_i % 3, s_j % 3
             if part[14].find('-') < 0 and part[15].find('-') < 0 :
@@ -63,14 +98,14 @@ def get_similar_pairs(self_bsn) :
                 ortho_pairs[part[1]] [part[0]] = 1
                 ortho_pairs[part[0]] [part[1]] = 1
                 return
-            
+
     ortho_pairs = {}
     save = []
     with open(self_bsn) as fin :
         for id, line in enumerate(fin) :
             if id % 100000 == 0 :
                 sys.stderr.write('Loading self-BLASTn results. {0}\n'.format(id))
-            
+
             part = line.strip().split()
             if part[0] == part[1] or float(part[2]) < 50 or int(part[8]) > int(part[9]) or int(part[3]) < 40 :
                 continue
@@ -124,7 +159,7 @@ def combine_matches(save) :
                     groups.append( [new_len, score, ident ] + ([m1[11], m2[11]] if m1[3] < m2[3] else [m2[11], m1[11]]) )
                     m1[12], m2[12] = 1, 1
         return groups
-    
+
     save.sort(key=itemgetter(0,1,2,6))
 
     groups = {}
@@ -200,7 +235,7 @@ def get_conflicts(matches, ortho_pairs) :
             sys.stderr.write('Get conflicts: {0} / {1}\n'.format(id, len_match))
         if m1[12] == 0 : continue
         s1, e1 = m1[6:8] if m1[6] > 0 else (-m1[7], -m1[6])
-        
+
         for jd in xrange(id+1, len_match) :
             m2 = matches[jd]
             if m1[1:3] != m2[1:3] :
@@ -223,7 +258,7 @@ def get_conflicts(matches, ortho_pairs) :
                         conflicts[m1[11]][m2[11]] = 2
                     else :
                         conflicts[m1[11]][m2[11]] = 1
-                        
+
                     if m1[0] in ortho_pairs.get(m2[0], {}) :
                         conflicts[m2[11]][m1[11]] = 2
                     else :
@@ -248,7 +283,7 @@ def compare_seq(seqs, mod = 1) :
         n_comparable = np.sum(comparable, 1)
         n_comparable[n_comparable < 1] = 1
         n_diff = np.sum(( seq[id] != seq[(id+1):] ) & comparable, 1).astype(float)/n_comparable
-        
+
         if mod == 1 :
             n_diff[n_comparable < seq.shape[1]*0.5] = 2
             for jd, nd in enumerate(n_diff) :
@@ -278,7 +313,7 @@ def global_difference(matches, groups, premature=None) :
         diff = compare_seq(seqs)
         len_ref = len(uclust_ref[grp])
         for pair, difference in diff.iteritems() :
-            if pair not in global_differences: 
+            if pair not in global_differences:
                 global_differences[pair] = [0, 0]
             global_differences[pair][0] += len_ref * difference
             global_differences[pair][1] += len_ref
@@ -291,7 +326,7 @@ def filt_per_group(data) :
     dc = math.pow(1-params['clust_difference'], 1.0/params['distance_cut'])
     for r1, r2 in diff :
         if diff[(r1, r2)] < 1 :
-            difference = math.log(min((1.0 - diff[(r1, r2)]) / (1.0 - global_differences.get((r1[0], r2[0]), 0.01)), 1.0 )) 
+            difference = math.log(min((1.0 - diff[(r1, r2)]) / (1.0 - global_differences.get((r1[0], r2[0]), 0.01)), 1.0 ))
             if difference < 0.0 :
                 difference = difference / math.log( min(1-global_differences.get((r1[0], r2[0]), 0.01), dc) )
             distances[(r1, r2)] = difference
@@ -337,7 +372,7 @@ def filt_per_group(data) :
                     group_tag['{0}__{1}'.format(*n)] = '{0}__{1}'.format(*n)
             for g, id in cleanup.iteritems() :
                 mat[g][:] = mat[g][:(id+3)]
-            
+
             groups = {'{0}__{1}'.format(*g): grp for g, grp in groups}
             ic2 = {}
             for r1, rr in incompatible.iteritems() :
@@ -349,7 +384,7 @@ def filt_per_group(data) :
                         if r2 in group_tag :
                             ic2[t1][group_tag[r2]] = 1
             incompatible = ic2
-    
+
             cmd = params[params['orthology']] if len(tags) < 1000 else params['nj']
             phy_run = subprocess.Popen(shlex.split(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             gene_phy = ete3.Tree(phy_run.communicate(input=''.join(['>{0}\n{1}\n'.format(n, s) for n, s in tags.iteritems()]))[0])
@@ -357,7 +392,7 @@ def filt_per_group(data) :
             if node is not None :
                 gene_phy.set_outgroup(node)
             s_name = set(tags.keys()) - set(['{0}__REF'.format(grp)])
-    
+
             for ite in xrange(3000) :
                 tips = set(gene_phy.get_leaf_names()) & s_name
                 branches = []
@@ -366,7 +401,7 @@ def filt_per_group(data) :
                     if len(descendants) == 0 :
                         continue
                     unrelated = tips - descendants
-                    
+
                     d_anchor, u_anchor, n_ic = {}, {}, 0
                     for r1 in descendants :
                         for r2 in incompatible.get(r1, {}) :
@@ -403,7 +438,7 @@ def filt_per_group(data) :
                         gene_phy = gene_phy.get_children()[0]
                     else :
                         prev_node.delete(preserve_branch_length=True)
-                        
+
                     for r1 in incompatible.keys() :
                         if r1 not in tips :
                             rr = incompatible.pop(r1, None)
@@ -411,7 +446,7 @@ def filt_per_group(data) :
                                 incompatible.get(r2, {}).pop(r1, None)
                     if len(incompatible) == 0 :
                         break
-                    
+
                     sys.stderr.write('     Iteration {0}. Remains {1} tips.\n'.format(ite+1, len(gene_phy.get_leaf_names())))
                 else :
                     break
@@ -445,7 +480,7 @@ def get_gene(groups, first_classes, cnt=1) :
         min_rank = -1
         scores = { gene:0 for gene in groups }
     scores = { gene:sum([group[0][1]*group[0][0] for genome, group in groups[gene].iteritems() if len(group) > 0 ]) for gene in scores }
-    
+
     genes = [[gene, score, min_rank] for gene, score in sorted(sorted(scores.iteritems()), key=itemgetter(1), reverse=True)[:cnt] if score > 0]
     if len(genes) <= 0 :
         for gene in scores :
@@ -455,9 +490,9 @@ def get_gene(groups, first_classes, cnt=1) :
 
 def filt_genes(prefix, matches, groups, global_differences, conflicts, first_classes = None) :
     uclust_ref = readFasta(params['uclust'])
-    
+
     pangenes, used, results, run = {}, {}, {}, {}
-    
+
     group_id = 0
     with open('{0}.PopuPr'.format(prefix), 'wb') as fout :
         while len(groups) > 0 :
@@ -498,7 +533,7 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                                 m[:] = [ region for region in m if region[1]/m[0][1] > cut ]
                         for genome, m in mat.iteritems() :
                             m.sort(key=itemgetter(1), reverse=True)
-                        
+
                         to_run.append([{ (genome, str(i)):get_seq(matches, region) for genome, m in mat.iteritems() for i,region in enumerate(m) }, \
                                                    gene, mat, {'{0}__REF'.format(gene):uclust_ref[gene]}, global_differences])
                         to_run_id.append(gene)
@@ -566,24 +601,24 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                         pangene = gene
                 else :
                     pangene = gene
-        
-                if pangene not in results : 
+
+                if pangene not in results :
                     results[pangene] = {}
-        
+
                 sys.stderr.write('[{3}] {5} / {6}: pan gene "{4}" : "{0}" picked from rank {1} and score {2}\n'.format(gene, min_rank, score, strftime("%Y-%m-%d %H:%M:%S", gmtime()), pangene, len(results), len(groups)+len(results)))
-                
+
                 for genome, region in working_group.iteritems() :
                     if genome not in results[pangene] :
                         results[pangene][genome] = []
                     results[pangene][genome].extend([reg for reg in region if len(reg) > 0])
-                
+
                 for genome, region in sorted(working_group.iteritems()) :
                     for grp in region :
                         if len(grp) > 0 :
                             group_id += 1
                             for id in sorted(grp[3:], key=lambda x:matches[x][4]) :
                                 fout.write('{0}\t{1}\t{2}\t{3}\n'.format(pangene, min_rank, group_id, '\t'.join([str(x) for x in matches[id][:-2]])))
-                
+
                 todel2 = {}
                 for gene, lists in todel.iteritems() :
                     if gene not in groups :
@@ -655,16 +690,16 @@ def get_map_bsn(prefix, uclust, genome) :
     return '{0}.map.bsn'.format(prefix)
 
 params = dict(
-    usearch = '/home/zhemin/biosoft/usearch8.0.1623_i86linux32', 
-    blast_folder = '/home/zhemin/bin/', 
-    prefix = 'OPP', 
-    ml = '/home/zhemin/biosoft/FastTreeMP -nt -gtr -pseudo', 
-    nj = '/home/zhemin/biosoft/FastTreeMP -nt -noml -gtr -pseudo', 
-    n_thread = '30', 
+    usearch = '/home/zhemin/biosoft/usearch8.0.1623_i86linux32',
+    blast_folder = '/home/zhemin/bin/',
+    prefix = 'OPP',
+    ml = '/home/zhemin/biosoft/FastTreeMP -nt -gtr -pseudo',
+    nj = '/home/zhemin/biosoft/FastTreeMP -nt -noml -gtr -pseudo',
+    n_thread = '30',
     orthology = 'nj', # ml, nj, ref_dist, similarity
-    distance_cut = '2.0', 
-    min_identity = '60', 
-    clust_difference = '0.05', 
+    distance_cut = '2.0',
+    min_identity = '60',
+    clust_difference = '0.05',
     clust_match_prop = '0.9'
 )
 
@@ -679,7 +714,7 @@ if __name__ == '__main__' :
     params['distance_cut'] = float(params['distance_cut'])
     params['min_identity'], params['clust_match_prop'] = float(params['min_identity']), float(params['clust_match_prop'])
     params['clust_difference'] = max(0.05, float(params['clust_difference']))
-    
+
     if 'uclust' not in params :
         params['uc'], params['uclust'] = get_uclust(params['prefix'], params['genes'], first_classes)
     if 'self_bsn' not in params :

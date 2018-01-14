@@ -25,18 +25,18 @@ externals = dict(
     megahit = '{HOME}/software/megahit/megahit',
     bowtie2 = '{HOME}/bin/bowtie2',
     bowtie2build = '{HOME}/bin/bowtie2-build',
-    enbler_filter= 'python {HOME}/CRobot/pipelines/EnTools/_EnFlt.py',    
+    enbler_filter= 'python {HOME}/CRobot/pipelines/EnTools/_EnFlt.py',
     samtools = '{HOME}/CRobot/source/samtools-1.2/samtools',
     gatk = 'java -Xmx30g -jar {HOME}/CRobot/source/gatk-4.beta.6/gatk-package-4.beta.6-local.jar',
     pilon = 'java -Xmx30g -jar {HOME}/CRobot/source/pilon-1.22.jar',
-    kraken_program = '{HOME}/CRobot/source/kraken/kraken', 
-    kraken_report = '{HOME}/CRobot/source/kraken/kraken-report', 
-    kraken_database = '{HOME}/minikraken_20141208', 
-    
+    kraken_program = '{HOME}/CRobot/source/kraken/kraken',
+    kraken_report = '{HOME}/CRobot/source/kraken/kraken-report',
+    kraken_database = '{HOME}/minikraken_20141208',
+
     # EnSign
-    ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32', 
-    blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn', 
-    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',     
+    ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32',
+    blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn',
+    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
 
