@@ -34,9 +34,17 @@ externals = dict(
     kraken_database = '{HOME}/minikraken_20141208',
 
     # EnSign
+<<<<<<< HEAD:EnConf.py
     ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32',
     blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn',
     formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',
+=======
+    ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32', 
+    blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn', 
+    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb', 
+    # 
+    fasttree = '{HOME}/biosoft/FastTreeMP', 
+>>>>>>> 9ae30a7e061d43b0313c115dc56a8c9885aa878d:EnStal.py
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
 
