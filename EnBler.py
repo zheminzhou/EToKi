@@ -1,8 +1,8 @@
-import os, io, sys, re, urllib2, shutil, gzip, numpy as np
+import os, io, sys, re, urllib2, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from EnStal import externals, logger
+from EnStal import externals, logger, readFasta
 
 
 # preprocessing
@@ -11,7 +11,7 @@ class preprocess(object) :
         reads = self.init_cleanup(reads)
         reads = self.reduce_depth(reads)
         return reads
-        
+
     def init_cleanup(self, reads) :
         new_reads = []
         for lib_id, library in enumerate(reads) :
@@ -84,7 +84,7 @@ class preprocess(object) :
                     sample_freqs = [ 1., 1., (float(parameters['max_base']) - n_base2)/stat[2][0] ]
             if sample_freqs[0] < 1 and sample_freqs[0] > 0 :
                 logger('Read depth too high. Subsample to every {0} read'.format(1./sample_freqs[0]))
-            
+
             for f_id, (lib, s, sample_freq) in enumerate(zip(library, stat, sample_freqs)) :
                 if s[1] <= 0 and sample_freq >= 1. :
                     new_lib.append(lib)
@@ -128,7 +128,7 @@ class mainprocess(object) :
             Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE ).communicate()
         else :
             sleep(1)
-        
+
         outputs = []
         for lib_id, lib in enumerate(reads) :
             se = [ '-U ' + lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
@@ -140,7 +140,7 @@ class mainprocess(object) :
                         r=r, o=o1, reference=reference, tag=','.join(task), **parameters)
                     st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
                     for line in st_run[1].split('\n') :
-                        logger(line.rstrip())                    
+                        logger(line.rstrip())
                     try:
                         x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
                             lib_id = lib_id, output=o, input=o1, \
@@ -153,31 +153,7 @@ class mainprocess(object) :
                         outputs.append(o1)
                     Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
         return outputs
-    def __readFasta(self, filename, qual=None) :
-        seq = {}
-        fin = gzip.open(filename) if filename[-3:].lower() == '.gz' else open(filename)
-        
-        for line in fin:
-            if line[0] == '>' :
-                name = line[1:].strip().split()[0]
-                seq[name] = []
-            else :
-                seq[name].append( line.strip() )
-        fin.close()
-        if qual == None :
-            for n in seq:
-                seq[n] = ''.join( seq[n] )
-        else :
-            for n in seq:
-                seq[n] = [''.join(seq[n]), []]
-                seq[n][1] = [chr(33+qual)] * len(seq[n][0])
-                if qual > 0 :
-                    for id in xrange(len(seq[n][0])) :
-                        if seq[n][0] in ('n', 'N') :
-                            seq[n][1] = '!'
-                seq[n][1] = ''.join(seq[n][1])
-        return seq
-    
+
     def do_megahit(self, reads) :
         outdir = prefix + '.megahit'
         output_file = prefix + '.megahit.fasta'
@@ -199,8 +175,8 @@ class mainprocess(object) :
                 read_input = '-1 {0} -2 {1}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
         else :
             read_input = '-r {2}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
-        cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 33285996544 -o {outdir}'.format(    
-              megahit=parameters['megahit'], read_input=read_input, outdir=outdir) 
+        cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 33285996544 -o {outdir}'.format(
+              megahit=parameters['megahit'], read_input=read_input, outdir=outdir)
         run = Popen( cmd.split(), stdout=PIPE, bufsize=0 )
         run.communicate()
         if run.returncode != 0 :
@@ -208,7 +184,7 @@ class mainprocess(object) :
         shutil.copyfile( '{outdir}/final.contigs.fa'.format(outdir=outdir), output_file )
         logger('MEGAHIT contigs in {0}'.format(output_file))
         return output_file
-        
+
     def do_spades(self, reads) :
         outdir = prefix + '.spades'
         output_file = prefix + '.spades.fasta'
@@ -225,8 +201,8 @@ class mainprocess(object) :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2}'.format(lib_id+1, lib[0], lib[1]))
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
-        cmd = '{spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(    
-              spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir) 
+        cmd = '{spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
+              spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0 )
         spades_run.communicate()
         if spades_run.returncode != 0 :
@@ -247,7 +223,7 @@ class mainprocess(object) :
                         part = line.strip().split()
                         if len(part) > 2 and float(part[2]) > 0 :
                             sites[part[0]] = 1
-            sequence = self.__readFasta(filename=reference)
+            sequence = readFasta(filename=reference)
             sequence = {n:s for n,s in sequence.iteritems() if n in sites}
 
             with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
@@ -255,7 +231,7 @@ class mainprocess(object) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in range(0, len(s), 100)])))
 
             bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-            
+
             pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
             pilon_out = Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE ).communicate()
             snps = []
@@ -270,7 +246,7 @@ class mainprocess(object) :
                                 fout.write(line)
                         except :
                             pass
-            
+
             os.unlink('{0}.mapping.vcf'.format(prefix))
             for n in sequence.keys() :
                 sequence[n] = list(sequence[n])
@@ -288,10 +264,10 @@ class mainprocess(object) :
     def get_quality(self, reference, reads) :
         bams = self.__run_bowtie(reference, reads)
 
-        sequence = self.__readFasta(filename=reference, qual=0)
+        sequence = readFasta(filename=reference, qual=0)
         for n, s in sequence.iteritems() :
             s[1] = list(s[1])
-        
+
         sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.iteritems() }
         for bam in bams :
             if bam is not None :
@@ -370,7 +346,7 @@ class postprocess(object) :
     def launch (self, assembly) :
         seq, fasfile = self.__readAssembly(assembly)
         evaluation = dict(assembly=assembly, fasta=fasfile)
-        if 'eval' in task :        
+        if 'eval' in task :
             evaluation.update(self.do_evaluation(seq))
             if parameters['kraken_database'] is not None :
                 evaluation.update({'kraken': self.do_kraken(fasfile)})
@@ -411,7 +387,7 @@ class postprocess(object) :
                     s[2] = ''.join(s[2])
                     s[0] = len(s[2])
         return seq, fasfile
-        
+
     def do_kraken(self, assembly) :
         cmd = '{kraken_program} -db {kraken_database} --fasta-input {assembly} --threads 8 > {assembly}.kraken'.format(
             assembly=assembly, **parameters
@@ -420,7 +396,7 @@ class postprocess(object) :
         cmd = '{kraken_report} -db {kraken_database} {assembly}.kraken'.format(
             assembly=assembly, **parameters
         )
-    
+
         kraken_out = Popen(cmd.split(' '), stderr=PIPE, stdout=PIPE).communicate()
         species = {}
         for line in kraken_out[0].split('\n') :
@@ -440,7 +416,7 @@ class postprocess(object) :
         except :
             pass
         return species
-        
+
     def do_evaluation(self, fastq) :
         seq = sorted([s for s in fastq.values() if s >= 300], key=lambda x:-x[0])
         n_seq = len(seq)
@@ -461,7 +437,7 @@ class postprocess(object) :
                     n_base = n_base,
                     ave_depth = ave_depth,
                     n_lowQual = n_low,
-                    N50 = n50, 
+                    N50 = n50,
                     L50 = l50)
 
 reads, prefix, task = None, None, None
@@ -483,7 +459,7 @@ def enbler() :
         else :
             parameters[k] = v
     prefix = parameters['prefix']
-    
+
     task = parameters['task'].split(',')
     if 'standard-assembly' in parameters['task'] :
         task = ['prep', 'spades', 'polish', 'quality', 'eval']
@@ -499,7 +475,7 @@ def enbler() :
         parameters['max_base'] = '8000000000000'
         parameters['cont_depth'] = '0.001,1000.'
         assert os.path.isfile(parameters['reference'])
-    
+
     if 'noprep' in parameters['task'] :
         task.remove('prep')
     if 'noeval' in parameters['task'] :
@@ -522,18 +498,18 @@ def enbler() :
         reads = [rr for r in reads for rr in r]
     assembly = mainprocess().launch(reads)
     report = postprocess().launch(assembly)
-    import json 
+    import json
     print json.dumps(report, sort_keys=True, indent=2)
-    
+
 parameters = dict(
-    task = 'standard-assembly', 
+    task = 'standard-assembly',
     prefix = 'enbler',
     read_qual = '6',
     max_base = '600000000',
-    kmers = '30,50,70,90', 
-    cont_depth = '0.2,2.', 
-    SNP = None, 
-    reference = None, 
+    kmers = '30,50,70,90',
+    cont_depth = '0.2,2.',
+    SNP = None,
+    reference = None,
     reads = None,
 )
 

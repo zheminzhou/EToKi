@@ -4,7 +4,7 @@ import subprocess, os, numpy as np
 from collections import Counter
 from time import gmtime, strftime
 from multiprocessing import Pool
-from EnConf import externals, logger
+from EnConf import externals, logger, rc, transeq, readFasta
 
 def readGFF(fnames) :
     if isinstance(fnames, basestring) : fnames = [fnames]
@@ -32,40 +32,17 @@ def readGFF(fnames) :
                     seq[name].append(part[0])
     for n, s in seq.iteritems() :
         s[1] = ''.join(s[1])
+    res = {}
     for n, c in cds.iteritems() :
         c[5] = seq[c[1]][(c[2]-1): c[3]]
         if c[4] == '-' :
             c[5] = rc(c[5])
-        c[6] = transeq({'n':c[5]})['n_1']
-    return seq, cds
-
-complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
-def rc(seq) :
-    return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
-
-def transeq(seq, frame=1, transl_table=11) :
-    gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
-              "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
-              "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
-              "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
-              "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
-              "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
-              "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
-              "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
-
-
-    frames = {'F': [1,2,3],
-              'R': [4,5,6],
-              '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
-    trans_seq = {}
-    for n,s in seq.iteritems() :
-        for frame in frames :
-            trans_name = '{0}_{1}'.format(n, frame)
-            if frame <= 3 :
-                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
-            else :
-                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
-    return trans_seq
+        aa = transeq({'n':c[5]})['n_1']
+        if aa[-1].split('X') - 1 <= params['internal_stop'] :
+            res[n] = c
+        else :
+            logger('{0} is discarded due with too many stop codons'.format(n))
+    return seq, res
 
 def get_similar_pairs(self_bsn) :
     def get_similar(bsn, ortho_pairs) :
@@ -458,19 +435,6 @@ def filt_per_group(data) :
                 mat = new_mat
     return mat
 
-def readFasta(fname) :
-    seq = {}
-    with open(fname) as fin :
-        for line in fin :
-            if line[0] == '>' :
-                name = line[1:].strip().split()[0]
-                seq[name] = []
-            else :
-                seq[name].append(line.strip())
-    for n in seq :
-        seq[n] = ''.join(seq[n])
-    return seq
-
 def get_gene(groups, first_classes, cnt=1) :
     ranking = {gene:first_classes[gene] for gene in groups if gene in first_classes} if first_classes is not None else {}
     if len(ranking) > 0 :
@@ -641,89 +605,98 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                     genes.pop(gene, None)
     return results
 
-def load_priority(priority_file) :
-    first_classes = {}
-    with open(priority_file) as fin :
-        for line in fin :
-            part = line.strip().split()
-            if len(part) > 0 and part[0] not in first_classes :
-                first_classes[part[0]] = int(part[1]) if len(part) > 1 else 0
+def load_priority(priority_list, genes) :
+    file_priority = { fn:id for id, fnames in priority_list.split(',') for fn in fnames.split(':') }
+    unassign_id = max(file_priority.values()) + 1
+    first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[-1]) ] for n, g in genes.iteritems() }
+
     return first_classes
 
-def get_uclust(prefix, gene, priority) :
-    max_prior = max(priority.values()) + 1 if priority != {} else 1
-    seq = []
-    with open(gene) as fin :
-        for line in fin :
-            if line[0] == '>' :
-                name = line[1:].strip().split()[0]
-                seq.append([name, priority.get(name, max_prior), 0, []])
-            else :
-                seq[-1][3].append(line.strip())
-    for s in seq :
-        s[3] = ''.join(s[3])
-        s[2] = len(s[3])
-    seq.sort(key=lambda x:x[2], reverse=True)
-    seq.sort(key=lambda x:x[1])
-    with open('{0}.gene.sorted'.format(prefix), 'wb') as fout :
-        for s in seq :
-            if s[1] < 0 : continue
-            if s[1] == max_prior and s[2] < 200 :
-                break
-            ts = transeq(s[3])
-            if 'X' not in ts[:-1] :
-                fout.write( '>{0}\n{3}\n'.format(*s) )
-            else :
-                sys.stderr.write('{0} is taken out because it has internal stop codon or uncertain bases.\n'.format(s[0]))
-    subprocess.Popen('{0} -sortedby other -cluster_smallmem {1}.gene.sorted -uc {1}.gene.uc -centroids {1}.gene.reference -id {2} -query_cov {3} -target_cov {3}'.format(params['usearch'], prefix, params['clust_difference'], params['clust_match_prop']).split()).wait()
-    os.unlink('{0}.gene.sorted'.format(prefix))
+def get_uclust(prefix, genes, priority) :
+    with open('{0}.gene'.format(prefix), 'wb') as fout :
+        for n in sorted(priority.iteritems(), key=lambda x:x[1]) :
+            fout.write( '>{0}\n{1}\n'.format(n, genes[n][-1]) )
+    subprocess.Popen('{0} -sortedby other -cluster_smallmem {1}.gene -uc {1}.gene.uc -centroids {1}.gene.reference -id {2} -query_cov {3} -target_cov {3}'.format(params['ublast'], prefix, params['clust_difference'], params['clust_match_prop']).split()).wait()
+    os.unlink('{0}.gene'.format(prefix))
     return '{0}.gene.uc'.format(prefix), '{0}.gene.reference'.format(prefix)
 
 def get_self_bsn(prefix, uclust) :
-    subprocess.Popen('{0}makeblastdb -dbtype nucl -in {1}'.format(params['blast_folder'], uclust).split()).communicate()
-    subprocess.Popen(shlex.split('{0}blastn -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast_folder'], uclust, prefix, params['n_thread']))).communicate()
+    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['makeblastdb'], uclust).split()).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast'], uclust, prefix, params['n_thread']))).communicate()
     return '{0}.self.bsn'.format(prefix)
 
 def get_map_bsn(prefix, uclust, genome) :
-    subprocess.Popen('{0}makeblastdb -dbtype nucl -in {1}'.format(params['blast_folder'], genome).split()).communicate()
-    subprocess.Popen(shlex.split('{0}blastn -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3}.map.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast_folder'], uclust, genome, prefix, params['n_thread']))).communicate()
+    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['makeblastdb'], genome).split()).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3}.map.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast'], uclust, genome, prefix, params['n_thread']))).communicate()
     return '{0}.map.bsn'.format(prefix)
 
+def addGenes(genes, gene_file) :
+    for gfile in gene_file.split(',') :
+        ng = readFasta(gfile)
+        for name, s in ng.iteritems() :
+            assert name not in genes, 'Duplicated gene "{0}" in "genes" parameter'.format(name)
+            aa = transeq({'n':s})['n_1']
+            if aa[-1].split('X') - 1 <= params['internal_stop'] :
+                genes[name] = [ gfile, '', 0, 0, '+', s]
+            else :
+                logger('{0} is discarded due with too many stop codons'.format(name))
+
+def addGenomes(genomes, genome_file) :
+    for gfile in genome_file.split(',') :
+        ng = readFasta(gfile)
+        for name, s in ng.iteritems() :
+            assert name not in genomes, 'Duplicated gene "{0}" in "genes" parameter'.format(name)
+            genes[name] = [ gfile, s ]
+
+def writeSeq(fname, seqs) :
+    with open(fname, 'w') as fout :
+        for g, s in seqs.iteritems() :
+            fout.write('>{0} {1}\n{2}\n'.format(g, s[0], s[-1]))
+    return fname
+
+
 params = dict(
-    usearch = '/home/zhemin/biosoft/usearch8.0.1623_i86linux32',
-    blast_folder = '/home/zhemin/bin/',
-    prefix = 'OPP',
-    ml = '/home/zhemin/biosoft/FastTreeMP -nt -gtr -pseudo',
-    nj = '/home/zhemin/biosoft/FastTreeMP -nt -noml -gtr -pseudo',
+    prefix = 'EnOrth',
+    ml = '{fasttree} -nt -gtr -pseudo',
+    nj = '{fasttree} -nt -noml -gtr -pseudo',
     n_thread = '30',
     orthology = 'nj', # ml, nj, ref_dist, similarity
     distance_cut = '2.0',
     min_identity = '60',
     clust_difference = '0.05',
-    clust_match_prop = '0.9'
+    clust_match_prop = '0.9',
+    priority = '',
+    internal_stop = '0',
 )
+params.update(externals)
 
-if __name__ == '__main__' :
-    params.update(dict([ p.split('=', 1) for p in sys.argv[1:] ]))
-    if 'priority' in params :
-        first_classes = load_priority(params['priority'])
-    else :
-        first_classes = {}
-    if params['blast_folder'] != '' and params['blast_folder'][-1] != '/' :
-        params['blast_folder'] += '/'
-    params['distance_cut'] = float(params['distance_cut'])
+def EnOrth() :
+    fnames = []
+    for p in sys.argv[1:] :
+        try:
+            k, v = p.split('=', 1)
+            params[k] = v
+        except :
+            fnames.append(p)
+
+    params['distance_cut'], params['internal_stop'] = float(params['distance_cut']), int(params['internal_stop'])
     params['min_identity'], params['clust_match_prop'] = float(params['min_identity']), float(params['clust_match_prop'])
     params['clust_difference'] = max(0.05, float(params['clust_difference']))
 
+    genomes, genes = readGFF(fnames)
+    genes, genomes = addGenes(genes, params['genes']), addGenes(genomes, params['genomes'])
+    params['genomes'] = writeSeqs('{0}.genomes'.format(params['prefix']), genomes)
+
+    first_classes = load_priority(params.get('priority', ''))
+
     if 'uclust' not in params :
-        params['uc'], params['uclust'] = get_uclust(params['prefix'], params['genes'], first_classes)
+        params['uc'], params['uclust'] = get_uclust(params['prefix'], genes, first_classes)
     if 'self_bsn' not in params :
         params['self_bsn'] = get_self_bsn(params['prefix'], params['uclust'])
     if 'map_bsn' not in params :
         params['map_bsn'] = get_map_bsn(params['prefix'], params['uclust'], params['genome'])
 
     pool = Pool(5)
-
     if 'homolog' not in params :
         matches = load_matches(params['map_bsn'])
         groups = combine_matches(matches)
@@ -740,3 +713,7 @@ if __name__ == '__main__' :
     global_differences = {pair:max(float(value), 0.01) for pair, value in marshal.load(open(params['global'], 'rb')).iteritems()}
     global_differences.update({(pair[1], pair[0]):value  for pair, value in global_differences.iteritems() })
     results = filt_genes(params['prefix'], matches, groups, global_differences, conflicts, first_classes)
+
+
+if __name__ == '__main__' :
+    EnOrth()

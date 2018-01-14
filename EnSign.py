@@ -1,7 +1,7 @@
 import os, sys, numpy as np
 from subprocess import Popen, PIPE
 from operator import itemgetter
-from EnStal import externals, logger
+from EnConf import externals, logger, transeq
 
 class dualBlast(object) :
     def fastaLength(self, filename) :
@@ -29,11 +29,11 @@ class dualBlast(object) :
             part[1], f1 = part[1].rsplit('_', 1)
             frames = [int(f0), int(f1)]
             part[12], part[13] = ql[part[0]], tl[part[1]]
-    
+
             if (part[7]-1)*3 + frames[0] %3 + 2 > part[12] or \
                (part[9]-1)*3 + frames[1] %3 + 2 > part[13] :
                 part[7], part[9], part[3] = part[7]-1, part[9]-1, part[3]-1
-                
+
             if frames[0] <= 3 :
                 part[6:8] = [(int(part[6])-1)*3 + frames[0], (int(part[7])-1)*3 + frames[0] + 2]
             else :
@@ -44,10 +44,10 @@ class dualBlast(object) :
                 part[8:10] = [part[13] - ( (int(part[8])-1)*3 + frames[1] -4 ), part[13] - ( (int(part[9])-1)*3 + frames[1] -2 )]
             part[3], part[4] = 3 * int(part[3]), 3 * int(part[4])
         return blasttab
-    
+
     def run_ublast(self, fna_target, faa_target, fna_query, faa_query=None) :
         tgt_len, qry_len = self.fastaLength(fna_target), self.fastaLength(fna_query)
-        
+
         format_cmd = '{formatdb} -dbtype nucl -in {na_db}'.format(na_db=fna_target, na_input=fna_query, **parameters)
         Popen(format_cmd.split(), stderr=PIPE, stdout=PIPE).communicate()
         blast_cmd = '{blast} -db {na_db} -query {na_input} -out {na_db}.b6a -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen" -num_threads 6 -task blastn -evalue 1e-3 -dbsize 5000000 -reward 2 -penalty -2 -gapopen 6 -gapextend 2'.format(
@@ -62,9 +62,9 @@ class dualBlast(object) :
             )
             Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE).communicate()
             na_blast.extend( self.transform_blastp(self.load_ublast(faa_target + '.b6a'), qry_len, tgt_len ) )
-            logger('Obtain {0} hits with BLASTn & uBLASTp'.format(len(na_blast)))            
+            logger('Obtain {0} hits with BLASTn & uBLASTp'.format(len(na_blast)))
         return na_blast
-    
+
 class blastParser(object) :
     def linear_merge(self, blasttab, min_iden, min_frag_prop, min_frag_len, max_dist, diag_diff, max_diff, **params) :
         for part in blasttab :
@@ -72,27 +72,27 @@ class blastParser(object) :
                 part[8], part[9] = -part[8], -part[9]
 
         blasttab.sort(key=itemgetter(0,1,6,8))
-        
+
         syntenies = []
         for id, p1 in enumerate(blasttab) :
             for jd in xrange(id+1, len(blasttab))  :
                 p2 = blasttab[jd]
-                
-                if p1[0] != p2[0] or p1[1] != p2[1] or p2[6] - p1[7] > max_dist : 
+
+                if p1[0] != p2[0] or p1[1] != p2[1] or p2[6] - p1[7] > max_dist :
                     break
-                elif (p1[8] < 0 and p2[8] > 0) or p2[8] < p1[8] + 15 or p2[9] < p1[9] + 15 or p2[7]<p1[7]+15 or p2[6] < p1[6]+15 or p2[8] - p1[9] > max_dist : 
+                elif (p1[8] < 0 and p2[8] > 0) or p2[8] < p1[8] + 15 or p2[9] < p1[9] + 15 or p2[7]<p1[7]+15 or p2[6] < p1[6]+15 or p2[8] - p1[9] > max_dist :
                     continue
                 m = max(p2[7], p1[7]) - min(p2[6], p1[6]) + 1
                 n = max(p2[9], p1[9]) - min(p2[8], p1[8]) + 1
-                if m < min_frag_len or m < min_frag_prop*p1[12] or max(m, n) - min(m, n) > max_diff or max(m,n) > diag_diff * min(m, n) : 
+                if m < min_frag_len or m < min_frag_prop*p1[12] or max(m, n) - min(m, n) > max_diff or max(m,n) > diag_diff * min(m, n) :
                     continue
                 p1_len = min(p1[7], p2[6]-1) - p1[6] + 1
                 p2_len = p2[7] - max(p2[6], p1[7]+1) + 1 if p2[7] > p1[7] else 0
                 o_len = 0 if p2[6] > p1[7] else p1[7] - p2[6] + 1
                 iden = (p1[2]*p1_len + p2[2]*p2_len +max(p1[2], p2[2])*o_len)/(p1_len+p2_len+o_len)
-                if iden < min_iden : 
+                if iden < min_iden :
                     continue
-                
+
                 p1s, p2s = p1[11]/(p1[7]-p1[6]+1), p2[11]/(p2[7]-p2[6]+1)
                 dist = max(p2[6]-p1[7]-1, p2[8]-p1[9]-1, 0)
                 score = p1s*p1_len +p2s*p2_len+max(p1s, p2s)*o_len - dist
@@ -119,7 +119,7 @@ class blastParser(object) :
             r_start, r_end = 1, part[12]
             direct = 1 if part[8] < part[9] else -1
             tailing = min(part[6]-r_start, part[7] - r_end)
-    
+
             ## raw estimation of q_start and q_end
             if part[6] < r_start + 7 :
                 while part[6] > 1 and part[8] > 1 and part[8] < part[13] :
@@ -127,9 +127,9 @@ class blastParser(object) :
             if part[7] > r_end - 7 :
                 while part[7] < r_end and part[9] > 1 and part[9] < part[13] :
                     part[7], part[9] = part[7]+1, part[9]+direct
-    
+
             q_start, q_end = part[8], part[9]
-            
+
             ## ignore the hit if it is too small
             if direct*(q_end - q_start) + 1 < parameters['min_frag_prop'] * (r_end - r_start + 1) :
                 part[0] = ''
@@ -138,7 +138,7 @@ class blastParser(object) :
                 #              14       15      16      17        18            19          20        21
         hits = sorted([hit for hit in hits if hit[0] != ''], key = itemgetter(21, 18), reverse=True)
         alleles = {'__non_specific__':[]}
-    
+
         for part in hits:
             ## check whether the allele has overlapped with other better hits
             if part[18] <= 0 : continue
@@ -161,7 +161,7 @@ class blastParser(object) :
                             else :
                                 region[1] = part[2]
                         overlap = id
-    
+
                     elif region[1] - part[2] >= parameters['merging_error']*100 :
                         overlap = 999999999
                         break
@@ -170,8 +170,8 @@ class blastParser(object) :
                 if overlap < 999999999 :
                     for id in reversed(to_move) :
                         alleles['__non_specific__'].append( alleles[part[19]].pop(id)[:-1] + [''] )
-            
-            
+
+
 
             if overlap < 0 :
                 # insert a new region if there is no overlap
@@ -185,12 +185,12 @@ class blastParser(object) :
                 else :
                     alleles['__non_specific__'].append([part[19], float(part[2]), part[1], q_end, q_start, '-', r_start - part[6], part[7]-r_end, '', ''])#part[0]])
         return alleles
-        
+
     def inter_loci_overlap(self, alleles, parameters) :
         regions = [reg for region in alleles.values() for reg in region]
         # sort with contig name and start points
         regions.sort(key=itemgetter(2,3))
-        
+
         for id, regi in enumerate(regions) :
             if regi[0] == '' : continue
             todel, deleted = [], 0
@@ -202,7 +202,7 @@ class blastParser(object) :
                 overlap = min(regi[4], regj[4]) - regj[3] + 1
                 if regi[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regi[4]-regi[3]+1) :
                     delta = regi[1] - regj[1]
-                            
+
                     if delta > parameters['merging_error']*100 :
                         todel.append(jd)
                     elif delta < - parameters['merging_error']*100 or (delta < 0 and regj[-1] == '') :
@@ -224,10 +224,10 @@ class blastParser(object) :
                     regions[jd][0] = ''
             else :
                 regi[0] = ''
-                
+
         return [{'locus':reg[0], 'identity':reg[1], 'coordinates':[reg[2], int(reg[3]), int(reg[4]), reg[5]], 'flanking':reg[6:8], 'status':reg[8], 'accepted':(0 if reg[8] == '' else 128)} for reg in regions if reg[0] != '' and reg[-1] != '']
-    
-    complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}    
+
+    complement = {'A':'T', 'T':'A', 'C':'G', 'G':'C'}
     def get_seq(self, fastq, header, start, end, direction) :
         fasta = fastq[header][0]
         if direction == '+' :
@@ -247,7 +247,7 @@ class blastParser(object) :
                 return min(fastq[header][1][(s-1):e])
             except :
                 return 0
-    
+
     def form_alleles(self, regions, fastq, genome_id, accepted, argument) :
         alleles = {}
         regions.sort(key=lambda x:x['identity'], reverse=True)
@@ -320,48 +320,21 @@ class seqOperation(object) :
                     s[0] = ''.join(s[0])
                     s[1] = [0 for ss in s[0]]
         return seq
-    
-    def transeq(self, seq, frame=1, transl_table=11) :
-        gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
-                  "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
-                  "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
-                  "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
-                  "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
-                  "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
-                  "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
-                  "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
-        
-        complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
-        def rc(seq) :
-            return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
-        
-        frames = {'F': [1,2,3], 
-                  'R': [4,5,6], 
-                  '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
-        trans_seq = {}
-        for n,s in seq.iteritems() :
-            for frame in frames :
-                trans_name = '{0}_{1}'.format(n, frame)
-                if frame <= 3 :
-                    trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
-                else :
-                    trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
-        return trans_seq
-    
+
     def write_refsets(self, reference) :
         ref_aa = '{0}.refset.aa'.format(parameters['unique_key'])
         refseq = self.readSequence(reference)
-        refamino = self.transeq({n:s[0] for n,s in refseq.iteritems() }, 1)
+        refamino = transeq({n:s[0] for n,s in refseq.iteritems() }, 1)
         with open(ref_aa, 'w') as fout :
             for n, s in refamino.iteritems() :
                 if s[:-1].find('X') == -1 :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         return ref_aa
-    
+
     def write_query(self, query) :
         fna, faa = '{0}.query.na'.format(parameters['unique_key']), '{0}.query.aa'.format(parameters['unique_key'])
         qryseq = self.readSequence(query)
-        qryamino = self.transeq({n:s[0] for n,s in qryseq.iteritems()}, frame=7)
+        qryamino = transeq({n:s[0] for n,s in qryseq.iteritems()}, frame=7)
         with open(fna, 'w') as fout:
             for n, s in qryseq.iteritems() :
                 fout.write('>{0}\n{1}\n'.format(n, s[0]))
@@ -389,7 +362,7 @@ def nomenclature(query, reference, ref_aa='', **params) :
     logger('Identify homologous groups. {0} groups'.format(len([1 for lc in loci if lc != '__non_specific__'])))
     regions = blasttab_parser.inter_loci_overlap(loci, parameters)
     logger('Resolve potential paralogs. {0} regions'.format(len(regions)))
-    
+
     # submission
     alleles = blasttab_parser.form_alleles(regions, sequence, parameters['unique_key'], parameters['high_quality'], parameters)
     logger('Generate allelic sequences. {0} remains'.format(len(alleles)))
@@ -397,22 +370,22 @@ def nomenclature(query, reference, ref_aa='', **params) :
     return alleles
 
 parameters = dict(
-    unique_key = 'entype', 
+    unique_key = 'entype',
     ref_na='',
-    ref_aa = '', 
-    query = '', 
+    ref_aa = '',
+    query = '',
     high_quality = True,
-    
-    min_iden = 0.65, 
-    min_frag_prop = .6, 
-    min_frag_len = 50, 
-    
+
+    min_iden = 0.65,
+    min_frag_prop = .6,
+    min_frag_len = 50,
+
     merging_prop = 0.5,
-    merging_error = 0.05, 
-    
-    max_dist=300, 
-    diag_diff=1.2, 
-    max_diff=200, 
+    merging_error = 0.05,
+
+    max_dist=300,
+    diag_diff=1.2,
+    max_diff=200,
 )
 parameters.update(externals)
 
