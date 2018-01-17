@@ -24,7 +24,7 @@ def readFasta(filename, qual=None) :
             seq[name] = []
         else :
             seq[name].append( line.strip() )
-    fin.close()
+    fin.stdout.close()
     if qual == None :
         for n in seq:
             seq[n] = ''.join( seq[n] )
@@ -54,6 +54,8 @@ def transeq(seq, frame=1, transl_table=11) :
               "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
               "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
 
+    if transl_table == 'starts' :
+        gtable.update({'GTG':'M', 'TTG':'M'})
     frames = {'F': [1,2,3],
               'R': [4,5,6],
               '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
@@ -94,6 +96,7 @@ externals = dict(
     formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',
     #
     fasttree = '{HOME}/biosoft/FastTreeMP',
+    mcl = '/usr/local/bin/mcl', 
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
 
