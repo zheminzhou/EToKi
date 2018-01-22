@@ -1,39 +1,51 @@
-import sys, subprocess, json, pandas as pd, numpy as np
-from pyLib.bio_parser import transeq
+import sys, subprocess, json, pandas as pd, numpy as np, shutil, os
+from EnConf import transeq, logger, readFasta
+try :
+    import ujson as json
+except :
+    import json
 
-def get_allele_seq(scheme, locus, unique_allele) :
-    seqs = {}
-    a= unique_allele.tolist() + [1]
-    for id in xrange(0, len(a), 150) :
-        cmd = 'curl http://xxxxxx/{0}/alleles?locus={1}&allele_id=in%20({2})&fieldnames=value,value_id'.format(scheme, locus, ','.join([str(x) for x in a[id:(id+150)]]))
-        res = json.loads(subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0])
-        for r in res :
-            seqs['{0}_{1}'.format(locus, r['allele_id'])] = r['seq']
-    return seqs
+def EnCore(allele_profile, allele_file) :
+    def get_allele_info(alleles) :
+        allele_aa = transeq(alleles)
+        allele_stat = {}
+        for n, s in alleles.iteritems() :
+            locus, allele_id = n.rsplit('_', 1)
+            if locus not in allele_stat :
+                allele_stat[locus] = {}
 
-def get_pseudo_allele( allele_seq) :
-    pseudo = {n:0 for n in allele_seq}
-    for n, s in allele_seq.iteritems() :
-        if len(s) % 3 != 0 :
-            pseudo[n] = 1
-        else :
-            aa = transeq(s)
-            if 'X' in aa[:-1] or aa[-1] != 'X':
-                pseudo[n] = 1
-    return pseudo
+            if len(s) % 3 > 0 or allele_aa.get(n+'_1', 'M')[:-1].find('X') >= 0 :
+                pseudo = 1
+            else :
+                pseudo = 0
+            allele_stat[locus][allele_id] = [len(s), pseudo]
+        return allele_stat
+
+
+    matrix = pd.read_csv(allele_profile, sep='\t', header=None, dtype=str).as_matrix()
+    loci = np.array([not m.startswith('#') for m in matrix[0]])
+    data = matrix[1:, loci]
+    data[ np.in1d(data, ['-', 'n', 'N']).reshape(data.shape) ] = '0'
+
+    data = data.astype(int)
+    loci = matrix[0][loci]
+    genomes = matrix[1:, 0]
+
+    allele_stat = get_allele_info(readFasta(allele_file))
+
+    genome_stat = { genome:{ locus:[0, 0, 0] for locus in loci } for genome in genomes }
+    for g, d in zip(genomes, data) :
+        for l, dd in zip(loci, d) :
+            genome_stat[g][l][2] = dd
+            if str(dd) in allele_stat.get(l, {}) :
+                genome_stat[g][l][0] = 2 if allele_stat[l][str(dd)][-1] else 3
+                genome_stat[g][l][1] = allele_stat[l][str(dd)][0]
+            else :
+                genome_stat[g][l][0] = 1 if dd > 0 else 0
+    return genome_stat
+
 
 if __name__ == '__main__' :
-    scheme, allele_table = sys.argv[1:3]
-    matrix = pd.read_csv(allele_table, sep='\t', header=None, dtype=str).as_matrix()
-    data = matrix[1:, 2:].astype(int)
-    print '#Locus\tLength\tN_allele\tPresence\tPseudogene'
-    for locus, alleles in zip(matrix[0][2:], data.T) :
-        unique_allele = np.unique(alleles)
-        unique_allele = unique_allele[unique_allele>0]
-        allele_seq = get_allele_seq(scheme, locus, unique_allele)
-        length = len(allele_seq.get('{0}_1'.format(locus), 0))
-        presence = np.sum(alleles > 0 )
-        N_allele = unique_allele.size
-        p = get_pseudo_allele(allele_seq)
-        pseudo = np.sum([p.get('{0}_{1}'.format(locus, a), 0)  for a in alleles ])
-        print '{0}\t{1}\t{2}\t{3}\t{4}'.format( locus, length, N_allele, presence, pseudo )
+    genome_stat = EnCore(sys.argv[1], sys.argv[2])
+    with open('static/data_source.js', 'wb') as fout :
+        fout.write( 'var matrix=' + json.dumps(genome_stat).replace('},', '},\n') + '\n')

@@ -16,15 +16,19 @@ import os, sys, subprocess
 
 def readFasta(filename, qual=None) :
     seq = {}
-    fin = subprocess.Popen(['zcat', filename], stdout=subprocess.PIPE) if filename[-3:].lower() == '.gz' else subprocess.Popen(['cat', filename], stdout=subprocess.PIPE)
+    try:
+        fin = subprocess.Popen(['zcat', filename], stdout=subprocess.PIPE) if filename[-3:].lower() == '.gz' else subprocess.Popen(['cat', filename], stdout=subprocess.PIPE).stdout
+    except :
+        fin = open(filename)
 
-    for line in fin.stdout:
+    for line in fin:
         if line[0] == '>' :
             name = line[1:].strip().split()[0]
             seq[name] = []
         else :
             seq[name].append( line.strip() )
-    fin.stdout.close()
+    fin.close()
+
     if qual == None :
         for n in seq:
             seq[n] = ''.join( seq[n] )
@@ -96,7 +100,7 @@ externals = dict(
     formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',
     #
     fasttree = '{HOME}/biosoft/FastTreeMP',
-    mcl = '/usr/local/bin/mcl', 
+    mcl = '/usr/local/bin/mcl',
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
 
