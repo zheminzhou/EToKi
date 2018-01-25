@@ -334,7 +334,7 @@ class mainprocess(object) :
                     for k in range(s, e) :
                         sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
-        with open('{0}.fastq'.format(prefix), 'w') as fout :
+        with open('{0}.result.fastq'.format(prefix), 'w') as fout :
             for n, (s, q) in sequence.iteritems() :
                 if sites[n][2] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( n, s, ''.join(q), *sites[n] ) )

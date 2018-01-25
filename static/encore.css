@@ -60,3 +60,21 @@ h2 {
 #contextMenu li:hover {
   background-color: white;
 }
+
+.framed {
+	border: 1px solid black;
+}
+
+.slick-header-column.ui-state-default{
+	height: 25px;
+}
+
+.glyphicon {
+	margin: 3px;
+	font-size: 24px;
+}
+
+.glyphicon.glyphicon-composed {
+	margin: 0px;
+	font-size:10px;
+}
