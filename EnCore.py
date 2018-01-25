@@ -14,10 +14,18 @@ def EnCore(allele_profile, allele_file) :
             if locus not in allele_stat :
                 allele_stat[locus] = {}
 
-            if len(s) % 3 > 0 or allele_aa.get(n+'_1', 'M')[:-1].find('X') >= 0 :
-                pseudo = 1
+            if len(s) % 3 > 0 :
+                pseudo = 2      # frameshift
             else :
-                pseudo = 0
+                aa = allele_aa.get(n+'_1', 'A')
+                if aa[:-1].find('X') >= 0 :
+                    pseudo = 3  # premature
+                elif s[:3] not in ('ATG', 'GTG', 'TTG') :
+                    pseudo = 4  # no start
+                elif aa[-1] != 'X' :
+                    pseudo = 5  # no stop
+                else :
+                    pseudo = 6  # intact
             allele_stat[locus][allele_id] = [len(s), pseudo]
         return allele_stat
 
@@ -38,10 +46,10 @@ def EnCore(allele_profile, allele_file) :
         for l, dd in zip(loci, d) :
             genome_stat[g][l][2] = dd
             if str(dd) in allele_stat.get(l, {}) :
-                genome_stat[g][l][0] = 2 if allele_stat[l][str(dd)][-1] else 3
+                genome_stat[g][l][0] = allele_stat[l][str(dd)][-1]
                 genome_stat[g][l][1] = allele_stat[l][str(dd)][0]
             else :
-                genome_stat[g][l][0] = 1 if dd > 0 else 0
+                genome_stat[g][l][0] = 1 if dd > 0 else 0    # 0 : absent; 1 : present and no information
     return genome_stat
 
 
