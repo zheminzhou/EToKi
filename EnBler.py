@@ -2,7 +2,7 @@ import os, io, sys, re, urllib2, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from EnStal import externals, logger, readFasta
+from EnConf import externals, logger, readFasta
 
 
 # preprocessing
@@ -210,6 +210,30 @@ class mainprocess(object) :
         shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
         logger('SPAdes scaffolds in {0}'.format(output_file))
         return output_file
+    def do_polish_with_SNPs(self, reference, snp_file) :
+        sequence = readFasta(filename=reference)
+        snps = { n:[] for n in sequence }
+        with open(snp_file) as fin :
+            for line in fin :
+                part = line.strip().split('\t')
+                snps[part[0]].append([int(part[1]), part[-1]])
+        self.snps = snps
+        for n, s in sequence.iteritems() :
+            sequence[n] = list(s)
+        for cont, sites in snps.iteritems() :
+            for site,base in reversed(sites) :
+                if base.startswith('+') :
+                    sequence[cont][site-1:site-1] = base[1:]
+                elif base.startswith('-') :
+                    sequence[cont][site-1:(site+len(base)-2)] = []
+                else :
+                    sequence[cont][site-1] = base
+        with open('{0}.fasta'.format(prefix), 'w') as fout :
+            for n, s in sorted(sequence.items()) :
+                s = ''.join(s)
+                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in range(0, len(s), 100)])))
+        return '{0}.fasta'.format(prefix)
+        
     def do_polish(self, reference, reads) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
