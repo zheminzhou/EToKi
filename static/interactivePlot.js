@@ -1,9 +1,40 @@
 function InteractPlot(div) {
 	var self = this;
-	this.container = div;
+	this.container = div.css('background', 'white')
+		.on('resize', function(e, ui) {
+			self.menu.css('width', ui.size.width);
+			self.plotView.attr('height', ui.size.height)
+				.attr('width', ui.size.width);
+
+			self.plotDim.y0 = ui.size.height - self.margin;
+			self.plotDim.x1 = ui.size.width - self.margin;
+			var nw = self.plotDim.x1 - self.plotDim.x0;
+			self.plotDim.x = nw/self.plotDim.w * (self.plotDim.x - self.plotDim.x0) + self.plotDim.x0;
+			self.plotDim.w = nw
+			var nh = self.plotDim.y1 - self.plotDim.y0;
+			self.plotDim.y = nh/self.plotDim.h * (self.plotDim.y - self.plotDim.y1) + self.plotDim.y1;
+			self.plotDim.h = nh;
+
+			self.draw();
+		})
+	;
 	
 	this.inSelection = false;
 	this.margin = 50;
+	this.addMenu();
+	this.addTooltip(null, function(d) {
+		var data = d[1].map(function(dd) {return dd.id});
+		if (data.length > 9) {
+			data[9] = '{Other '+(data.length-10)+'}'
+			data = data.slice(0, 10)
+		}
+		return data.join('<br>');
+	});
+	this.addCanvas();
+}
+
+InteractPlot.prototype.addCanvas = function() {
+	var self = this;
 	this.plotDim = {
 		x0 : this.margin, 
 		y0 : this.container.height() - this.margin, 
@@ -16,7 +47,6 @@ function InteractPlot(div) {
 		dw : 1,
 		dh : 1,
 	}
-	this.addMenu();
 	this.container.append('<svg id="plotView"></svg>');
 	this.plotView = d3.select(this.container.find('#plotView').selector)
 		.attr("height", this.container.height())
@@ -62,25 +92,84 @@ function InteractPlot(div) {
 		}));
 };
 
+InteractPlot.prototype.addTooltip = function(tooltip, func) {
+	var self = this;
+	func = func ? func : function(d) {return d;};
+	self.tooltip = tooltip;
+	if (! self.tooltip) {
+		self.tooltip = self.container.append('<div id="tooltip"></div>')
+					.find('#tooltip')
+					.css({
+						position : 'fixed',
+						width: '100px', 
+						height: '300px', 
+						opacity: 0.9,
+						background : 'cyan', 
+						border: '1px solid green', 
+					}).hide();
+		self.tooltip.on('tooltip:show', function(e, ui) {
+			if (ui.data.length == 0) {
+				var tt = $(this);
+				var dim = [tt.position().left-1, tt.position().top-1, tt.width()+2, tt.height()+2];
+				if (!(ui.event.clientX >= dim[0] && ui.event.clientX <= dim[0]+dim[2] && ui.event.clientY >= dim[1] && ui.event.clientY <= dim[1]+dim[3])) {
+					$(this).hide();
+				}
+			} else {
+				$(this).show().css({
+					left: ui.event.clientX+5,
+					top : ui.event.clientY,
+				})
+				$(this).html(func(ui.data));
+			}
+		}).on('mouseout', function() {
+			$(this).hide();
+		})
+	}
+}
+
+
 InteractPlot.prototype.addMenu = function() {
 	var self = this;
 	this.container.addClass('framed')
 		.append('<div id="menu" class="tab-handle" style="display:none;position:absolute"></div>')
 		.on("contextmenu", function(e, ui) {
 			e.preventDefault();
-			self.menu.show(300);
-		})
-		.on('click', function(d) {
-			self.menu.hide(300);
+			if (self.menu.css('display') === 'none') {
+				self.menu.show(300);
+			} else {
+				self.menu.hide(300);
+			}
 		});
 	this.menu = this.container.find("#menu")
-		.append('<button id="button-default" class="tab-item-handle" value="default">Default</button>');
+		.css('width', self.container.width())
+		.append('<button id="button-default" class="tab-item-handle" value="default"><span class="glyphicon glyphicon-film"></span></button>')
+		.append('<button id="button-resize-vertical" class="tab-item-handle" value="resize-vertical"><span class="glyphicon glyphicon-resize-vertical"></span></button>')
+		.append('<button id="button-resize-horizontal" class="tab-item-handle" value="resize-horizontal"><span class="glyphicon glyphicon-resize-horizontal"></span></button>');
 	this.menu.find("#button-default").on('click', function(e, ui) {
 		self.plotDim.x = self.plotDim.x0;
 		self.plotDim.y = self.plotDim.y0;
 		self.plotDim.dw = self.plotDim.dh = 1;
 		self.draw();
 	});
+	this.menu.find("#button-resize-vertical").on('click', function(e, ui) {
+		self.plotDim.dh *= 1.1;
+		self.draw();
+	}).on('contextmenu', function(e, ui) {
+		e.stopPropagation(); 
+		e.preventDefault();
+		self.plotDim.dh *= 1/1.1;
+		self.draw();
+	});
+	this.menu.find("#button-resize-horizontal").on('click', function(e, ui) {
+		self.plotDim.dw *= 1.1;
+		self.draw();
+	}).on('contextmenu', function(e, ui) {
+		e.stopPropagation(); 
+		e.preventDefault();
+		self.plotDim.dw *= 1/1.1;
+		self.draw();
+	})
+
 };
 
 
@@ -170,45 +259,174 @@ InteractPlot.prototype.dragSelect = function(event, x, y) {
 		}
 	}
 }
-
-InteractPlot.prototype.draw = function(option) {
+InteractPlot.prototype.prepare = function(data, option) {
+	var self = this;
 	option = option ? option : {};
-	var data   = option.data     ?   option.data : null;
-	var types  = option.type     ?   option.type.split(',') : (this.types ? this.types : ['histogram']);
+	if (option.incremental) {
+		self.mat = self.mat.concat(data);
+	} else {
+		self.mat = data;
+	}
+	if (option.Xrange) {
+		self.Xrange = option.Xrange;
+	} else {
+		if (data[0].r) {
+			self.Xrange = [
+				Math.min.apply(Math, data.map(function(d) {return d.x - d.r;})), 
+				Math.max.apply(Math, data.map(function(d) {return d.x + d.r;})), 
+			];
+		} else {
+			self.Xrange = [
+				Math.min.apply(Math, data.map(function(d) {return d.x;})), 
+				Math.max.apply(Math, data.map(function(d) {return d.x + d.w;})), 
+			];
+		}
+	}
+
+	if (option.Yrange) {
+		self.Yrange = option.Yrange;
+	} else {
+		if (data[0].r) {
+			self.Yrange = [
+				Math.min.apply(Math, data.map(function(d) {return d.y;})), 
+				Math.max.apply(Math, data.map(function(d) {return d.y;})), 
+			]
+		} else {
+			self.Yrange = [
+				Math.min.apply(Math, data.map(function(d) {return d.y - d.h;})), 
+				Math.max.apply(Math, data.map(function(d) {return d.y;})), 
+			]
+		}
+	}
+	return self;
+}
+
+InteractPlot.prototype.histogram = function(data, option) {
+	var self = this;
+	option = option ? option : {};
+	var x       = option.x        ?       option.x : function(d) {return d[0] ? d[0] : 1;};
+	var y       = option.y        ?       option.y : function(d) {return d[1] ? d[1] : 1;};
+	var w       = option.w        ?       option.w : function(d) {return d[2] ? d[2] : 1;};
+	var h       = option.h        ?       option.h : y;
+	var stacked = option.stacked  ? option.stacked : false;
+	var style   = option.style    ?   option.style : function(d) {return {stroke:'black', 'stroke-width':0.5, 'fill':(d[3] ? d[3] : 'steelblue')}; };
+	
+	var mat = data.map(function(d) {return {
+						x:x(d), 
+						y:y(d), 
+						w:w(d), 
+						h:h(d),
+						style : style(d),
+						data : d,
+			};
+		});
+	if (stacked) {
+		var stack = {};
+		for (var i in mat) {
+			var m = mat[i];
+			if (stack[m.x]) {
+				m.y = stack[m.x] + m.y;
+			}
+			stack[m.x] = m.y;
+			mat.push(m);
+		}
+	}
+	return self.prepare(mat, option);
+}
+InteractPlot.prototype.heatmap = function(data, option) {
+	var self = this;
+	var color = option.color ? option.color : ['#f0f0f0', '#000000'];
+
+	var Xmax = Math.max.apply(Math, data.map(function(d) {return d.length;}));
+	var Ymax = data.length;
+	var Drange = [  Math.min.apply(Math, data.map(function(d) {return Math.min.apply(Math, d);})),
+					Math.max.apply(Math, data.map(function(d) {return Math.max.apply(Math, d);})) ];
+	var color = d3.scale.linear().domain(Drange)
+      .interpolate(d3.interpolateHcl)
+      .range(color);
+
+	var mat;
+	for (var i in data) {
+		var Xinterval = Xmax / data[i].length;
+		for (var j in data[i]) {
+			var d = data[i][j];
+			mat.push({x:Xinterval*j, y:(Ymax-i), w:Xinterval, h:1, data:[i, j, d], style: {fill:color(d)} });
+		}
+	}
+	return self.prepare(mat, option);
+}
+InteractPlot.prototype.scatter = function(data, option) {
+	var self = this;
+	option = option ? option : {};
 	var x      = option.x        ?      option.x : function(d) {return d[0] ? d[0] : 1;};
 	var y      = option.y        ?      option.y : function(d) {return d[1] ? d[1] : 1;};
-	var z      = option.z        ?      option.z : function(d) {return 1;};
-	var style  = option.style    ?  option.style : function(d) {return {stroke:'black', 'stroke-width':0.5, 'fill':'steelblue'}; }
-
+	var r      = option.r        ?      option.r : function(d) {return d[2] ? d[2] : 1;};
+	var style  = option.style    ?  option.style : function(d) {return {stroke:'black', 'stroke-width':0.5, 'fill':'steelblue'}; };
+	
+	return self.prepare(data.map(function(d) {return {
+					x:x(d), 
+					y:y(d), 
+					r:r(d), 
+					style : style(d),
+					data : d,
+		};
+	}), option);
+}
+InteractPlot.prototype.draw = function(option) {
 	var self = this;
 	this.plotView.selectAll('*').remove();
 
-	if (data !== null) {
-		var mat = data.map(function(d) {
-			return {x:x(d), y:y(d), z:z(d), style:style(d), data:d};
-		});
-		self.mat = mat;
-	} else {
-		var mat = self.mat;
-	}
-	self.types = types;
-	
-	var assign_style = function(item, style_list) {
+	var assign_style = function(item) {
 		var style_list = {};
 		item.each(function(d) {
-			Object.keys(d.style).forEach( {
-				function(k) {
+			Object.keys(d.style).forEach(function(k) {
 					style_list[k] = 1;
-				}
-			});
+				});
 		});
 		Object.keys(style_list).forEach(function(k) {
 			item.attr(k, function(d) {return d.style[k];});
 		})
 	}
 
-	var plot_selected = function(item) {
-		if (item.data()[0].r) {
+	var Xr = [self.Xrange[0] - 5*(self.Xrange[1] - self.Xrange[0]), self.Xrange[1] + 5*(self.Xrange[1] - self.Xrange[0])];
+	var Yr = [self.Yrange[0] - 5*(self.Yrange[1] - self.Yrange[0]), self.Yrange[1] + 5*(self.Yrange[1] - self.Yrange[0])]
+
+	var Xd = [self.plotDim.x, self.plotDim.x+self.plotDim.w*self.plotDim.dw];
+	var Yd = [self.plotDim.y, self.plotDim.y+self.plotDim.h*self.plotDim.dh];
+	
+	Xd = [Xd[0] - 5*(Xd[1] - Xd[0]), Xd[1] + 5*(Xd[1] - Xd[0])];
+	Yd = [Yd[0] - 5*(Yd[1] - Yd[0]), Yd[1] + 5*(Yd[1] - Yd[0])];
+	
+	var x = d3.scaleLinear().domain(Xr).range(Xd);
+	var y = d3.scaleLinear().domain(Yr).range(Yd);
+	
+	var drawing_order = [[-1, 0], [-1, 1], [-1,2]];
+	for (var i in self.mat) {
+		var m = self.mat[i];
+		if (m.r) {
+			if (drawing_order[0][0] < 0 ) drawing_order[0][0] = i;
+		} else if (m.h) {
+			if (drawing_order[1][0] < 0 ) drawing_order[1][0] = i;
+		} else {
+			if (drawing_order[2][0] < 0 ) drawing_order[2][0] = i;
+		}
+	}
+	drawing_order =	drawing_order.filter(function(d) {return d[0] >= 0})
+								.sort(function(d1, d2) {return d1[0] - d2[0]})
+								.map(function(d) {return d[1];});
+	drawing_order.forEach(function(t) {
+		if (t == 0) {
+			var item = self.plotView.selectAll('.dot_data').data( self.mat.filter(function(d) {return d.r !== undefined;})
+									.map(function(d) {
+										return {
+											x: x(d.x), 
+											y: y(d.y), 
+											r: x(d.r) - x(0), 
+											style : d.style,
+											data : d.data, 
+										}})
+						).enter().append('g')
+							.attr("class", "data");
 			var drawing = item.append('circle')
 					.attr('cx', function(d) {return d.x;})
 					.attr('cy', function(d) {return d.y;})
@@ -224,14 +442,28 @@ InteractPlot.prototype.draw = function(option) {
 				.attr("fill", "red")
 				.attr("stroke-width", 3)
 				.attr("stroke", "black");
-		} else {
+			assign_style(drawing);
+		} else if (t==1) {
+			var item = self.plotView.selectAll('.rect_data').data( self.mat.filter(function(d) {return d.w !== undefined;})
+									.map(function(d) {
+										return {
+											x: x(d.x), 
+											y: y(d.y), 
+											w: x(d.w) - x(0), 
+											h: y(0) - y(d.h), 
+											style : d.style,
+											data : d.data, 
+										}})
+						).enter().append('g')
+							.attr("class", "data");
 			var drawing = item.append('rect')
 					.attr("x", function(d) {return d.x;})
 					.attr("y", function(d) {return d.y;})
 					.attr("width", function(d) {return d.w;})
 					.attr("height", function(d) {return d.h;});
 
-			item.filter(function(d) {return d.style.selected === true})
+			item.filter(function(d) {
+				return d.style.selected === true})
 				.append('rect')
 				.attr("class", "selected")
 				.attr("x", function(d) {return d.x;})
@@ -242,106 +474,41 @@ InteractPlot.prototype.draw = function(option) {
 				.attr("fill", "red")
 				.attr("stroke-width", 3)
 				.attr("stroke", "black");
-		}
-		assign_style(drawing);
-	}
-	var xx = d3.scaleLinear().domain([0, 1.05*Math.max.apply(
-		Math, mat.map(function(d) {return d.x})
-	)]).range([self.plotDim.x, self.plotDim.x+self.plotDim.w*self.plotDim.dw]);
-	var yy = d3.scaleLinear().domain([0, 1.05*Math.max.apply(
-		Math, mat.map(function(d) {return d.y})
-	)]).range([self.plotDim.y, self.plotDim.y+self.plotDim.h*self.plotDim.dh]);
-
-	for (var id in types) {
-		type = types[id];
-		if (type !== 'line') {
-			if (type === 'histogram') {
-				var item = this.plotView.selectAll('.data')
-					.data(mat.map(function(d) {return {
-							x : xx(d.x),
-							y : yy(d.y),
-							w : xx(d.z) - xx(0), 
-							h : self.plotDim.y - yy(d.y),
-							style : d.style, 
-							data  : d.data, 
-						};
-					}))
-					.enter().append('g')
-						.attr("class", "data");
-			} else if (type === 'stack') {
-				var y_stack = {};
-				for (var i in mat) {
-					var d = mat[i];
-					if (! y_stack[d.x]) {
-						d.y1 = 0;
-						y_stack[d.x] = d.y;
-					} else {
-						d.y1 = y_stack[d.x];
-						[y_stack[d.x], d.y] = [d.y, d.y + d.y1];
-					}
-				};
-				var item = this.plotView.selectAll('.data')
-					.data(mat.map(function(d) {return {
-							x : xx(d.x),
-							y : yy(d.y),
-							w : xx(d.z) - xx(0), 
-							h : yy(d.y1) - yy(d.y),
-							style : d.style, 
-							data  : d.data, 
-						};
-					}))
-					.enter().append('g')
-						.attr("class", "data");
-			} else if (type === 'heatplot') {
-				var item = this.plotView.selectAll('.data')
-					.data(mat.map(function(d) {return {
-							x : xx(d.x),
-							y : yy(d.y),
-							w : xx(d.z) - xx(0), 
-							h : yy(d.z) - yy(0), 
-							style : d.style, 
-							data  : d.data, 
-						};
-					}))
-					.enter().append('g')
-						.attr("class", "data");
-			} else if (type === 'scatter') {
-				var item = this.plotView.selectAll('.data')
-					.data(mat.map(function(d) {return {
-							x : xx(d.x),
-							y : yy(d.y),
-							r : 3*d.z, 
-							style : d.style, 
-							data  : d.data, 
-						};
-					}))
-					.enter().append('g')
-						.attr('class', 'data');
-			} 
-			plot_selected(item);
+			assign_style(drawing);
 		} else {
-			this.plotView.append("path")
-			  .datum(mat)
+			item = self.plotView.append("path")
+			  .datum( self.mat.filter(function(d) {return (d.r === undefined && d.w === undefined)} ))
 			  .attr(d.style)
 			  .attr("d", d3.line()
-							.x(function(d) {return xx(d.x);})
-							.y(function(d) {return yy(d.y);})
-				);
+						.x(function(d) {return x(d.x);})
+						.y(function(d) {return y(d.y);})
+			);
+			assign_style(item);
 		}
-	}
+	});
+
 	this.plotView.append('g')
 		.attr('transform', "translate(0, "+self.plotDim.y0+")")
-		.call(d3.axisBottom(xx));
+		.call(d3.axisBottom(x).ticks(50));
 	this.plotView.append('g')
 		.attr('transform', "translate(0, "+(self.plotDim.y0+self.plotDim.h)+")")
-		.call(d3.axisTop(xx));
+		.call(d3.axisTop(x).ticks(50));
 		
 	this.plotView.append('g')
 		.attr('transform', "translate("+self.plotDim.x0+",0)")
-		.call(d3.axisLeft(yy));
+		.call(d3.axisLeft(y).ticks(50));
 	this.plotView.append('g')
-		.attr('transform', "translate("(+self.plotDim.x0+self.plotDim.w)+",0)")
-		.call(d3.axisRight(yy));
+		.attr('transform', "translate("+(self.plotDim.x0+self.plotDim.w)+",0)")
+		.call(d3.axisRight(y).ticks(50));
 
+
+	if (self.tooltip) {
+		self.container.find('.data').on('mouseover', function(e, ui) {
+			self.tooltip.trigger('tooltip:show', {event:e, source:this, data:d3.select(this).data()[0].data});
+		})
+		.on('mouseout', function(e, ui) {
+			self.tooltip.trigger('tooltip:show', {event:e, source:this, data:[]});
+		})
+	}
 	return this;
 };
