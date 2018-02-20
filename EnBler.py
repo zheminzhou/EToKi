@@ -29,7 +29,7 @@ class preprocess(object) :
                 library_file2 = ['{0}.preprocess.1.{1}.1.fastq.gz'.format(prefix, lib_id), '{0}.preprocess.1.{1}.2.fastq.gz'.format(prefix, lib_id), '{0}.preprocess.1.{1}.3.fastq.gz'.format(prefix, lib_id)]
                 outputs = 'out=' + library_file2[0] + ' out2=' + library_file2[1] + ' outs=' + library_file2[2]
 
-            bb_run = Popen('{bbduk} -Xmx31g threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 mininsert=23 maxns=2 ktrim=r trimq={read_qual} {read} {outputs}'.format( \
+            bb_run = Popen('{bbduk} -Xmx31g threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 ktrim=r trimq={read_qual} {read} {outputs}'.format( \
                               read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
             bb_out = bb_run.communicate()
             if bb_run.returncode == 0 :
