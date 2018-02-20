@@ -1,9 +1,13 @@
-import os, io, sys, re, urllib2, shutil, numpy as np
+import os, io, sys, re, urllib2, shutil, numpy as np, signal, psutil
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
 from EnConf import externals, logger, readFasta
+from threading import Timer
 
+def kill_child_proc (p) :
+    for child in psutil.Process(p.pid).children() :
+        child.terminate()
 
 # preprocessing
 class preprocess(object) :
@@ -31,7 +35,12 @@ class preprocess(object) :
 
             bb_run = Popen('{bbduk} -Xmx31g threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 ktrim=r trimq={read_qual} {read} {outputs}'.format( \
                               read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
-            bb_out = bb_run.communicate()
+            timer = Timer(600, kill_child_proc, [bb_run])
+            try:
+                timer.start()
+                bb_out = bb_run.communicate()
+            finally: 
+                timer.cancel()
             if bb_run.returncode == 0 :
                 new_reads.append(library_file2)
                 try:
