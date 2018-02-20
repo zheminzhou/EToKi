@@ -36,24 +36,23 @@ def EnCore(allele_profile, allele_file) :
     data[ np.in1d(data, ['-', 'n', 'N']).reshape(data.shape) ] = '0'
 
     data = data.astype(int)
+    data[data < 0] = 0
     loci = matrix[0][loci]
     genomes = matrix[1:, 0]
 
     allele_stat = get_allele_info(readFasta(allele_file))
 
-    genome_stat = { genome:{ locus:[0, 0, 0] for locus in loci } for genome in genomes }
+    genome_stat = { genome:[0 for l in loci] for genome in genomes }
+    locus_stat  = [ [locus, len(allele_stat[locus]), 
+                     np.mean([ v[0] for v in allele_stat[locus].values() ]), 
+                     np.min([ v[0] for v in allele_stat[locus].values() ]), 
+                     np.max([ v[0] for v in allele_stat[locus].values() ])] for locus in loci ]
     for g, d in zip(genomes, data) :
-        for l, dd in zip(loci, d) :
-            genome_stat[g][l][2] = dd
-            if str(dd) in allele_stat.get(l, {}) :
-                genome_stat[g][l][0] = allele_stat[l][str(dd)][-1]
-                genome_stat[g][l][1] = allele_stat[l][str(dd)][0]
-            else :
-                genome_stat[g][l][0] = 1 if dd > 0 else 0    # 0 : absent; 1 : present and no information
-    return genome_stat
+        for i, dd in enumerate(d) :
+            genome_stat[g][i] = dd*10 + allele_stat.get(loci[i], {}).get(str(dd), [0, 0])[-1]
+    return genome_stat, locus_stat
 
 
 if __name__ == '__main__' :
-    genome_stat = EnCore(sys.argv[1], sys.argv[2])
-    with open('static/data_source.js', 'wb') as fout :
-        fout.write( 'var matrix=' + json.dumps(genome_stat).replace('},', '},\n') + '\n')
+    genome_stat, locus_stat = EnCore(sys.argv[1], sys.argv[2])
+    json.dump({genome:genome_stat, locus:locus_stat}, open(sys.argv[3], 'wb') )

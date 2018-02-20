@@ -213,13 +213,16 @@ class mainprocess(object) :
     def do_polish_with_SNPs(self, reference, snp_file) :
         sequence = readFasta(filename=reference)
         snps = { n:[] for n in sequence }
-        with open(snp_file) as fin :
-            for line in fin :
-                part = line.strip().split('\t')
-                snps[part[0]].append([int(part[1]), part[-1]])
-        self.snps = snps
+        if snp_file != '' :
+            with open(snp_file) as fin :
+                for line in fin :
+                    part = line.strip().split('\t')
+                    snps[part[0]].append([int(part[1]), part[-1]])
+            self.snps = snps
+
         for n, s in sequence.iteritems() :
             sequence[n] = list(s)
+
         for cont, sites in snps.iteritems() :
             for site,base in reversed(sites) :
                 if base.startswith('+') :
@@ -228,6 +231,7 @@ class mainprocess(object) :
                     sequence[cont][site-1:(site+len(base)-2)] = []
                 else :
                     sequence[cont][site-1] = base
+
         with open('{0}.fasta'.format(prefix), 'w') as fout :
             for n, s in sorted(sequence.items()) :
                 s = ''.join(s)
@@ -348,7 +352,7 @@ class mainprocess(object) :
                 except :
                     fout.write(line)
         if self.snps is not None :
-            for n, snvs in snps.iteritems() :
+            for n, snvs in self.snps.iteritems() :
                 for site, snv in snvs :
                     if snv.find('N') >= 0 : continue
                     if snv.startswith('+') :
