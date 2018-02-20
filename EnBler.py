@@ -86,16 +86,18 @@ class preprocess(object) :
                 logger('Read depth too high. Subsample to every {0} read'.format(1./sample_freqs[0]))
 
             for f_id, (lib, s, sample_freq) in enumerate(zip(library, stat, sample_freqs)) :
-                if s[1] <= 0 and sample_freq >= 1. :
-                    new_lib.append(lib)
-                else :
+                #if s[1] <= 0 and sample_freq >= 1. :
+                    #new_lib.append(lib)
+                #else :
                     if sample_freq > 0 :
                         new_lib.append('{0}.preprocess.2.{1}.{2}.fastq.gz'.format(prefix, lib_id, f_id+1))
                         if s[1] > 0 :
                             logger('Remove potential barcode bases at the beginning {0} bps of reads in {1}'.format( s[1], lib ))
-                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%2}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1) {{print substr($0, {3}, 9999999)}} else {{print $0}} }}'|gzip > {1}".format(lib, new_lib[-1], min(sample_freq, 1.), s[1]+1), shell=True).wait()
+                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print substr($0, {3}, 9999999)}} else {{if(id==0) {{print \"@{4}\"nr}} else {{print \"+\"}} }} }}'|gzip > {1}".format(
+                                lib, new_lib[-1], min(sample_freq, 1.), s[1]+1, lib_id), shell=True).wait()
                         else :
-                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} int(nr*{2}) > int((nr-1)*{2})'|gzip > {1}".format(lib, new_lib[-1], min(sample_freq, 1.)), shell=True).wait()
+                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print $0}} else {{ if(id==0){{print \"@{4}\"nr}} else {{print \"+\"}} }} }}'|gzip > {1}".format(
+                                lib, new_lib[-1], min(sample_freq, 1.), s[1]+1, lib_id), shell=True).wait()
                     os.unlink(lib)
         return new_reads
 # mainprocess
@@ -124,7 +126,7 @@ class mainprocess(object) :
         logger('Estimated read length: {0}'.format(read_len))
         return read_len
     def __run_bowtie(self, reference, reads) :
-        if not os.path.isfile(reference + '.4.bt2') or os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference) :
+        if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
             Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE ).communicate()
         else :
             sleep(1)
@@ -153,6 +155,38 @@ class mainprocess(object) :
                         outputs.append(o1)
                     Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
         return outputs
+
+    def __run_bwa(self, reference, reads) :
+        if not os.path.isfile(reference + '.bwt') or (os.path.getmtime(reference + '.bwt') < os.path.getmtime(reference)) :
+            Popen('{bwa} index {reference}'.format(reference=reference, bwa=parameters['bwa']).split(), stdout=PIPE, stderr=PIPE ).communicate()
+        else :
+            sleep(1)
+
+        outputs = []
+        for lib_id, lib in enumerate(reads) :
+            se = [ lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
+            pe = [ '{0} {1}'.format(*lib[:2]), '{0}.mapping.{1}.pe1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.pe.bam'.format(prefix, lib_id) ] if len(lib) >= 2 else [None, None, None]
+            for r, o1, o in (se, pe) :
+                if r is not None :
+                    logger('Run bwa with: {0}'.format(r))
+                    cmd= '{bwa} mem -A 2 -B 6 -T 40 -t 8 -m 40 {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                        r=r, o=o1, reference=reference, **parameters)
+                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    for line in st_run[1].split('\n') :
+                        logger(line.rstrip())
+                    try:
+                        x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
+                            lib_id = lib_id, output=o, input=o1, \
+                            **parameters).split(), stdout=PIPE, stderr=PIPE )
+                        x.communicate()
+                        assert x.returncode == 0
+                        os.unlink(o1)
+                        outputs.append(o)
+                    except :
+                        outputs.append(o1)
+                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
+        return outputs
+
 
     def do_megahit(self, reads) :
         outdir = prefix + '.megahit'
@@ -242,7 +276,10 @@ class mainprocess(object) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
-            bams = self.__run_bowtie(reference, reads)
+            if parameters['aligner'] != 'bwa' :
+                bams = self.__run_bowtie(reference, reads)
+            else :
+                bams = self.__run_bwa(reference, reads)
             sites = {}
             for bam in bams :
                 if bam is not None :
@@ -290,8 +327,11 @@ class mainprocess(object) :
             return '{0}.fasta'.format(prefix)
 
     def get_quality(self, reference, reads) :
-        bams = self.__run_bowtie(reference, reads)
-
+        if parameters['aligner'] != 'bwa' :
+            bams = self.__run_bowtie(reference, reads)
+        else :
+            bams = self.__run_bwa(reference, reads)
+        
         sequence = readFasta(filename=reference, qual=0)
         for n, s in sequence.iteritems() :
             s[1] = list(s[1])
@@ -538,6 +578,7 @@ parameters = dict(
     max_diff = '0.1', 
     kmers = '30,50,70,90',
     cont_depth = '0.2,2.',
+    aligner = 'bwa', 
     SNP = None,
     reference = None,
     reads = None,

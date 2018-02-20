@@ -20,7 +20,11 @@ for line in sys.stdin :
             aln = len(part[10])
         if len(gap) > 1 and min(gap) >= 10 :
             continue
-        dist = (aln*2. - float(part[11][5:]))/8.
+        try:
+            score = int(re.findall('AS:i:(\d+)', line)[0])
+            dist = (aln*2. - score)/8.
+        except :
+            continue
         if dist >= aln*cutoff :
             continue
         sys.stdout.write(line)
