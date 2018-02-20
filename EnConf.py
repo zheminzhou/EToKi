@@ -84,8 +84,8 @@ externals = dict(
     adapters = '{HOME}/CRobot/source/bbmap/resources/adapters.fa',
     spades = '{HOME}/CRobot/source/SPAdes-3.9.0/spades.py',
     megahit = '{HOME}/software/megahit/megahit',
-    bowtie2 = '{HOME}/bin/bowtie2',
-    bowtie2build = '{HOME}/bin/bowtie2-build',
+    bowtie2 = '{HOME}/CRobot/source/bowtie2-2.2.5/bowtie2',
+    bowtie2build = '{HOME}/CRobot/source/bowtie2-2.2.5/bowtie2-build',
     enbler_filter= 'python {HOME}/CRobot/pipelines/EnSuit/_EnFlt.py',
     samtools = '{HOME}/CRobot/source/samtools-1.2/samtools',
     gatk = 'java -Xmx30g -jar {HOME}/CRobot/source/gatk-4.beta.6/gatk-package-4.beta.6-local.jar',
@@ -95,9 +95,9 @@ externals = dict(
     kraken_database = '{HOME}/minikraken_20141208',
 
     # EnSign
-    ublast='{HOME}/NServ/utils/usearch8.0.1623_i86linux32',
-    blast='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/blastn',
-    formatdb='{HOME}/NServ/utils/ncbi-blast-2.2.31+/bin/makeblastdb',
+    ublast='{HOME}/CRobot/source/usearch8.0.1623_i86linux32',
+    blast='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/blastn',
+    formatdb='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/makeblastdb',
     #
     fasttree = '{HOME}/biosoft/FastTreeMP',
     mcl = '/usr/local/bin/mcl',

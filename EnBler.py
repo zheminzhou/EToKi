@@ -136,8 +136,8 @@ class mainprocess(object) :
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run Bowtie2 with: {0}'.format(r))
-                    cmd= '{bowtie2} -p 8 --no-unal --mp 6,6 --np 6 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {tag} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
-                        r=r, o=o1, reference=reference, tag=','.join(task), **parameters)
+                    cmd= '{bowtie2} -p 8 --no-unal --mp 6,6 --np 6 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                        r=r, o=o1, reference=reference, **parameters)
                     st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
                     for line in st_run[1].split('\n') :
                         logger(line.rstrip())
@@ -493,16 +493,17 @@ def enbler() :
         task = ['prep', 'spades', 'polish', 'quality', 'eval']
     elif 'metagenome-assembly' in parameters['task'] :
         task = ['metagenome', 'prep', 'megahit', 'polish', 'quality', 'eval']
-        parameters['max_base'] = '8000000000000'
-        parameters['cont_depth'] = '0.001,1000.'
     elif 'standard-mapping' in parameters['task'] :
         task = ['prep', 'mapping', 'polish', 'quality', 'eval']
         assert os.path.isfile(parameters['reference'])
     elif 'metagenome-mapping' in parameters['task'] :
         task = ['metagenome', 'prep', 'mapping', 'polish', 'quality', 'eval']
+        assert os.path.isfile(parameters['reference'])
+    if 'metagenome' in task :
         parameters['max_base'] = '8000000000000'
         parameters['cont_depth'] = '0.001,1000.'
-        assert os.path.isfile(parameters['reference'])
+        parameters['max_diff'] = '0.05'
+        
 
     if 'noprep' in parameters['task'] :
         task.remove('prep')
@@ -534,6 +535,7 @@ parameters = dict(
     prefix = 'enbler',
     read_qual = '6',
     max_base = '600000000',
+    max_diff = '0.1', 
     kmers = '30,50,70,90',
     cont_depth = '0.2,2.',
     SNP = None,

@@ -2,11 +2,7 @@
 
 import sys, re
 
-mode = sys.argv[1]
-if 'metagenom' in mode :
-    cutoff = 0.05
-else :
-    cutoff = 0.1
+cutoff = float(sys.argv[1])
 
 for line in sys.stdin :
     if line.startswith('@') :
