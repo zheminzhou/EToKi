@@ -35,7 +35,7 @@ class preprocess(object) :
 
             bb_run = Popen('{bbduk} -Xmx31g threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 ktrim=r trimq={read_qual} {read} {outputs}'.format( \
                               read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
-            timer = Timer(600, kill_child_proc, [bb_run])
+            timer = Timer(900, kill_child_proc, [bb_run])
             try:
                 timer.start()
                 bb_out = bb_run.communicate()
@@ -586,7 +586,7 @@ parameters = dict(
     max_base = '600000000',
     max_diff = '0.1', 
     kmers = '30,50,70,90',
-    cont_depth = '0.2,2.',
+    cont_depth = '0.2,2.5',
     aligner = 'bwa', 
     SNP = None,
     reference = None,
