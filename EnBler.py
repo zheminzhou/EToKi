@@ -441,9 +441,9 @@ class postprocess(object) :
                         seq[name]= [0, float(part[2]) if len(part) > 2 else 0., None]
                     elif id % 4 == 1 :
                         seq[name][2] = np.array(list(line.strip()))
-                    elif id % 4 == 3 :
-                        qual = np.array([ord(q)-33 for q in list(line.strip())])
-                        seq[name][2][ qual < 10 ] = 'N'
+                 #   elif id % 4 == 3 :
+                 #       qual = np.array([ord(q)-33 for q in list(line.strip())])
+                 #       seq[name][2][ qual < 10 ] = 'N'
                 for n, s in seq.iteritems() :
                     s[2] = ''.join(s[2].tolist())
                     s[0] = len(s[2])

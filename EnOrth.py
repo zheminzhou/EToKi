@@ -24,17 +24,20 @@ def readGFF(fnames) :
                         name = re.findall(r'ID=([^;]+)', part[8])
                         if name is None :
                             name = re.findall(r'Name=([^;]+)', part[8])
-                        assert name is not None, logger('Error: CDS has not name. {0}'.format(line))
+                        assert name is not None, logger('Error: CDS has no name. {0}'.format(line))
                         assert name[0] not in cds, logger('Error: duplicated CDS. {0}'.format(line))
-                        cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], None]
+                        cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], '']
                 else :
                     seq[name][1].append(part[0])
     for n, s in seq.iteritems() :
         s[1] = ''.join(s[1]).upper()
     for n, c in cds.iteritems() :
-        c[5] = seq[c[1]][1][(c[2]-1): c[3]]
-        if c[4] == '-' :
-            c[5] = rc(c[5])
+        try:
+            c[5] = seq[c[1]][1][(c[2]-1): c[3]]
+            if c[4] == '-' :
+                c[5] = rc(c[5])
+        except :
+            pass
     return seq, cds
 
 def get_similar_pairs(self_bsn) :
@@ -248,6 +251,8 @@ def get_seq(matches, m) :
     return seq
 decode = {'A':1, 'C':2, 'G':3, 'T':4, '-':0, 'N':0}
 def compare_seq(seqs) :
+    if len(seqs) < 1 :
+        return {}
     genome = seqs.keys()
     seq = np.vectorize(decode.get)( [seqs[g] for g in genome], 0 )
     diff = np.zeros(shape=[seq.shape[0], seq.shape[0], 2])
@@ -608,24 +613,31 @@ def get_map_bsn(prefix, uclust, genomes) :
 
 def addGenes(genes, gene_file) :
     for gfile in gene_file.split(',') :
+        if gfile == '' : continue
         ng = readFasta(gfile)
         for name, s in ng.iteritems() :
-            assert name not in genes, 'Duplicated gene "{0}" in "genes" parameter'.format(name)
-            genes[name] = [ gfile, '', 0, 0, '+', s]
+            if name not in genes :
+        #        assert name not in genes, 'Duplicated gene "{0}" in "genes" parameter'.format(name)
+                genes[name] = [ gfile, '', 0, 0, '+', s]
     return genes
 
 def addGenomes(genomes, genome_file) :
     for gfile in genome_file.split(',') :
+        if gfile == '' : continue
         ng = readFasta(gfile)
         for name, s in ng.iteritems() :
-            assert name not in genomes, 'Duplicated genome "{0}" in "genomes" parameter'.format(name)
-            genomes[name] = [ gfile, s.upper() ]
+            if name not in genomes :
+                #assert name not in genomes, 'Duplicated genome "{0}" in "genomes" parameter'.format(name)
+                genomes[name] = [ gfile, s.upper() ]
     return genomes
 
 def writeGenes(fname, genes, priority) :
     with open(fname, 'wb') as fout :
         for n in sorted(priority.iteritems(), key=lambda x:x[1]) :
             s = genes[n[0]][-1]
+            if len(s) < params['min_cds'] :
+                logger('{0} is too short.'.format(n[0]))
+                continue
             if len(s) % 3 > 0 :
                 logger('{0} is discarded due to frameshifts'.format(n[0]))
                 continue
@@ -851,14 +863,18 @@ numberParam = dict(
     
     mutation_variation = '2',    
     source_premature = '0',
+    min_cds = '150',
 )
 params = dict(
+    genes = '',
+    genomes = '',
+    priority = '',
+
     prefix = 'EnOrth',
     precluster = 'pairwise', #ref
     orthology = 'nj', # ml
     ml = '{fasttree} -nt -gtr -pseudo', 
     nj = '{fasttree} -nt -gtr -pseudo -noml', 
-    priority = '',
 )
 params.update(numberParam)
 params.update(externals)
