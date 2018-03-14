@@ -97,10 +97,12 @@ externals = dict(
 
     # EnSign
     ublast='{HOME}/CRobot/source/usearch8.0.1623_i86linux32',
+    vsearch='{HOME}/software/vsearch/bin/vsearch',
     blast='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/blastn',
     formatdb='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/makeblastdb',
     #
     fasttree = '{HOME}/biosoft/FastTreeMP',
+    rapidnj = '{HOME}/biosoft/rapidNJ/bin/rapidnj',
     mcl = '/usr/local/bin/mcl',
 )
 externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}

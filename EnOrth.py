@@ -1,4 +1,4 @@
-import sys, shlex, re, marshal, math, ete3
+import sys, shlex, re, marshal, math, ete3, hashlib, tempfile
 from operator import itemgetter
 import subprocess, os, numpy as np
 from collections import Counter
@@ -6,38 +6,58 @@ from time import gmtime, strftime
 from multiprocessing import Pool
 from EnConf import externals, logger, rc, transeq, readFasta
 
-def readGFF(fnames) :
-    if isinstance(fnames, basestring) : fnames = [fnames]
+def iter_readGFF(fname) :
     seq, cds = {}, {}
-    for fname in fnames :
-        p = subprocess.Popen(['zcat', fname], stdout = subprocess.PIPE) if fname.upper().endswith('.GZ') else subprocess.Popen(['cat', fname], stdout = subprocess.PIPE)
-        for line in p.stdout :
-            if line.startswith('#') : continue
-            if line.startswith('>') :
-                name = line[1:].strip().split()[0]
-                assert name not in seq, logger('Error: duplicated sequence name {0}'.format(name))
-                seq[name] = [fname, []]
+    p = subprocess.Popen(['zcat', fname], stdout = subprocess.PIPE) if fname.upper().endswith('.GZ') else subprocess.Popen(['cat', fname], stdout = subprocess.PIPE)
+    for line in p.stdout :
+        if line.startswith('#') : continue
+        if line.startswith('>') :
+            name = line[1:].strip().split()[0]
+            assert name not in seq, logger('Error: duplicated sequence name {0}'.format(name))
+            seq[name] = [fname, []]
+        else :
+            part = line.strip().split('\t')
+            if len(part) > 1 :
+                if part[2] == 'CDS' :
+                    name = re.findall(r'ID=([^;]+)', part[8])
+                    if name is None :
+                        name = re.findall(r'Name=([^;]+)', part[8])
+                    assert name is not None, logger('Error: CDS has no name. {0}'.format(line))
+                    assert name[0] not in cds, logger('Error: duplicated CDS. {0}'.format(line))
+                    cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, '']
             else :
-                part = line.strip().split('\t')
-                if len(part) > 1 :
-                    if part[2] == 'CDS' :
-                        name = re.findall(r'ID=([^;]+)', part[8])
-                        if name is None :
-                            name = re.findall(r'Name=([^;]+)', part[8])
-                        assert name is not None, logger('Error: CDS has no name. {0}'.format(line))
-                        assert name[0] not in cds, logger('Error: duplicated CDS. {0}'.format(line))
-                        cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], '']
-                else :
-                    seq[name][1].append(part[0])
+                seq[name][1].append(part[0])
+    p.wait()
+
     for n, s in seq.iteritems() :
         s[1] = ''.join(s[1]).upper()
     for n, c in cds.iteritems() :
         try:
-            c[5] = seq[c[1]][1][(c[2]-1): c[3]]
+            c[6]= seq[c[1]][1][(c[2]-1) : c[3]]
             if c[4] == '-' :
-                c[5] = rc(c[5])
+                c[6] = rc(c[6])
+            if not checkCDS(n, c[6]) :
+                c[6] = ''
+            else :
+                c[5] = int(hashlib.sha1(c[6]).hexdigest(), 16)
         except :
             pass
+    
+    return seq, cds
+    
+
+def readGFF(fnames) :
+    if isinstance(fnames, basestring) : fnames = [fnames]
+    combo = pool.map(iter_readGFF, fnames)
+
+    seq, cds = {}, {}
+    for ss, cc in combo :
+        for n, s in ss.iteritems() :
+            seq[n] = s[:]
+    
+        for n, c in cc.iteritems() :
+            if n not in cds and len(c[6]) > 0 :
+                cds[n] = c[:]
     return seq, cds
 
 def get_similar_pairs(self_bsn) :
@@ -63,7 +83,7 @@ def get_similar_pairs(self_bsn) :
                                 matched_aa[s_i] = 1
                     elif b_j != '-' :
                         s_j += 1
-            if len(matched_aa)*3 >= min(params['match_len2'], params['match_len']) or len(matched_aa) >= (min(params['match_prop'], params['match_prop2'])-10) * len_aa :
+            if len(matched_aa)*3 >= min(params['match_len2'], params['match_len']) or len(matched_aa) >= (min(params['match_prop'], params['match_prop2'])-0.1) * len_aa :
                 if part[1] not in ortho_pairs :
                     ortho_pairs[part[1]] = {}
                 if part[0] not in ortho_pairs :
@@ -274,7 +294,7 @@ def compare_seq(seqs) :
 
 def global_difference(matches, groups) :
     global_differences = {}
-    grp_order = sorted([ (grp, len([m for genome, m in mat.iteritems() if len(m) == 1])) for grp, mat in groups.iteritems() ], key=itemgetter(1), reverse=True)[:10000]
+    grp_order = sorted([ (grp, len([m for genome, m in mat.iteritems() if len(m) == 1])) for grp, mat in groups.iteritems() ], key=itemgetter(1), reverse=True)[:5000]
     for id, (grp, cnt) in enumerate(grp_order) :
         if cnt == 0 : break
         mat = groups[grp]
@@ -322,97 +342,104 @@ def filt_per_group(data) :
                 tags['{0}__{1}'.format(*n)] = ''.join(s.tolist())
                 groups.append([n, [n]])
                 group_tag['{0}__{1}'.format(*n)] = '{0}__{1}'.format(*n)
-
-        groups = {'{0}__{1}'.format(*g): grp for g, grp in groups}
-        ic2 = {}
-        for r1, rr in incompatible.iteritems() :
-            if r1 in group_tag :
-                t1 = group_tag[r1]
-                if t1 not in ic2 :
-                    ic2[t1] = {}
-                for r2 in rr.iterkeys() :
-                    if r2 in group_tag :
-                        ic2[t1][group_tag[r2]] = 1
-        incompatible = ic2
-
-        cmd = params[params['orthology']].format(**params) if len(tags) < 500 else params['nj'].format(**params)
-        phy_run = subprocess.Popen(shlex.split(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        gene_phy = ete3.Tree(phy_run.communicate(input=''.join(['>{0}\n{1}\n'.format(n, s) for n, s in tags.iteritems()]))[0])
-        node = gene_phy.get_midpoint_outgroup()
-        if node is not None :
-            gene_phy.set_outgroup(node)
-        s_name = set(tags.keys()) - set(['{0}__REF'.format(grp)])
-
-        for ite in xrange(3000) :
-            tips = set(gene_phy.get_leaf_names()) & s_name
-            branches = []
-            for node in gene_phy.get_descendants('preorder') :
-                descendants = set(node.get_leaf_names()) & s_name
-                if len(descendants) == 0 :
-                    continue
-                unrelated = tips - descendants
-
-                d_anchor, u_anchor, n_ic = {}, {}, 0
-                for r1 in descendants :
-                    for r2 in incompatible.get(r1, {}) :
-                        if r2 in unrelated :
-                            n_ic += 1
-                            d_anchor[r1], u_anchor[r2] = 1, 1
-                if len(d_anchor) == 0 :
-                    continue
-                branches.append([n_ic, node.dist + node.get_sisters()[0].dist if node.up.is_root() else node.dist, node, descendants, unrelated, d_anchor, u_anchor])
-            branches = sorted(branches, reverse=True)
-            cuts = []
-            for br in (branches[:40], branches[40:100], branches[100:200], branches[200:500], branches[500:1000], branches[1000:]) :
-                for n_ic, d, node, descendants, unrelated, d_anchor, u_anchor in br :
-                    inter_dist, inter_cnt = 0, 0
-                    for g1, g2 in ((d_anchor, unrelated), (u_anchor, descendants - set(d_anchor))) :
-                        for rr1 in g1 :
-                            for rr2 in g2 :
-                                for r1 in groups[rr1] :
-                                    for r2 in groups[rr2] :
-                                        if (r1, r2) in distances :
-                                            inter_dist += distances[(r1, r2)]
-                                            inter_cnt += 1
-                    if inter_cnt > 0 :
-                        cuts.append([inter_dist/inter_cnt, d, node])
-                if len(cuts) :
-                    break
-            if len(cuts) > 0 :
-                cut_node = max(cuts)[2]
-                prev_node = cut_node.up
-                cut_node.detach()
-                if grp + '__REF' in cut_node.get_leaf_names() :
-                    gene_phy = cut_node
-                elif prev_node.is_root() :
-                    gene_phy = gene_phy.get_children()[0]
+                
+        if len(tag) < 20000 :
+            groups = {'{0}__{1}'.format(*g): grp for g, grp in groups}
+            ic2 = {}
+            for r1, rr in incompatible.iteritems() :
+                if r1 in group_tag :
+                    t1 = group_tag[r1]
+                    if t1 not in ic2 :
+                        ic2[t1] = {}
+                    for r2 in rr.iterkeys() :
+                        if r2 in group_tag :
+                            ic2[t1][group_tag[r2]] = 1
+            incompatible = ic2
+    
+            tmpFile = tempfile.NamedTemporaryFile(dir='.', delete=False)
+            for n, s in tags.iteritems() :
+                tmpFile.write('>{0}\n{1}\n'.format(n, s))
+            tmpFile.close()
+            cmd = params[params['orthology']].format(tmpFile.name, **params) if len(tags) < 500 else params['nj'].format(tmpFile.name, **params)
+            phy_run = subprocess.Popen(shlex.split(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            gene_phy = ete3.Tree(phy_run.communicate()[0].replace("'", ''))
+            os.unlink(tmpFile.name)
+            node = gene_phy.get_midpoint_outgroup()
+            if node is not None :
+                gene_phy.set_outgroup(node)
+            s_name = set(tags.keys()) - set(['{0}__REF'.format(grp)])
+    
+            for ite in xrange(3000) :
+                tips = set(gene_phy.get_leaf_names()) & s_name
+                branches = []
+                for node in gene_phy.get_descendants('preorder') :
+                    descendants = set(node.get_leaf_names()) & s_name
+                    if len(descendants) == 0 :
+                        continue
+                    unrelated = tips - descendants
+    
+                    d_anchor, u_anchor, n_ic = {}, {}, 0
+                    for r1 in descendants :
+                        for r2 in incompatible.get(r1, {}) :
+                            if r2 in unrelated :
+                                n_ic += 1
+                                d_anchor[r1], u_anchor[r2] = 1, 1
+                    if len(d_anchor) == 0 :
+                        continue
+                    branches.append([n_ic, node.dist + node.get_sisters()[0].dist if node.up.is_root() else node.dist, node, descendants, unrelated, d_anchor, u_anchor])
+                branches = sorted(branches, reverse=True)
+                cuts = []
+                for br in (branches[:40], branches[40:100], branches[100:200], branches[200:500], branches[500:1000], branches[1000:]) :
+                    for n_ic, d, node, descendants, unrelated, d_anchor, u_anchor in br :
+                        inter_dist, inter_cnt = 0, 0
+                        for g1, g2 in ((d_anchor, unrelated), (u_anchor, descendants - set(d_anchor))) :
+                            for rr1 in g1 :
+                                for rr2 in g2 :
+                                    for r1 in groups[rr1] :
+                                        for r2 in groups[rr2] :
+                                            if (r1, r2) in distances :
+                                                inter_dist += distances[(r1, r2)]
+                                                inter_cnt += 1
+                        if inter_cnt > 0 :
+                            cuts.append([inter_dist/inter_cnt, d, node])
+                    if len(cuts) :
+                        break
+                if len(cuts) > 0 :
+                    cut_node = max(cuts)[2]
+                    prev_node = cut_node.up
+                    cut_node.detach()
+                    if grp + '__REF' in cut_node.get_leaf_names() :
+                        gene_phy = cut_node
+                    elif prev_node.is_root() :
+                        gene_phy = gene_phy.get_children()[0]
+                    else :
+                        prev_node.delete(preserve_branch_length=True)
+    
+                    for r1 in incompatible.keys() :
+                        if r1 not in tips :
+                            rr = incompatible.pop(r1, None)
+                            for r2 in rr :
+                                incompatible.get(r2, {}).pop(r1, None)
+                    if len(incompatible) == 0 :
+                        break
+    
+                    logger('     Iteration {0}. Remains {1} tips.'.format(ite+1, len(gene_phy.get_leaf_names())))
                 else :
-                    prev_node.delete(preserve_branch_length=True)
-
-                for r1 in incompatible.keys() :
-                    if r1 not in tips :
-                        rr = incompatible.pop(r1, None)
-                        for r2 in rr :
-                            incompatible.get(r2, {}).pop(r1, None)
-                if len(incompatible) == 0 :
                     break
-
-                logger('     Iteration {0}. Remains {1} tips.'.format(ite+1, len(gene_phy.get_leaf_names())))
-            else :
-                break
-        if len(gene_phy.get_leaf_names()) < len(tags) :
-            tips = sorted([ [nn[0], int(nn[1])] for n in gene_phy.get_leaf_names() for nn in groups.get(n, [])])
-            new_mat = { g:[] for g in mat }
-            for genome, id in tips :
-                new_mat[genome].append(mat[genome][id])
-            mat = new_mat
+            if len(gene_phy.get_leaf_names()) < len(tags) :
+                tips = sorted([ [nn[0], int(nn[1])] for n in gene_phy.get_leaf_names() for nn in groups.get(n, [])])
+                new_mat = { g:[] for g in mat }
+                for genome, id in tips :
+                    new_mat[genome].append(mat[genome][id])
+                mat = new_mat
     return mat
 
 def get_gene(groups, first_classes, cnt=1) :
     ranking = {gene:first_classes[gene][0] for gene in groups if gene in first_classes}
     if len(ranking) > 0 :
         min_rank = min(ranking.values())
-        scores = { gene:sum([group[0][1]*group[0][0] for genome, group in groups[gene].iteritems() if len(group) > 0 ]) for gene, score in ranking.iteritems() if score == min_rank }
+        scores = { gene:sum( [ group[0][1]*group[0][0] for genome, group in groups[gene].iteritems() if len(group) > 0 ] ) 
+                   for gene, score in ranking.iteritems() if score == min_rank }
     else :
         min_rank = -1
         scores = {}
@@ -421,16 +448,20 @@ def get_gene(groups, first_classes, cnt=1) :
         for gene in scores :
             groups.pop(gene, None)
         return []
+    else :
+        for gene, score in scores :
+            if score <= 0 :
+                groups.pop(gene, None)
     return genes
 
 def filt_genes(prefix, matches, groups, global_differences, conflicts, first_classes = None) :
-    uclust_ref = readFasta(params['uclust'])
+    vclust_ref = readFasta(params['vclust'])
     
     pangenes, used, results, run = {}, {}, {}, {}
     group_id = 0
     with open('{0}.Prediction'.format(prefix), 'wb') as fout :
         while len(groups) > 0 :
-            genes = get_gene(groups, first_classes, cnt=10)
+            genes = get_gene(groups, first_classes, cnt=50)
             if len(genes) <= 0 :
                 continue
             to_run, to_run_id, min_score, min_rank = [], [], genes[-1][1], genes[0][2]
@@ -439,6 +470,8 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                 for gene, score in genes.iteritems() :
                     if gene not in run :
                         mat = groups[gene]
+                        for genome, m in mat.iteritems() :
+                            m.sort(key=itemgetter(1), reverse=True)
                         region_score = [region[1]/m[0][1] for genome, m in mat.iteritems() for region in m]
                         if len(region_score) > len(mat) * 2 :
                             used2 = {}
@@ -460,12 +493,10 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                             if cut >= 1.0 - params['clust_difference'] :
                                 cut = min(sorted(region_score, reverse=True)[len(mat)*5] if len(region_score) > len(mat) * 5 else 1.0 - params['clust_difference'], 1.0 - 0.6*(params['clust_difference']))
                             for genome, m in mat.iteritems() :
-                                m[:] = [ region for region in m if region[1]/m[0][1] > cut ]
-                        for genome, m in mat.iteritems() :
-                            m.sort(key=itemgetter(1), reverse=True)
+                                m[:] = [ region for region in m if region[1]/m[0][1] >= cut ]
     
                         to_run.append([{ (genome, str(i)):get_seq(matches, region) for genome, m in mat.iteritems() for i,region in enumerate(m) }, \
-                                                   gene, mat, {'{0}__REF'.format(gene):uclust_ref[gene]}, global_differences])
+                                                   gene, mat, {'{0}__REF'.format(gene):vclust_ref[gene]}, global_differences])
                         to_run_id.append(gene)
                 working_groups = pool.map(filt_per_group, to_run)
                 #working_groups = [filt_per_group(d) for d in to_run]
@@ -474,6 +505,32 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                         m.sort(key=lambda x:x[0]*x[1], reverse=True)
                     groups[gene] = working_group
                     run[gene] = 1
+            else :
+                for gene, score in genes.iteritems() :
+                    if gene not in run :
+                        mat = groups[gene]
+                        for genome, m in mat.iteritems() :
+                            m.sort(key=itemgetter(1), reverse=True)
+                        cut = 1.0 - params['clust_difference']
+                        for genome, m in mat.iteritems() :
+                            if len(m) > 1 :
+                                m[:] = [ region for region in m if region[1]/m[0][1] >= cut and region[2]/m[0][2] >= cut ]
+
+                        used2 = {}
+                        for genome, m in mat.iteritems() :
+                            remove = []
+                            for id, mm in enumerate(m) :
+                                for gid in mm[3:] :
+                                    if gid in used2 :
+                                        remove.append(id)
+                                        break
+                                if id not in remove :
+                                    for gid in mm[3:] :
+                                        used2[gid] = 1
+                            for id in reversed(remove) :
+                                m.pop(id)
+
+
 
             while len(genes) :
                 score, gene = max([[sum([group[0][1]*group[0][0] for genome, group in groups[g[0]].iteritems() if len(group) > 0 ]), g[0]] for g in genes.iteritems()])
@@ -567,18 +624,18 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
 def load_priority(priority_list, genes) :
     file_priority = { fn:id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
     unassign_id = max(file_priority.values()) + 1
-    first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[-1]), n ] for n, g in genes.iteritems() }
+    first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5], n ] for n, g in genes.iteritems() }
 
     return first_classes
 
-def get_uclust(prefix, genes, priority) :
-    subprocess.Popen('{0} -sortedby other -cluster_smallmem {4} -uc {1}.gene.uc -centroids {1}.gene.reference -id {2} -query_cov {3} -target_cov {3}'.format(params['ublast'], prefix, 1.0 - params['clust_difference'], params['clust_match_prop'], genes).split()).wait()
+def get_vclust(prefix, genes) :
+    subprocess.Popen('{0} --dbmask soft --usersort --cluster_smallmem {4} --uc {1}.gene.uc --centroids {1}.gene.reference --id {2} --query_cov {3} --target_cov {3} --threads {5}'.format(params['vsearch'], prefix, 1.0 - params['clust_difference'], params['clust_match_prop'], genes, params['n_thread']).split()).wait()
     #os.unlink('{0}.gene'.format(prefix))
     return '{0}.gene.uc'.format(prefix), '{0}.gene.reference'.format(prefix)
 
-def get_self_bsn(prefix, uclust) :
-    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], uclust).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast'], uclust, prefix, int(params['n_thread'])))).communicate()
+def get_self_bsn(prefix, vclust) :
+    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], vclust).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast'], vclust, prefix, int(params['n_thread'])))).communicate()
     return '{0}.self.bsn'.format(prefix)
 
 def writeGenomes(fname, seqs) :
@@ -588,37 +645,56 @@ def writeGenomes(fname, seqs) :
     return fname
 
 def iter_map_bsn(data) :
-    prefix, uclust, id, taxon, seq = data
+    prefix, vclust, id, taxon, seq = data
     gfile, bsn = '{0}.{1}.genome'.format(prefix, id), '{0}.{1}.bsn'.format(prefix, id)
     with open(gfile, 'wb') as fout :
         fout.write(''.join(seq))
     subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], gfile).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     subprocess.Popen(shlex.split('{0} -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3} -task blastn -reward 2 -penalty -3 -evalue 0.01'.format(\
-        params['blast'], uclust, gfile, bsn, int(params['n_thread'])/5))).communicate()
+        params['blast'], vclust, gfile, bsn, int(params['n_thread'])/10))).communicate()
     for fn in (gfile, gfile+'.nin', gfile+'.nsq', gfile+'.nhr') :
         os.unlink(fn)
     return bsn
 
-def get_map_bsn(prefix, uclust, genomes) :
+def get_map_bsn(prefix, vclust, genomes) :
     taxa = {}
     for g, s in genomes.iteritems() :
         if s[0] not in taxa : taxa[s[0]] = []
         taxa[s[0]].append('>{0}\n{1}\n'.format(g, s[1]))
     
-    bsns = pool.map(iter_map_bsn, [(prefix, uclust, id, taxon, seq) for id, (taxon, seq) in enumerate(taxa.iteritems())])
+    bsns = pool.map(iter_map_bsn, [(prefix, vclust, id, taxon, seq) for id, (taxon, seq) in enumerate(taxa.iteritems())])
     subprocess.Popen('cat {0} > {1}.map.bsn'.format(' '.join(bsns), prefix), shell=True).communicate()
     for bsn in bsns :
         os.unlink(bsn)
     return '{0}.map.bsn'.format(prefix)
+
+def checkCDS(n, s) :
+    if len(s) < params['min_cds'] :
+        logger('{0} is too short'.format(n))
+        return False
+    if len(s) % 3 > 0 :
+        logger('{0} is discarded due to frameshifts'.format(n))
+        return False
+    aa = transeq({'n':s.upper()}, transl_table='starts')['n_1']
+    if aa[0] != 'M' :
+        logger('{0} is discarded due to lack of start codon'.format(n))
+        return False
+    if aa[-1] != 'X' :
+        logger('{0} is discarded due to lack of stop codon'.format(n))
+        return False
+    if len(aa[:-1].split('X')) - 1 > params['source_premature'] :
+        logger('{0} is discarded due to too many stop codons'.format(n))
+        return False
+    return True
+    
 
 def addGenes(genes, gene_file) :
     for gfile in gene_file.split(',') :
         if gfile == '' : continue
         ng = readFasta(gfile)
         for name, s in ng.iteritems() :
-            if name not in genes :
-        #        assert name not in genes, 'Duplicated gene "{0}" in "genes" parameter'.format(name)
-                genes[name] = [ gfile, '', 0, 0, '+', s]
+            if name not in genes and checkCDS(name, s) :
+                genes[name] = [ gfile, '', 0, 0, '+', int(hashlib.sha1(s).hexdigest(), 16), s]
     return genes
 
 def addGenomes(genomes, genome_file) :
@@ -632,31 +708,21 @@ def addGenomes(genomes, genome_file) :
     return genomes
 
 def writeGenes(fname, genes, priority) :
+    uniques = {}
     with open(fname, 'wb') as fout :
-        for n in sorted(priority.iteritems(), key=lambda x:x[1]) :
-            s = genes[n[0]][-1]
-            if len(s) < params['min_cds'] :
-                logger('{0} is too short.'.format(n[0]))
+        for n in sorted(priority.iteritems(), key=itemgetter(1)) :
+            s = genes[n[0]][6]
+            len_s, hcode = len(s), genes[n[0]][5]
+            if len_s not in uniques :
+                uniques = { len_s:{hcode:1} }
+            elif hcode in uniques[ len_s ] :
                 continue
-            if len(s) % 3 > 0 :
-                logger('{0} is discarded due to frameshifts'.format(n[0]))
-                continue
-            aa = transeq({'n':s}, transl_table='starts')['n_1']
-            if aa[0] != 'M' :
-                logger('{0} is discarded due to lack of start codon'.format(n[0]))
-                continue
-            if aa[-1] != 'X' :
-                logger('{0} is discarded due to lack of stop codon'.format(n[0]))
-                continue
-
-            if len(aa[:-1].split('X')) - 1 <= params['source_premature'] :
-                fout.write( '>{0}\n{1}\n'.format(n[0], s) )
-            else :
-                logger('{0} is discarded due to too many stop codons'.format(n[0]))
+            uniques[ len_s ][ hcode ] = 1
+            fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname
 
 def perform_mcl(groups, matches, method, global_differences) :
-    uclust_ref = readFasta(params['uclust'])
+    vclust_ref = readFasta(params['vclust'])
     
     species = {}
     for s in groups.itervalues() :
@@ -669,7 +735,7 @@ def perform_mcl(groups, matches, method, global_differences) :
             if method != 'pairwise' :
                 for sp, grp in group.iteritems() :
                     for id, g in enumerate(grp) :
-                        fout.write('{0}__REF\t{1}\t{2}\n'.format(gene, "{0}__{1}__{2}".format(gene, species[g], id), g[1]/len(uclust_ref)))
+                        fout.write('{0}__REF\t{1}\t{2}\n'.format(gene, "{0}__{1}__{2}".format(gene, species[g], id), g[1]/len(vclust_ref)))
             else :
                 seqs = { (species[sp], id):get_seq(matches, g) for sp, grp in group.iteritems() for id,g in enumerate(grp) }
                 differences = compare_seq(seqs)
@@ -681,7 +747,7 @@ def perform_mcl(groups, matches, method, global_differences) :
                         ave = max(params['mutation_variation']*gd*aln, 1.)
                         diff = (mut - ave)/np.sqrt(ave)/2.807
                     if diff < 1 :
-                        score = (1-mut/aln)/(1-gd)
+                        score = min((1-mut/aln)/(1-gd), 1.)
                         fout.write('{0}\t{1}\t{2}\n'.format("{0}__{1}__{2}".format(gene, g1[0], g1[1]), "{0}__{1}__{2}".format(gene, g2[0], g2[1]), score))
     subprocess.Popen('{mcl} {prefix}.edges -I 5 --abc -o {prefix}.mcl'.format(**params).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
     
@@ -698,19 +764,20 @@ def perform_mcl(groups, matches, method, global_differences) :
                 key = "{0}__{1}__{2}".format(gene, species[sp], id)
                 mcl_group = mcl.get(key, key)
                 best_mcl[mcl_group] = max(best_mcl.get(mcl_group, [0., 0.]), [g[1], g[2]])
-        best_mcl = max(best_mcl.items(), key=itemgetter(1))[0]
-        for sp, grp in group.iteritems() :
-            todel = []
-            for id, g in enumerate(grp) :
-                key = "{0}__{1}__{2}".format(gene, species[sp], id)
-                mcl_group = mcl.get(key, key)
-                if mcl_group != best_mcl :
-                    todel.append(id)
-            for id in reversed(todel) :
-                del grp[id]
+        if len(best_mcl) > 0 :
+            best_mcl = max(best_mcl.items(), key=itemgetter(1))[0]
+            for sp, grp in group.iteritems() :
+                todel = []
+                for id, g in enumerate(grp) :
+                    key = "{0}__{1}__{2}".format(gene, species[sp], id)
+                    mcl_group = mcl.get(key, key)
+                    if mcl_group != best_mcl :
+                        todel.append(id)
+                for id in reversed(todel) :
+                    del grp[id]
     return groups
 
-def write_output(prefix, prediction, genomes, uclust_ref, old_prediction) :
+def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
     predictions, alleles = {}, {}
     
     allele_file = open('{0}.allele.fna'.format(prefix), 'wb')
@@ -718,8 +785,8 @@ def write_output(prefix, prediction, genomes, uclust_ref, old_prediction) :
         for line in fin :
             part = line.strip().split()
             if part[0] not in alleles :
-                alleles[part[0]] = {uclust_ref[part[0]]:1}
-                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, uclust_ref[part[0]]))
+                alleles[part[0]] = {vclust_ref[part[0]]:1}
+                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, vclust_ref[part[0]]))
             part[7:14] = [int(p) for p in part[7:14]]
             if part[9] > 0 :
                 l, r = min(part[7]-1, part[9]-1), min(part[12]-part[8], part[13]-part[10])
@@ -863,7 +930,7 @@ numberParam = dict(
     
     mutation_variation = '2',    
     source_premature = '0',
-    min_cds = '150',
+    min_cds = '120',
 )
 params = dict(
     genes = '',
@@ -871,10 +938,10 @@ params = dict(
     priority = '',
 
     prefix = 'EnOrth',
-    precluster = 'pairwise', #ref
-    orthology = 'nj', # ml
-    ml = '{fasttree} -nt -gtr -pseudo', 
-    nj = '{fasttree} -nt -gtr -pseudo -noml', 
+    precluster = 'pairwise', #reference
+    orthology = 'nj', # ml, self
+    ml = '{fasttree} {0} -nt -gtr -pseudo', 
+    nj = '{rapidnj} -i fa -t d {0}', 
 )
 params.update(numberParam)
 params.update(externals)
@@ -892,31 +959,37 @@ def EnOrth() :
     for k in numberParam :
         params[k] = float(params[k])
 
+    global pool
+    pool = Pool(10)
     genomes, genes = readGFF(fnames)
     genes, genomes = addGenes(genes, params['genes']), addGenomes(genomes, params['genomes'])
-    old_predictions = {}
-    for n, g in genes.iteritems() :
-        if g[1] != '' :
-            if g[1] not in old_predictions :
-                old_predictions[g[1]] = []
-            old_predictions[g[1]].append([n, g[2], g[3], g[4]])
-    for c, g in old_predictions.iteritems() :
-        g.sort()
+    if 'old_prediction' not in params :
+        params['old_prediction'] = params['prefix']+'.old_prediction.dump'
+        old_predictions = {}
+        for n, g in genes.iteritems() :
+            if g[1] != '' :
+                if g[1] not in old_predictions :
+                    old_predictions[g[1]] = []
+                old_predictions[g[1]].append([n, g[2], g[3], g[4]])
+        for g in old_predictions.itervalues() :
+            g.sort()
+        marshal.dump(old_predictions, open(params['old_prediction'], 'wb'))
+        del old_predictions, n, g
+    
     if 'prediction' not in params :
-        global pool
-        pool = Pool(5)
         first_classes = load_priority( params.get('priority', ''), genes )
 
-        if 'uclust' not in params :
+        if 'vclust' not in params :
             params['genes'] = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
-            params['uc'], params['uclust'] = get_uclust(params['prefix'], params['genes'], first_classes)
-        if 'self_bsn' not in params :
-            params['self_bsn'] = get_self_bsn(params['prefix'], params['uclust'])
-        if 'map_bsn' not in params :
-            params['map_bsn'] = get_map_bsn(params['prefix'], params['uclust'], genomes)
-    
+            params['uc'], params['vclust'] = get_vclust(params['prefix'], params['genes'])
+            
         if 'homolog' not in params :
+            if 'self_bsn' not in params :
+                params['self_bsn'] = get_self_bsn(params['prefix'], params['vclust'])
+            if 'map_bsn' not in params :
+                params['map_bsn'] = get_map_bsn(params['prefix'], params['vclust'], genomes)
+    
             matches = load_matches(params['map_bsn'], genomes)
             groups = combine_matches(matches)
             conflicts = get_conflicts(matches, get_similar_pairs(params['self_bsn']))
@@ -925,20 +998,24 @@ def EnOrth() :
             matches, groups, conflicts = marshal.load(open(params['homolog'], 'rb'))
             conflicts = { int(id): cmp for id, cmp in conflicts.iteritems() }
         matches.sort(key=lambda x:x[11])
-        if params['precluster'] == 'pairwise' :
-            if 'global' not in params :
-                params['global'] = params['prefix'] + '.global.dump'
-                global_differences = global_difference(matches, groups)
-                marshal.dump({ pair:'{0:.40f}'.format(value) for pair, value in global_differences.iteritems()}, open(params['global'], 'wb'))
-            global_differences = {pair:max(float(value), 0.015) for pair, value in marshal.load(open(params['global'], 'rb')).iteritems()}
-            global_differences.update({(pair[1], pair[0]):value  for pair, value in global_differences.iteritems() })
-        else :
-            global_differences = {}
-        groups = perform_mcl(groups, matches, params['precluster'], global_differences)
+        global_differences = {}
+        if params['precluster'] in ('pairwise', 'reference') :
+            if params['precluster'] == 'pairwise' :
+                if 'global' not in params :
+                    params['global'] = params['prefix'] + '.global.dump'
+                    global_differences = global_difference(matches, groups)
+                    marshal.dump({ pair:'{0:.40f}'.format(value) for pair, value in global_differences.iteritems()}, open(params['global'], 'wb'))
+                global_differences = {pair:max(float(value), 0.015) for pair, value in marshal.load(open(params['global'], 'rb')).iteritems()}
+                global_differences.update({(pair[1], pair[0]):value  for pair, value in global_differences.iteritems() })
+            groups = perform_mcl(groups, matches, params['precluster'], global_differences)
+        
         params['prediction'] = filt_genes(params['prefix'], matches, groups, global_differences, conflicts, first_classes)
-        genes = readFasta(params['uclust'])
+        genes = readFasta(params['vclust'])
     else :
         genes = {n:s[-1] for n,s in genes.iteritems() }
+    pool.close()
+    old_predictions = marshal.load( open(params['old_prediction'], 'rb')) if 'old_prediction' in params else {}
+    
     write_output(params['prefix'], params['prediction'], genomes, genes, old_predictions)
     
 if __name__ == '__main__' :
