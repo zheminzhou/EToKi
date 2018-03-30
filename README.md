@@ -66,4 +66,9 @@ Outputs are:
 * sample_out.best.model.report - Estimated parameters for the recombinations. 
 * sample_out.recombination.region - Identified recombination regions. 
 
+NOTE: New RecHMM identifies three categories of recombinations:
+External: Recombination with an external source. High SNP densities and low homoplasies. 
+Internal: Recombination from an internal source. Normal SNP densities and high homoplasies. 
+Mixed:    Repetitive imports from external sources to different branches of the tree. High SNP densities and high homoplasies. 
+
 ### ....
