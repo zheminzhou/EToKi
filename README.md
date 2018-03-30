@@ -59,16 +59,17 @@ Use EToKi.py <command> -h for help in each command.
 
 Outputs are:
 
-* sample_out.matrix.gz - a table of mutations in the alignment. 
-* sample_out.labeled.nwk - phylogeny with labeled internal nodes. 
-* sample_out.ancestral_states.gz - Ancestral states of internal nodes. 
-* sample_out.mutations.gz - Occurences of mutations on different branches. 
-* sample_out.best.model.report - Estimated parameters for the recombinations. 
-* sample_out.recombination.region - Identified recombination regions. 
+* examples/sample_out.matrix.gz - a table of mutations in the alignment. 
+* examples/sample_out.labeled.nwk - phylogeny with labeled internal nodes. 
+* examples/sample_out.ancestral_states.gz - Ancestral states of internal nodes. 
+* examples/sample_out.mutations.gz - Occurences of mutations on different branches. 
+* examples/sample_out.best.model.report - Estimated parameters for the recombinations. 
+* examples/sample_out.recombination.region - Identified recombination regions. 
 
 #### NOTE: New RecHMM identifies three categories of recombinations:
 1. External: Recombination with an external source. High SNP densities and low homoplasies. 
 2. Internal: Recombination from an internal source. Normal SNP densities and high homoplasies. 
 3. Mixed:    Repetitive imports from external sources to different branches of the tree. High SNP densities and high homoplasies. 
 
+You can use legacy RecHMM by setting --task 0, which considers only external source. 
 ### ....
