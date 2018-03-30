@@ -1,2 +1,3 @@
 example/*
-static/data_source.js
+static/*
+EnConf.ini
