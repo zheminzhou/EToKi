@@ -24,7 +24,6 @@ class RecHMM(object) :
     def save(self, fout):
         import json
         model = copy.deepcopy(self.model)
-        #model['prev'] = None
         model['p'] = model['p'].tolist()
         model['pi'] = model['pi'].tolist()
         model['EventFreq'] = model['EventFreq'].tolist()
@@ -175,7 +174,6 @@ class RecHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        #h = [1-model['h'][0], model['h'][0]]
         h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2]
         
         probability, pi, br = 0., [], []
@@ -208,28 +206,23 @@ class RecHMM(object) :
         prediction['R'] = np.sum(prediction['EventFreq'].T[1]/np.sum(prediction['EventFreq'], 1))
         
         n_br, sum_br = prediction['EventFreq'].shape[0], np.sum(prediction['EventFreq'])
-        #prediction['R'] = np.sum(a[0, 1:])/np.sum(a[0])*n_br/sum_br
         prediction['p'] = a[0, 1:]/np.sum(a[0, 1:])
         prediction['delta'] = np.sum(a[1:, 0])/np.sum(a[1:])
         
         if self.n_a == 2 and self.n_b == 2 :
-            #prediction['theta'] = np.sum(b[0, 1:])/( np.sum(b[0])/n_br )/sum_br
             prediction['v'] = np.sum(b[1, 1:])/np.sum(b[1])
             prediction['v2'] = np.sum(b[1, 2:])/np.sum(b[1])
             prediction['h'] = [np.sum(b[:2, 2])/np.sum(b[:2, 1:]), np.sum(b[:2, 2])/np.sum(b[:2, 1:])]
         elif self.n_a == 2 and self.n_b > 2 :
-            #prediction['theta'] = ( np.sum(b[0, 1:]) + np.sum(b[1, 1:2]) )/( np.sum(b[0])/n_br + np.sum(b[1])*h[0]/n_br )/sum_br
             prediction['v'] = np.sum(b[1, 1:])/np.sum(b[1])
             prediction['v2'] = np.sum(b[1, 2:])/np.sum(b[1])
             prediction['h'] = [np.sum(b[:1, 2])/np.sum(b[:1, 1:]), np.sum(b[1:, 2])/np.sum(b[1:, 1:])]
             
-        elif self.n_b == 3 :
-            #prediction['theta'] = ( np.sum(b[0, 1:]) + np.sum(b[2, 1:2]) )/( np.sum(b[0])/n_br + np.sum(b[2])*h[0]/n_br )/sum_br
+        elif self.n_a == 3 :
             prediction['v'] = np.sum(b[1, 1:])/np.sum(b[1])
             prediction['v2'] = np.sum(b[2:, 2:])/np.sum(b[2:])
             prediction['h'] = [np.sum(b[:2, 2])/np.sum(b[:2, 1:]), np.sum(b[2:, 2])/np.sum(b[2:, 1:])]
         else :
-            #prediction['theta'] = ( np.sum(b[0, 1:]) + np.sum(b[2, 1:2]) )/( np.sum(b[0])/n_br + np.sum(b[2])*h[0]/n_br )/sum_br
             prediction['v'] = ( np.sum(b[1, 1:]) + np.sum(b[3, 1]) )/( np.sum(b[1]) + np.sum(b[3])*h[0] )
             prediction['v2'] = np.sum(b[2:, 2:])/np.sum(b[2:])
             prediction['h'] = [np.sum(b[:2, 2])/np.sum(b[:2, 1:]), np.sum(b[2:, 2])/np.sum(b[2:, 1:])]
@@ -253,16 +246,15 @@ class RecHMM(object) :
         for d, pi in zip(model['EventFreq'], model['pi']) :
             if lower_limit and np.sum(d) < 1./self.n_base:
                 d[:] = d/self.n_base/np.sum(d)
-
+                
             a = np.zeros(shape=[self.n_a, self.n_a])
-            a[0, 1:] = model['p']*d[1]#model['R']*np.sum(d)
+            a[0, 1:] = model['p']*d[1]
             a[1:, 0] = model['delta']
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, 3])
-            #h = [1-model['h'][0], model['h'][0]]
             h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2]
             
-            mut = d[0]#model['theta']*np.sum(d)
+            mut = d[0]
             
             b[0]  = [ 1-mut,                         mut*h[0],        mut*h[1]        ]
             extra = [ 1-model['v'],                  model['v']*h[0], model['v']*h[1] ]
@@ -309,7 +301,6 @@ class RecHMM(object) :
         a2 = np.zeros(shape=[self.n_a, self.n_a])
         b2 = np.zeros(shape=[self.n_a, 3])
 
-        #pi2 = (gamma[0] + gamma[-1])/2
         pi2 = np.zeros(self.n_a)
         pi2[0] = 1.
         
@@ -424,7 +415,7 @@ class RecHMM(object) :
         self.screen_out('Predict recombination sketches using', self.model)
         branch_params = self.update_branch_parameters(self.model, lower_limit=True)
         for name, obs, param, (dm, dr) in zip(names, self.observations, branch_params, self.model['EventFreq']) :
-            fout.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format( name, -np.log(1-dm*4./3.), -np.log(1-dr) ))
+            fout.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format( name, dm, dr ))
             regions = self.viterbi(obs, pi=param['pi'], a=param['a'], b=param['b'])
             for r in regions :
                 fout.write('\tRecomb\t{0}\t{1}\t{2}\t{3}\n'.format(name, *r))
@@ -501,46 +492,40 @@ class RecHMM(object) :
 
         if self.n_a == 2 and self.n_b > 2 :
             reports['EventFreq'] = [np.sum(self.model['EventFreq']), 
-                                    np.array([(np.sum(bb[:, :, 0, 1:], 2)+bb[:,:,1, 1])/(np.sum(bb[:, :, 0, :], 2)+np.sum(bb[:, :, 1, :], 2)*h0), np.sum(aa[:, :, 0, 1:], 2)/np.sum(aa[:, :, 0, :], 2)]).transpose((1,2,0))]
+                                    np.array([(np.sum(bb[:, :, 0, 1:], 2)+bb[:,:,1, 1])/(np.sum(bb[:, :, 0, :], 2)+np.sum(bb[:, :, 1, :], 2)*h0), np.sum(aa[:, :, 0, 1:], 2)/np.sum(aa[:, :, 0, :], 2)])]#.transpose((1,2,0))]
         else :
             reports['EventFreq'] = [np.sum(self.model['EventFreq']), 
-                                    np.array([(np.sum(bb[:, :, 0, 1:], 2)+bb[:,:,2, 1])/(np.sum(bb[:, :, 0, :], 2)+np.sum(bb[:, :, 2, :], 2)*h0), np.sum(aa[:, :, 0, 1:], 2)/np.sum(aa[:, :, 0, :], 2)]).transpose((1,2,0))]
-        reports['R'] = [np.sum(self.model['EventFreq'].T[1]/np.sum(self.model['EventFreq'], 1)), np.sum(reports['EventFreq'][1][:,:, 1], 1)/np.sum(reports['EventFreq'][1][:,:, :], (1,2))]
-        reports['theta'] = [np.sum(self.model['EventFreq'].T[0]/np.sum(self.model['EventFreq'], 1)), np.sum(reports['EventFreq'][1][:,:, 0], 1)/np.sum(reports['EventFreq'][1][:,:, :], (1,2))]
-        reports['EventFreq'][1] = np.sum(reports['EventFreq'][1], (1,2))        
+                                    np.array([(np.sum(bb[:, :, 0, 1:], 2)+bb[:,:,2, 1])/(np.sum(bb[:, :, 0, :], 2)+np.sum(bb[:, :, 2, :], 2)*h0), np.sum(aa[:, :, 0, 1:], 2)/np.sum(aa[:, :, 0, :], 2)])]#.transpose((1,2,0))]
+        x = np.sum(reports['EventFreq'][1]/np.sum(reports['EventFreq'][1], 0), 2)
+        reports['R'] = [np.sum(self.model['EventFreq'].T[1]/np.sum(self.model['EventFreq'], 1)), x[1]]
+        reports['theta'] = [np.sum(self.model['EventFreq'].T[0]/np.sum(self.model['EventFreq'], 1)), x[0]]
+        reports['EventFreq'][1] = np.sum(reports['EventFreq'][1], (0,2))        
         
-        #reports['R'] = [np.sum(a_sum[0, 1:])/np.sum(a_sum[0]), 
-                        #np.sum(np.sum(aa, 1)[:, 0, 1:], 1)/np.sum(np.sum(aa, 1)[:, 0, :], 1)]
         reports['delta'] = [1/self.model['delta'], 
                             np.sum(np.sum(aa, 1)[:, 1:, 0], 1)/np.sum(np.sum(aa, 1)[:, 1:, :], (1,2))]
         reports['delta'][1][reports['delta'][1] < 1e-5] = 1e-5
         reports['delta'][1] = 1./reports['delta'][1]
 
         if self.n_a == 2 and self.n_b == 2 :
-            #theta = ( np.sum(np.sum(bb, 1)[:, 0, 1:], 1) )/np.sum(np.sum(aa, 1)[:, 0, :], 1)
             nu    = ( np.sum(np.sum(bb, 1)[:, 1, 1:], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) )
             nu2   = ( np.sum(np.sum(bb, 1)[:, 1, 2:], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) )
             h     = [ np.sum(b[:, :2, 2], 1)/np.sum(b[:, :2, 1:], (1, 2)), 
                       np.sum(b[:, :2, 2], 1)/np.sum(b[:, :2, 1:], (1, 2)) ]
         elif self.n_a == 2 and self.n_b > 2 :
-            #theta = ( np.sum(np.sum(bb, 1)[:, 0, 1:], 1) + np.sum(np.sum(bb, 1)[:, 1, 1:], 1) )/( np.sum(np.sum(aa, 1)[:, 0, :], 1) + np.sum(np.sum(aa, 1)[:, 1, :], 1)*h0 )
             nu    = ( np.sum(np.sum(bb, 1)[:, 1, 1:], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) )
             nu2   = ( np.sum(np.sum(bb, 1)[:, 1, 2:], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) )
             h     = [ np.sum(b[:, :1, 2], 1)/np.sum(b[:, :1, 1:], (1, 2)), 
                       np.sum(b[:, 1:, 2], 1)/np.sum(b[:, 1:, 1:], (1, 2)) ]
-        elif self.n_b == 3 :
-            #theta = ( np.sum(np.sum(bb, 1)[:, 0, 1:], 1) + np.sum(np.sum(bb, 1)[:, 2, 1:2], 1) )/( np.sum(np.sum(aa, 1)[:, 0, :], 1) + np.sum(np.sum(aa, 1)[:, 2, :], 1)*h0 )
+        elif self.n_a == 3 :
             nu    = ( np.sum(np.sum(bb, 1)[:, 1, 1:], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) )
             nu2   = ( np.sum(np.sum(bb, 1)[:, 2, 2:], 1) )/( np.sum(np.sum(bb, 1)[:, 2, :], 1) )
             h     = [ np.sum(b[:, :2, 2], 1)/np.sum(b[:, :2, 1:], (1, 2)), 
                       np.sum(b[:, 2:, 2], 1)/np.sum(b[:, 2:, 1:], (1, 2)) ]
         else :
-            #theta = ( np.sum(np.sum(bb, 1)[:, 0, 1:], 1) + np.sum(np.sum(bb, 1)[:, 2, 1:2], 1) )/( np.sum(np.sum(aa, 1)[:, 0, :], 1) + np.sum(np.sum(aa, 1)[:, 2, :], 1)*h0 )
             nu    = ( np.sum(np.sum(bb, 1)[:, 1, 1:], 1) + np.sum(np.sum(bb, 1)[:, 3, 1:2], 1) )/( np.sum(np.sum(bb, 1)[:, 1, :], 1) + np.sum(np.sum(bb, 1)[:, 3, :], 1)*h0 )
-            nu2   = ( np.sum(np.sum(bb, 1)[:, 2:, 2:], 1) )/( np.sum(np.sum(bb, 1)[:, 2:, :], 1) )
+            nu2   = ( np.sum(np.sum(bb, 1)[:, 2:, 2:], (1,2)) )/( np.sum(np.sum(bb, 1)[:, 2:, :], (1,2)) )
             h     = [ np.sum(b[:, :2, 2], 1)/np.sum(b[:, :2, 1:], (1, 2)), 
                       np.sum(b[:, 2:, 2], 1)/np.sum(b[:, 2:, 1:], (1, 2)) ]
-        #reports['theta'] = [np.sum(b_sum[0, 1:])/np.sum(b_sum[0]), theta]
         n_total = [reports['theta'][0] + reports['R'][0], reports['theta'][1] + reports['R'][1]]
         reports['R']     = [reports['R'][0]/n_total[0],     reports['R'][1]/n_total[1]]
         reports['theta'] = [reports['theta'][0]/n_total[0], reports['theta'][1]/n_total[1]]
@@ -548,8 +533,8 @@ class RecHMM(object) :
             reports['R'][0] = 0.001
             reports['theta'][0] = 0.999
         
-        reports['nu'] = [self.model['v'], nu]
-        reports['nu(in)'] = [self.model['v2'], nu2]
+        reports['nu'] = [(np.sum(b_sum[1, 1:]) + np.sum(b_sum[3, 1]))/(np.sum(b_sum[1, :])+np.sum(b_sum[3, :])*h0), nu]
+        reports['nu(in)'] = [np.sum(b_sum[2:, 2:])/np.sum(b_sum[2:, :]), nu2]
         reports['h'] = [self.model['h'], h]
 
         reports['R/theta'] = [reports['R'][0]/reports['theta'][0], reports['R'][1]/reports['theta'][1]]
@@ -572,23 +557,25 @@ class RecHMM(object) :
         return
     
 
-def parse_arg() :
+def parse_arg(a) :
     parser = argparse.ArgumentParser(description='Parameters for RecHMM. ', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--data', '-d', help='A list of mutations genereated by EnPhyl', )
+    parser.add_argument('--data', '-d', help='A list of mutations genereated by EnPhyl', required=True)
     parser.add_argument('--model', '-m', help='Read a saved model instead of EM process', default='')
-    parser.add_argument('--task', '-t', help='task to run. \n0: One rec category from external sources.\n1: Three rec categories considering internal, external and mixed sources [default].\n2: One rec category from internal sources.\n3: Two rec categories from internal or external sources.', default=1, type=int)
+    parser.add_argument('--task', '-t', help='task to run. \n0: One rec category from external sources.\n1: Three rec categories considering internal, external and mixed sources [default].', default=1, type=int)
     parser.add_argument('--init', '-i', help='Initiate models with guesses of recombinant proportions. \nDefault: 0.01,0.05,0.3,0.7,0.95,0.99', default='0.01,0.05,0.3,0.7,0.95,0.99')
     parser.add_argument('--prefix', '-p', help='Prefix for all the outputs ', default='RecHMM')
     parser.add_argument('--cool_down', '-c', help='Delete the worst model every N iteration. Default:5', type=int, default=5)
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
     parser.add_argument('--bootstrap', '-b', help='Number of Randomizations for confidence intervals. \nDefault: 1000. ', type=int, default=1000)
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(a)
     return args
 
-if __name__ == '__main__' :
-    args = parse_arg()
-
+def EnRaRe(args) :
+    args = parse_arg(args)
+    global pool
+    pool = Pool(args.n_proc)
+    
     model = RecHMM(mode=args.task)
     if not args.report or not args.model :
         data = pd.read_csv(args.data, sep='\t', dtype=str, header=0).as_matrix()
@@ -606,7 +593,6 @@ if __name__ == '__main__' :
         branches = [branches[id] for id in ids]
         names = [names[id] for id in ids]
 
-        pool = Pool(args.n_proc)
     if args.model :
         model.load(open(args.model, 'rb'))
     else :
@@ -617,3 +603,6 @@ if __name__ == '__main__' :
     if not args.report :
         model.predict(branches, names=names, fout=open(args.prefix + '.recombination.region', 'w'))
 
+pool = None
+if __name__ == '__main__' :
+    EnRaRe(sys.argv[1:])

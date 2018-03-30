@@ -78,15 +78,19 @@ def logger(log) :
     from datetime import datetime
     sys.stderr.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
-search_file = lambda x: [x] if os.path.isfile(x) else [fname for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
-def update_configure() :
+search_file = lambda x: [x] if os.path.exists(x) else [fname for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
+def EnConf(args) :
+    global externals
+    externals = load_configure()
     defaults = dict(
+        adapters='adapters.fa',
+        kraken_database='minikraken*',
         bbduk='bbduk2.sh',
         spades='spades.py',
         megahit='megahit',
         bwa='bwa',
         bowtie2='bowtie2',
-        bowite2build='bowtie2-build',
+        bowtie2build='bowtie2-build',
         samtools='samtools',
         gatk='gatk-package-4*',
         pilon='pilon*',
@@ -98,30 +102,34 @@ def update_configure() :
         ublast='usearch*',
         blastn='blastn',
         formatdb='makeblastdb',
+        raxml='raxml*', 
+        enbler_filter=os.path.join(os.path.dirname(os.path.realpath(__file__)), '_EnFlt.py')
     )
-    args = add_args()
+    args = add_args(args)
 
     for param, value in defaults.iteritems() :
         if args.__dict__.get(param, None) :
             fn = search_file(args.__dict__[param])
             assert len(fn), 'The specified "{0}" is not found.'.format(param)
+            logger('Found {0}'.format(fn[0]))
             externals[param] = fn[0]
-        elif not os.path.isfile(externals.get(param, '')) :
+        elif not os.path.exists(externals.get(param, '')) :
             fn = search_file(value)
             if not len(fn) :
-                logger('{0} is not found. Be aware that some functions may not able to run.'.format())
-            externals[param] = fn[0]
+                logger('{0} is not found. Be aware that some functions may not able to run.'.format(param))
+            else :
+                logger('Found {0}'.format(fn[0]))
+                externals[param] = fn[0]
 
-    write_configure(externals)
+    write_configure()
     logger('Configuration complete.')
 
 def prepare_externals() :
     externals['gatk']  = 'java -Xmx30g -jar ' + externals['gatk']
     externals['pilon'] = 'java -Xmx30g -jar ' + externals['pilon']
-    for k, v in externals.iteritems() :
-        externals[k] = v.format(HOME=os.path.expanduser('~'))
+    externals['enbler_filter'] = 'python ' + externals['enbler_filter']
 
-def add_args() :
+def add_args(a) :
     parser = argparse.ArgumentParser(description='''Configure external dependencies for EToKi (Enterobase Tool Kit).
 Will search executable files from system paths by default.
 The path to two databases for Kraken and Illumina adapters are required for the assembler. ''', formatter_class=argparse.RawTextHelpFormatter)
@@ -153,24 +161,25 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     # EnPhyl executables
     parser.add_argument('--raxml')
 
-    return parser.parse_args()
+    return parser.parse_args(a)
 
 
 def load_configure() :
-    EnConf_file = os.path.join(os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini')
+    EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
     try :
-        mat = np.genfromtxt(EnConf_file, dtype=str)
+        mat = np.genfromtxt(EnConf_file, dtype=str, delimiter='=')
     except :
         return {}
-    return dict(**mat.tolist())
+    return dict(mat.tolist())
 
 def write_configure() :
-    EnConf_file = os.path.join(os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini')
-    mat = np.array(externals)
-
+    EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
+    with open(EnConf_file, 'wb') as fout :
+        for k,v in externals.iteritems() :
+            fout.write('{0}={1}\n'.format(k, v))
 
 externals = load_configure()
 if __name__ == '__main__' :
-    update_configure()
+    EnConf(sys.argv[1:])
 else :
     prepare_externals()

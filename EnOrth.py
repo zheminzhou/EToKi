@@ -906,62 +906,65 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
     return
 
 
-numberParam = dict(
-    n_thread = '30',
-    clust_difference = '0.05',
-    clust_match_prop = '0.9',
-    
-    match_identity = '0.6',
-    match_prop = '0.7', 
-    match_len = '300', 
-    match_prop2 = '0.5', 
-    match_len2 = '500', 
 
-    match_frag_len = '60', 
-    match_frag_prop = '0.4', 
+def add_args(a) :
+    import argparse
+    parser = argparse.ArgumentParser(description='''
+EnOrth 
+(1) Retieves genes and genomic sequences from GFF files and FASTA files.
+(2) Groups genes into clusters using vsearch.
+(3) Maps gene clusters back to genomes. 
+(4) Filters paralogous cluster alignments.
+(5) identify a set of most probable non-overlapping orthologs.
+(6) Re-annotate genomes using the new set of orthologs. 
+''', formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('GFFs', metavar='N', nargs='+')
+    parser.add_argument('-g', '--genes', help='Comma delimited files for additional genes. ', default='')
+    parser.add_argument('-G', '--genomes', help='Comma delimited files for additional genomes. ', default='')
+    parser.add_argument('-P', '--priority', help='Comma delimited filenames that contain highly confident genes. ', default='')
     
-    synteny_gap = '300', 
-    synteny_diff = '1.5', 
-    synteny_ovl_prop = '0.7', 
-    synteny_ovl_len = '300', 
-    edge_rescue = '150',
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EnOrth', default='EnOrth')
+    parser.add_argument('-f', '--prefilter', dest='precluster', help='Method for MCL clustering. pairwise [default] or reference', default='pairwise')
+    parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml or rapid (for extremely large datasets)', default='nj')
+
+    parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
+    parser.add_argument('--source_premature', help='Number of internal stop codon in the reference genes. Default: 0.', default=0., type=float)
+    parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 120.', default=120., type=float)
+
+    parser.add_argument('--clust_difference', help='max distance in vsearch clusters. Default: 0.05', default=0.05, type=float)
+    parser.add_argument('--clust_match_prop', help='minimum matches in vsearch clusters. Default: 0.9', default=0.9, type=float)
+
+    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.6', default=0.6, type=float)
+    parser.add_argument('--match_prop', help='minimum match proportion for short genes in BLAST search. Default: 0.7', default=0.7, type=float)
+    parser.add_argument('--match_len', help='minimum match proportion for short genes in BLAST search. Default: 300', default=300., type=float)
+    parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
+    parser.add_argument('--match_len2', help='minimum match proportion for long genes in BLAST search. Default: 500', default=500., type=float)
+    parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.4', default=0.4, type=float)
+    parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 60', default=60., type=float)
     
-    
-    
-    mutation_variation = '2',    
-    source_premature = '0',
-    min_cds = '120',
-)
+    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 150', default=150., type=float)
+    parser.add_argument('--synteny_diff', help='. Default: 1.5', default=1.5, type=float)
+    parser.add_argument('--synteny_ovl_prop', help='Max proportion of overlaps between two fragments in a synteny block. Default: 0.7', default=0.7, type=float)
+    parser.add_argument('--synteny_ovl_len', help='Max length of overlaps between two fragments in a synteny block. Default: 300', default=300, type=float)
+    parser.add_argument('--edge_rescure', help='Consider fragments that are within N bases of contig edges as part of a synteny block. Default: 150', default=150., type=float)
+
+    parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
+
+    return parser.parse_args(a)
+
 params = dict(
-    genes = '',
-    genomes = '',
-    priority = '',
-
-    prefix = 'EnOrth',
-    precluster = 'pairwise', #reference
-    orthology = 'nj', # ml, self
     ml = '{fasttree} {0} -nt -gtr -pseudo', 
     nj = '{rapidnj} -i fa -t d {0}', 
 )
-params.update(numberParam)
-params.update(externals)
 
 pool = None
-def EnOrth() :
-    fnames = []
-    for p in sys.argv[1:] :
-        try:
-            k, v = p.split('=', 1)
-            params[k] = v
-        except :
-            fnames.append(p)
-
-    for k in numberParam :
-        params[k] = float(params[k])
+def EnOrth(args) :
+    global params
+    params.update(add_args(args).__dict__)
 
     global pool
     pool = Pool(10)
-    genomes, genes = readGFF(fnames)
+    genomes, genes = readGFF(params['GFFs'])
     genes, genomes = addGenes(genes, params['genes']), addGenomes(genomes, params['genomes'])
     if 'old_prediction' not in params :
         params['old_prediction'] = params['prefix']+'.old_prediction.dump'
@@ -1019,4 +1022,4 @@ def EnOrth() :
     write_output(params['prefix'], params['prediction'], genomes, genes, old_predictions)
     
 if __name__ == '__main__' :
-    EnOrth()
+    EnOrth(sys.argv[1:])

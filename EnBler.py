@@ -1,134 +1,32 @@
-import os, io, sys, re, urllib2, shutil, numpy as np, signal, psutil
+import os, io, sys, re, urllib2, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
 from EnConf import externals, logger, readFasta
 from threading import Timer
 
-def kill_child_proc (p) :
-    for child in psutil.Process(p.pid).children() :
-        child.terminate()
-
-# preprocessing
-class preprocess(object) :
-    def launch (self, reads) :
-        reads = self.init_cleanup(reads)
-        reads = self.reduce_depth(reads)
-        return reads
-
-    def init_cleanup(self, reads) :
-        new_reads = []
-        for lib_id, library in enumerate(reads) :
-            library_file = ['{0}.preprocess.0.{1}.1.fastq.gz'.format(prefix, lib_id)]
-            Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file[0]), shell=True).wait()
-            if len(library[0]) > 1 :
-                library_file.append('{0}.preprocess.0.{1}.2.fastq.gz'.format(prefix, lib_id))
-                Popen('cat {0} > {1}'.format(' '.join([run[1] for run in library]), library_file[1]), shell=True).wait()
-            if len(library_file) == 1 :
-                reads = 'in=' + library_file[0]
-                library_file2 = ['{0}.preprocess.1.{1}.1.fastq.gz'.format(prefix, lib_id)]
-                outputs = 'out=' + library_file2[0]
-            else :
-                reads = 'in=' + library_file[0] + ' in2=' + library_file[1]
-                library_file2 = ['{0}.preprocess.1.{1}.1.fastq.gz'.format(prefix, lib_id), '{0}.preprocess.1.{1}.2.fastq.gz'.format(prefix, lib_id), '{0}.preprocess.1.{1}.3.fastq.gz'.format(prefix, lib_id)]
-                outputs = 'out=' + library_file2[0] + ' out2=' + library_file2[1] + ' outs=' + library_file2[2]
-
-            bb_run = Popen('{bbduk} -Xmx{memory}g threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 ktrim=r trimq={read_qual} {read} {outputs}'.format( \
-                              read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
-            timer = Timer(3600, kill_child_proc, [bb_run])
-            try:
-                timer.start()
-                bb_out = bb_run.communicate()
-            finally: 
-                timer.cancel()
-            if bb_run.returncode == 0 :
-                new_reads.append(library_file2)
-                try:
-                    for fname in library_file :
-                        os.unlink(fname)
-                    stat = re.findall('Result:\s+(\d+) reads .+\s+(\d+) bases', bb_out[1])[0]
-                    logger('Obtained {1} bases in {0} reads after BBDuk2'.format(*stat))
-                except :
-                    pass
-            else :
-                new_reads.append(library_file)
-                try:
-                    stat = re.findall('Input:\s+(\d+) reads .+\s+(\d+) bases', bb_out[1])[0]
-                    logger('BBDuk2 failed! Use original reads with {1} bases in {0} reads'.format(*stat))
-                    for fname in library_file2 :
-                        os.unlink(fname)
-                except :
-                    pass
-        return new_reads
-    def reduce_depth(self, reads) :
-        encode = {'A':0, 'C':1, 'G':2, 'T':3}
-        read_stats = [[] for library in reads]
-        new_reads = [[] for library in reads]
-        for lib_id, (library, stat, new_lib) in enumerate(zip(reads, read_stats, new_reads)) :
-            for fname in library :
-                n_base, bcomp = 0, [[0, 0, 0, 0, 0] for i in range(10)]
-                p = Popen('zcat {0}'.format(fname).split(), stdout=PIPE)
-                for id, line in enumerate(p.stdout) :
-                    if id % 4 == 1 :
-                        if id < 400000 and id % 20 == 1:
-                            for b, bc in zip(line[:10], bcomp) :
-                                bc[encode.get(b, 4)] += 1
-                        n_base += len(line.strip())
-                seq_start = 0
-                for c in range(9, -1, -1) :
-                    bc = bcomp[c]
-                    if max(bc) / 0.8 >= sum(bc) or (c < 2 and bc[4] > 0.1*sum(bc)) :
-                        seq_start = c + 1
-                        break
-                stat.append([n_base, seq_start])
-            n_base = sum([s[0] for s in stat])
-            sample_freq = float(parameters['max_base'])/n_base
-            if sample_freq >= 1 or len(stat) < 3 :
-                sample_freqs = [ sample_freq for s in stat ]
-            else :
-                n_base2 = sum([s[0] for s in stat[:2]])
-                if float(parameters['max_base']) <= n_base2 :
-                    sample_freqs = [ float(parameters['max_base'])/n_base2, float(parameters['max_base'])/n_base2, 0. ]
-                else :
-                    sample_freqs = [ 1., 1., (float(parameters['max_base']) - n_base2)/stat[2][0] ]
-            if sample_freqs[0] < 1 and sample_freqs[0] > 0 :
-                logger('Read depth too high. Subsample to every {0} read'.format(1./sample_freqs[0]))
-
-            for f_id, (lib, s, sample_freq) in enumerate(zip(library, stat, sample_freqs)) :
-                #if s[1] <= 0 and sample_freq >= 1. :
-                    #new_lib.append(lib)
-                #else :
-                    if sample_freq > 0 :
-                        new_lib.append('{0}.preprocess.2.{1}.{2}.fastq.gz'.format(prefix, lib_id, f_id+1))
-                        if s[1] > 0 :
-                            logger('Remove potential barcode bases at the beginning {0} bps of reads in {1}'.format( s[1], lib ))
-                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print substr($0, {3}, 9999999)}} else {{if(id==0) {{print \"@{4}\"nr}} else {{print \"+\"}} }} }}'|gzip > {1}".format(
-                                lib, new_lib[-1], min(sample_freq, 1.), s[1]+1, lib_id), shell=True).wait()
-                        else :
-                            Popen("zcat {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print $0}} else {{ if(id==0){{print \"@{4}\"nr}} else {{print \"+\"}} }} }}'|gzip > {1}".format(
-                                lib, new_lib[-1], min(sample_freq, 1.), s[1]+1, lib_id), shell=True).wait()
-                    os.unlink(lib)
-        return new_reads
 # mainprocess
 class mainprocess(object) :
     def launch (self, reads) :
         self.snps = None
         result = parameters.pop('reference', None)
-        if 'spades' in task :
-            result = self.do_spades(reads)
-        elif 'megahit' in task :
-            result = self.do_megahit(reads)
-        if 'polish' in task :
+        if not result :
+            if parameters['assembler'] == 'spades' :
+                result = self.do_spades(reads)
+            else :
+                result = self.do_megahit(reads)
+        if not parameters['noPolish'] :
             result = self.do_polish(result, reads)
-        if 'quality' in task :
+        if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
         return result
+
     def __get_read_len(self, reads) :
         read_len = 0.
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("gzip -cd {0}|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE).communicate()[0].split()
+                p = Popen("gzip -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len)
@@ -204,13 +102,12 @@ class mainprocess(object) :
             shutil.rmtree(outdir)
         read_input = [[], [], []]
         for lib in reads :
-            if len(lib) == 1 :
-                read_input[2].append(lib[2])
+            if len(lib) % 2 == 1 :
+                read_input[2].append(lib[-1])
             else :
                 read_input[0].append(lib[0])
                 read_input[1].append(lib[1])
-                if len(lib) > 2 :
-                    read_input[2].append(lib[2])
+
         if len(read_input[0]) > 0 :
             if len(read_input[2]) > 0 :
                 read_input = '-1 {0} -2 {1} -r {2}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
@@ -253,13 +150,14 @@ class mainprocess(object) :
         shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
         logger('SPAdes scaffolds in {0}'.format(output_file))
         return output_file
+    
     def do_polish_with_SNPs(self, reference, snp_file) :
         sequence = readFasta(filename=reference)
         snps = { n:[] for n in sequence }
         if snp_file != '' :
             with open(snp_file) as fin :
                 for line in fin :
-                    part = line.strip().split('\t')
+                    part = line.strip().split()
                     snps[part[0]].append([int(part[1]), part[-1]])
             self.snps = snps
 
@@ -285,7 +183,7 @@ class mainprocess(object) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
-            if parameters['aligner'] != 'bwa' :
+            if parameters['mapper'] != 'bwa' :
                 bams = self.__run_bowtie(reference, reads)
             else :
                 bams = self.__run_bwa(reference, reads)
@@ -336,7 +234,7 @@ class mainprocess(object) :
             return '{0}.fasta'.format(prefix)
 
     def get_quality(self, reference, reads) :
-        if parameters['aligner'] != 'bwa' :
+        if parameters['mapper'] != 'bwa' :
             bams = self.__run_bowtie(reference, reads)
         else :
             bams = self.__run_bwa(reference, reads)
@@ -390,7 +288,7 @@ class mainprocess(object) :
                     if part[-1] == '0/0' and len(part[3]) == 1 and len(part[4]) == 1 :
                         dp, af = float(part[7].split(';', 1)[0][3:]), float(part[7][-4:])
                         if af < 0.15 and dp >= 3 and dp * af <= exp_mut_depth :
-                            if part[6] == 'PASS' or (part[6] == 'LowCov' and 'metagenome' in task) :
+                            if part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome']) :
                                 site = int(part[1])-1
                                 qual = chr(int(part[7].split(';')[4][3:])+33)
                                 sequence[part[0]][1][site] = qual
@@ -426,10 +324,9 @@ class postprocess(object) :
         except :
             return {}
         evaluation = dict(assembly=assembly, fasta=fasfile)
-        if 'eval' in task :
-            evaluation.update(self.do_evaluation(seq))
-            if parameters['kraken_database'] is not None :
-                evaluation.update({'kraken': self.do_kraken(fasfile)})
+        evaluation.update(self.do_evaluation(seq))
+        if parameters['kraken_database'] is not None :
+            evaluation.update({'kraken': self.do_kraken(fasfile)})
         return evaluation
     def __readAssembly(self, assembly) :
         seq = {}
@@ -444,9 +341,6 @@ class postprocess(object) :
                         seq[name]= [0, float(part[2]) if len(part) > 2 else 0., None]
                     elif id % 4 == 1 :
                         seq[name][2] = np.array(list(line.strip()))
-                 #   elif id % 4 == 3 :
-                 #       qual = np.array([ord(q)-33 for q in list(line.strip())])
-                 #       seq[name][2][ qual < 10 ] = 'N'
                 for n, s in seq.iteritems() :
                     s[2] = ''.join(s[2].tolist())
                     s[0] = len(s[2])
@@ -520,86 +414,76 @@ class postprocess(object) :
                     N50 = n50,
                     L50 = l50)
 
-reads, prefix, task = None, None, None
-def enbler() :
-    global reads, prefix, task
-    reads = []
-    for r in sys.argv[1:] :
-        k,v = r.split('=', 1)
-        if k == 'pe' :
-            reads.append([])
-            rnames = v.split(',')
-            for r1, r2 in zip(rnames[::2], rnames[1::2]) :
-                reads[-1].append([r1, r2])
-        elif k == 'se' :
-            reads.append([])
-            rnames = v.split(',')
-            for rn in rnames :
-                reads[-1].append([rn])
-        else :
-            parameters[k] = v
+reads, prefix, parameters = None, None, None
+def EnBler(args) :
+    global reads, prefix, parameters
+    parameters = add_args(args).__dict__
+    parameters.update(externals)
     prefix = parameters['prefix']
+    
+    reads = []
+    for k, vs in zip(('pe', 'se'), (parameters['pe'], parameters['se'])) :
+        for v in vs :
+            if k == 'pe' :
+                rnames = v.split(',')
+                if len(rnames) > 0 :
+                    assert len(rnames) == 2, 'Allows 2 reads per PE library. You specified {0}'.format(len(rnames))
+                    reads.append(rnames)
+            elif k == 'se' :
+                rnames = v.split(',')
+                if len(rnames) > 0 :
+                    assert len(rnames) == 1, 'Allows one file per SE library. You specified {0}'.format(len(rnames))
+                    reads.append(rnames)
 
-    task = parameters['task'].split(',')
-    if 'standard-assembly' in parameters['task'] :
-        task = ['prep', 'spades', 'polish', 'quality', 'eval']
-    elif 'metagenome-assembly' in parameters['task'] :
-        task = ['metagenome', 'prep', 'megahit', 'polish', 'quality', 'eval']
-    elif 'standard-mapping' in parameters['task'] :
-        task = ['prep', 'mapping', 'polish', 'quality', 'eval']
-        assert os.path.isfile(parameters['reference'])
-    elif 'metagenome-mapping' in parameters['task'] :
-        task = ['metagenome', 'prep', 'mapping', 'polish', 'quality', 'eval']
-        assert os.path.isfile(parameters['reference'])
-    if 'metagenome' in task :
-        parameters['max_base'] = '8000000000000'
-        parameters['cont_depth'] = '0.0001,10000.'
-        parameters['max_diff'] = '0.05'
-        
-
-    if 'noprep' in parameters['task'] :
-        task.remove('prep')
-    if 'noeval' in parameters['task'] :
-        task.remove('eval')
-    if 'nopolish' in parameters['task'] :
-        task.remove('polish')
-    if 'noquality' in parameters['task'] :
-        task.remove('quality')
-
-    if 'nocap' in parameters['task'] :
-        max_base = '8000000000000'
-    if 'nokraken' in parameters['task'] :
-        parameters['kraken_database'] = None
-
-    logger('Initiate program with tasks: {0}'.format(','.join(task)))
-    logger('Load in {0} read files from {1} libraries'.format(sum([ len(rr) for lib in reads for rr in lib ]), len(reads)))
-    if 'prep' in task :
-        reads = preprocess().launch(reads)
+    logger('Load in {0} read files from {1} libraries'.format(sum([ len(lib) for lib in reads ]), len(reads)))
+    if not parameters['onlyEval'] :
+        assembly = mainprocess().launch(reads)
     else :
-        reads = [rr for r in reads for rr in r]
-    assembly = mainprocess().launch(reads)
+        assembly = parameters['reference']
     report = postprocess().launch(assembly)
     import json
     print json.dumps(report, sort_keys=True, indent=2)
 
-parameters = dict(
-    task = 'standard-assembly',
-    prefix = 'enbler',
-    read_qual = '6',
-    max_base = '600000000',
-    max_diff = '0.1', 
-    kmers = '30,50,70,90',
-    cont_depth = '0.2,2.5',
-    aligner = 'bwa', 
-    memory = '31', 
-    SNP = None,
-    reference = None,
-    reads = None,
-)
+def add_args(a) :
+    import argparse
+    parser = argparse.ArgumentParser(description='''
+EnBler
+(1.1) assembles short reads into assemblies, or 
+(1.2) maps them onto a reference. 
+And
+(2) polishes consensus using polish, 
+(3) Removes low level contaminations. 
+(4) Estimates the base quality of the consensus. 
+(5) Predicts taxonomy using Kraken.
+''', formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('--pe', action='append', help='two files of PE reads, delimited by commas. ', default=[])
+    parser.add_argument('--se', action='append', help='a file of SE read. \n', default=[])
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EnBler', default='EnBler')
+    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. Default: spades for single isolates, megahit for metagenome', default='')
+    parser.add_argument('-k', '--kmers', help='Relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
+    parser.add_argument('-m', '--mapper', help='Aligner used for read mapping.\nDisabled if you specify a reference. \nDefault: bwa for single isolates, bowtie2 for metagenome', default='')
+    parser.add_argument('-d', '--max_diff', help='Maximum proportion of mismatches in mapping. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
+    parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this will disable assembly process. ', default=None)
+    parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite polish process. \nRequired format:\n<cont_name> <site> <base_type>', default=None)
+    parser.add_argument('-c', '--cont_depth', help='Lower and upper limits of read depths for a valid contig. Default: 0.2,2.5', default='')
+    
+    parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
+    parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
+    parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
+    parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
+    parser.add_argument('--noKraken', help='Do not run species prediciton.', action='store_true', default=False)
 
-parameters.update(externals)
+    args = parser.parse_args(a)
+    if args.cont_depth == '' :
+        args.cont_depth = '0.2,2.5' if not args.metagenome else '0.0001,10000'
+    if args.mapper == '' :
+        args.mapper = 'bwa' if not args.metagenome else 'bowtie2'
+    if args.assembler == '' :
+        args.assembler = 'spades' if not args.metagenome else 'megahit'
+    if args.max_diff < 0 :
+        args.max_diff = 0.1 if not args.metagenome else 0.05
 
-
+    return args
 
 if __name__ == '__main__' :
-    enbler()
+    EnBler(sys.argv[1:])

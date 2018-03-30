@@ -1,8 +1,9 @@
 from ete3 import Tree
 import sys, numpy as np, os, glob, math, gzip, re, argparse
 from subprocess import Popen, PIPE
+from EnConf import externals
 
-raxml = None
+raxml = externals['raxml']
 
 def readFasta(fasta_file) :
     seqs = []
@@ -229,7 +230,7 @@ def read_states(fname) :
     return names, np.array(states), sites
     
 
-def add_args() :
+def add_args(a) :
     parser = argparse.ArgumentParser(description='Parameters for phylogeny_workflow.py', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--tasks', '-t', help='''Tasks to call. Allowed tasks are:
 matrix: generate SNP matrix from alignment.
@@ -252,9 +253,8 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
-    parser.add_argument('--raxml', '-r', help='path to RAxML executable file. Default: Search from environment variable', default='raxml*')
     
-    args = parser.parse_args()
+    args = parser.parse_args(a)
     
     args.tasks = dict(
         all = 'matrix,phylogeny,ancestral,mutation',
@@ -263,21 +263,6 @@ mat2mut: ancestral,mutation''', default='aln2phy')
         mat2mut = 'ancestral,mutation',
     ).get(args.tasks, args.tasks).split(',')
     
-    if 'phylogeny' in args.tasks :
-        if not os.access(args.raxml, os.X_OK) :
-            search_cmd = lambda x: sorted([fname for path in os.environ["PATH"].split(os.pathsep) for fname in glob.glob(os.path.join(path, x)) if os.access(fname, os.X_OK)])
-            try:
-                files = search_cmd(args.raxml)
-                f2 = [f for f in files if f.lower().find('pthread')>=0]
-                if len(f2) > 0 :
-                    args.raxml = f2[0]
-                else :
-                    args.raxml = files[0]
-            except :
-                raise ValueError('did not find any raxml executable file.')
-        global raxml
-        raxml = args.raxml
-
     return args
 
 def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
@@ -357,8 +342,8 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             retvalue.append(tag[r])
     return tree, [ k for k, v in sorted(node_names.iteritems(), key=lambda x:x[1])], retvalue
 
-if __name__ == '__main__' :
-    args = add_args()
+def EnPhyl(args) :
+    args = add_args(args)
 
     prefix = args.prefix
     
@@ -368,13 +353,13 @@ if __name__ == '__main__' :
         names, sites, snps = parse_snps(seq, args.core)
         args.snp = write_matrix(prefix+'.matrix.gz', names, sites, snps)
         if len(names) < 4 :
-            raise ValueError('Too few taxa.')
+            raise ValueError('Taxa too few.')
         snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
     elif 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         assert os.path.isfile( args.snp )
         names, sites, snps = read_matrix(args.snp)
         if len(names) < 4 :
-            raise ValueError('Too few taxa.')
+            raise ValueError('Taxa too few.')
         snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
     
         
@@ -413,3 +398,5 @@ if __name__ == '__main__' :
             for mut in mutations :
                 fout.write('\t'.join([str(m) for m in mut]) + '\n')
 
+if __name__ == '__main__' :
+    EnPhyl(sys.argv[1:])
