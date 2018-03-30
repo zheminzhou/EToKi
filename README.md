@@ -1,7 +1,7 @@
 # EToKi (Enterobase Tool Kit)
 all methods related to Enterobase
 
-External dependencies:
+## External dependencies:
 * raxml
 * bbmap
 * usearch
@@ -19,20 +19,22 @@ External dependencies:
 * vsearch
 
 
-Python version: 2.7.9
+## Python version: 2.7.9
 
-Packages:
+## Packages:
 ete3==3.0.0b17
 hashlib==20081119
 numpy==1.11.3
 pandas==0.18.0
 psutil==5.1.0
 
-Installation: 
-> git clone 
-> EToKi.py EnConf
+## Installation: 
+1. git clone https://github.com/zheminzhou/EToKi.git
+2. python EToKi.py EnConf -h
 
-Usage:   EToKi.py <command> [options]
+Specify the links to external commands if they are not in the system PATH. 
+
+## Usage:   EToKi.py <command> [options]
 
 Commands:
   EnConf            configure external dependencies
@@ -44,6 +46,13 @@ Commands:
   EnPhyl            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
   RecHMM            Identify Recombination sketches.
 
-Use EToKi.py <command> -h for help in different commands.
+Use EToKi.py <command> -h for help in each command.
 
 
+## Example: 
+
+1. phylogeny + ancestral reconstruction + recombination detection
+
+python EToKi.py EnPhyl -t all -p example -m examples/sample.fasta
+
+2. ....
