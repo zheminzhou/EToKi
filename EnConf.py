@@ -1,4 +1,4 @@
-import os, sys, subprocess
+import os, sys, subprocess, numpy as np, argparse, glob
 
 # packages:
 #   bbmap
@@ -78,37 +78,99 @@ def logger(log) :
     from datetime import datetime
     sys.stderr.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
-externals = dict(
-    # EnBler
-    bbduk = '{HOME}/CRobot/source/bbmap/bbduk2.sh',
-    adapters = '{HOME}/CRobot/source/bbmap/resources/adapters.fa',
-    spades = '{HOME}/CRobot/source/SPAdes-3.11.1-Linux/bin/spades.py',
-    megahit = '{HOME}/CRobot/source/megahit/megahit',
-    bwa = '{HOME}/CRobot/source/bwa-0.7.12/bwa',
-    bowtie2 = '{HOME}/CRobot/source/bowtie2-2.3.4.1-linux-x86_64/bowtie2',
-    bowtie2build = '{HOME}/CRobot/source/bowtie2-2.3.4.1-linux-x86_64/bowtie2-build',
-    enbler_filter= 'python {HOME}/CRobot/pipelines/EnSuit/_EnFlt.py',
-    samtools = '{HOME}/CRobot/source/samtools-1.7/samtools',
-    gatk = 'java -Xmx30g -jar {HOME}/CRobot/source/gatk-4.beta.6/gatk-package-4.beta.6-local.jar',
-    pilon = 'java -Xmx30g -jar {HOME}/CRobot/source/pilon-1.22.jar',
-    kraken_program = '{HOME}/CRobot/source/kraken/kraken',
-    kraken_report = '{HOME}/CRobot/source/kraken/kraken-report',
-    kraken_database = '{HOME}/minikraken_20141208',
+search_file = lambda x: [x] if os.path.isfile(x) else [fname for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
+def update_configure() :
+    defaults = dict(
+        bbduk='bbduk2.sh',
+        spades='spades.py',
+        megahit='megahit',
+        bwa='bwa',
+        bowtie2='bowtie2',
+        bowite2build='bowtie2-build',
+        samtools='samtools',
+        gatk='gatk-package-4*',
+        pilon='pilon*',
+        kraken_program='kraken',
+        kraken_report='kraken-report',
+        vsearch='vsearch',
+        mcl='mcl',
+        fasttree='?fast?ree*',
+        ublast='usearch*',
+        blastn='blastn',
+        formatdb='makeblastdb',
+    )
+    args = add_args()
 
-    # EnSign
-    ublast='{HOME}/CRobot/source/usearch8.0.1623_i86linux32',
-    vsearch='{HOME}/software/vsearch/bin/vsearch',
-    blast='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/blastn',
-    formatdb='{HOME}/CRobot/source/ncbi-blast-2.2.31+/bin/makeblastdb',
-    #
-    fasttree = '{HOME}/biosoft/FastTreeMP',
-    rapidnj = '{HOME}/biosoft/rapidNJ/bin/rapidnj',
-    mcl = '/usr/local/bin/mcl',
-)
-externals = {k:v.format(HOME=os.path.expanduser('~')) for k, v in externals.iteritems()}
+    for param, value in defaults.iteritems() :
+        if args.__dict__.get(param, None) :
+            fn = search_file(args.__dict__[param])
+            assert len(fn), 'The specified "{0}" is not found.'.format(param)
+            externals[param] = fn[0]
+        elif not os.path.isfile(externals.get(param, '')) :
+            fn = search_file(value)
+            if not len(fn) :
+                logger('{0} is not found. Be aware that some functions may not able to run.'.format())
+            externals[param] = fn[0]
 
+    write_configure(externals)
+    logger('Configuration complete.')
+
+def prepare_externals() :
+    externals['gatk']  = 'java -Xmx30g -jar ' + externals['gatk']
+    externals['pilon'] = 'java -Xmx30g -jar ' + externals['pilon']
+    for k, v in externals.iteritems() :
+        externals[k] = v.format(HOME=os.path.expanduser('~'))
+
+def add_args() :
+    parser = argparse.ArgumentParser(description='''Configure external dependencies for EToKi (Enterobase Tool Kit).
+Will search executable files from system paths by default.
+The path to two databases for Kraken and Illumina adapters are required for the assembler. ''', formatter_class=argparse.RawTextHelpFormatter)
+    # EnBler database
+    parser.add_argument('--adapters', help='adapter database to be used in bbduk.\nIt can be found as resources/adapters.fa in the BBmap package')
+    parser.add_argument('--krakenDB', dest='kraken_database', help='database to be used in kraken based species prediction.\nIt can be downloaded from \n"https://ccb.jhu.edu/software/kraken/"')
+    # EnBler executables
+    parser.add_argument('--bbduk')
+    parser.add_argument('--spades')
+    parser.add_argument('--bwa')
+
+    parser.add_argument('--megahit')
+    parser.add_argument('--bowtie2')
+    parser.add_argument('--bowtie2-build', dest='bowtie2build')
+
+    parser.add_argument('--samtools')
+    parser.add_argument('--gatk4', dest='gatk')
+    parser.add_argument('--pilon')
+    parser.add_argument('--kraken', dest='kraken_program')
+    parser.add_argument('--kraken-report', dest='kraken_report')
+    # EnOrth executables
+    parser.add_argument('--vsearch')
+    parser.add_argument('--mcl')
+    parser.add_argument('--fasttree')
+    # EnSign executables
+    parser.add_argument('--usearch', dest='ublast')
+    parser.add_argument('--blastn')
+    parser.add_argument('--makeblastdb', dest='formatdb')
+    # EnPhyl executables
+    parser.add_argument('--raxml')
+
+    return parser.parse_args()
+
+
+def load_configure() :
+    EnConf_file = os.path.join(os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini')
+    try :
+        mat = np.genfromtxt(EnConf_file, dtype=str)
+    except :
+        return {}
+    return dict(**mat.tolist())
+
+def write_configure() :
+    EnConf_file = os.path.join(os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini')
+    mat = np.array(externals)
+
+
+externals = load_configure()
 if __name__ == '__main__' :
-    for k, p in externals.iteritems() :
-        fp = p.split()[-1]
-        assert os.path.exists(fp), 'ERROR - {0} : {1} is not present'.format(k, p)
-        print 'Found - {1}'.format(k, p)
+    update_configure()
+else :
+    prepare_externals()
