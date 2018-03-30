@@ -1,4 +1,4 @@
-import os, io, sys, re, urllib2, shutil, numpy as np
+import os, io, sys, re, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
