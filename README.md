@@ -37,14 +37,24 @@ Specify the links to external commands if they are not in the system PATH.
 ## Usage:   EToKi.py <command> [options]
 
 Commands:
+
   EnConf            configure external dependencies
+
   EnPrep            Preprocessing for short reads
-  EnBler            de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
-  EnOrth            Pan-genome prediction
-  EnServ            Create database for MLST typing
-  EnSign            MLST nomenclature
-  EnPhyl            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
-  RecHMM            Identify Recombination sketches.
+
+EnBler            de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
+
+EnOrth            Pan-genome prediction
+
+EnServ            Create database for MLST typing
+
+EnSign            MLST nomenclature
+
+EnPhyl            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
+
+RecHMM            Identify Recombination sketches.
+
+
 
 Use EToKi.py <command> -h for help in each command.
 
