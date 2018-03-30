@@ -1,10 +1,8 @@
 from ete3 import Tree
 import sys, numpy as np, os, glob, math, gzip, re, argparse
 from subprocess import Popen, PIPE
-#from pyLib import configure_reader
 
-#raxml = configure_reader(os.path.realpath(__file__)[:-3] + '.ini')['setting']['raxml']
-raxml = '/home/zhemin/CRobot/source/standard-RAxML/raxmlHPC-PTHREADS'
+raxml = None
 
 def readFasta(fasta_file) :
     seqs = []
@@ -58,6 +56,7 @@ def parse_snps(seq, core=0.95) :
 
 def write_phylip(prefix, names, snp_list) :
     invariants = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
+    valid_values = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-'}
     for snp in snp_list :
         if snp[3] == 0 and snp[2][0].upper() in invariants :
             invariants[ snp[2][0] ] += snp[1]
@@ -67,7 +66,7 @@ def write_phylip(prefix, names, snp_list) :
     with open(prefix+'.phy.weight', 'w') as fout :
         fout.write(' '.join([str(x) for x in weights]))
 
-    snp_array = np.array([ snp[2] for snp in snp2 ]).T
+    snp_array = np.array([ [ valid_values.get(s, '-') for s in snp[2]] for snp in snp2 ]).T
     n_tax, n_seq = snp_array.shape
     with open(prefix + '.phy', 'w') as fout :
         fout.write('\t{0} {1}\n'.format(n_tax, n_seq))
@@ -191,9 +190,13 @@ def get_mut(final_tree, names, states, sites) :
     outputs = []
     for c, p, i in sites :
         m = mutations.get(i, [])
-        len_m = len(m)
+        len_m = {}
         for mut in m :
-            outputs.append([mut[0], c, p, len_m, mut[1]])
+            s = tuple(sorted([mut[1][0], mut[1][-1]]))
+            mut.append(s)
+            len_m[s] = len_m.get(s, 0) + 1
+        for mut in m :
+            outputs.append([mut[0], c, p, len_m[mut[-1]], mut[1]])
     return sorted(outputs)
 
 def write_states(fname, names, states, sites) :
@@ -249,8 +252,10 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
-
+    parser.add_argument('--raxml', '-r', help='path to RAxML executable file. Default: Search from environment variable', default='raxml*')
+    
     args = parser.parse_args()
+    
     args.tasks = dict(
         all = 'matrix,phylogeny,ancestral,mutation',
         aln2phy = 'matrix,phylogeny',
@@ -258,6 +263,21 @@ mat2mut: ancestral,mutation''', default='aln2phy')
         mat2mut = 'ancestral,mutation',
     ).get(args.tasks, args.tasks).split(',')
     
+    if 'phylogeny' in args.tasks :
+        if not os.access(args.raxml, os.X_OK) :
+            search_cmd = lambda x: sorted([fname for path in os.environ["PATH"].split(os.pathsep) for fname in glob.glob(os.path.join(path, x)) if os.access(fname, os.X_OK)])
+            try:
+                files = search_cmd(args.raxml)
+                f2 = [f for f in files if f.lower().find('pthread')>=0]
+                if len(f2) > 0 :
+                    args.raxml = f2[0]
+                else :
+                    args.raxml = files[0]
+            except :
+                raise ValueError('did not find any raxml executable file.')
+        global raxml
+        raxml = args.raxml
+
     return args
 
 def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
