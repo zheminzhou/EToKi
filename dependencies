@@ -1,0 +1,15 @@
+raxml
+bbmap
+usearch
+samtools
+kraken
+gatk
+megahit
+mcl
+pilon
+fasttree
+bwa
+bowite2
+spades
+blastn
+vsearch
