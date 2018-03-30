@@ -53,9 +53,8 @@ Use EToKi.py <command> -h for help in each command.
 
 ### phylogeny + ancestral reconstruction + recombination detection
 
-1.python EToKi.py EnPhyl -t all -p sample_out -m examples/sample.fasta
-
-2.python EToKi.py RecHMM -d sample_out.mutations.gz -p sample_out
+1. python EToKi.py EnPhyl -t all -p sample_out -m examples/sample.fasta
+2. python EToKi.py RecHMM -d sample_out.mutations.gz -p sample_out
 
 Outputs are:
 
