@@ -53,12 +53,15 @@ Use EToKi.py <command> -h for help in each command.
 
 ### phylogeny + ancestral reconstruction + recombination detection
 
-1. python EToKi.py EnPhyl -t all -p sample_out -m examples/sample.fasta
-2. python EToKi.py RecHMM -d sample_out.mutations.gz -p sample_out
+1. cd examples
+2. python ../EToKi.py EnPhyl -t all -p sample_out -m sample.fasta
+3. python ../EToKi.py RecHMM -d sample_out.mutations.gz -p sample_out
 
 Outputs are:
 
+* sample_out.matrix.gz - a table of mutations in the alignment. 
 * sample_out.labeled.nwk - phylogeny with labeled internal nodes. 
+* sample_out.ancestral_states.gz - Ancestral states of internal nodes. 
 * sample_out.mutations.gz - Occurences of mutations on different branches. 
 * sample_out.best.model.report - Estimated parameters for the recombinations. 
 * sample_out.recombination.region - Identified recombination regions. 
