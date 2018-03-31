@@ -8,7 +8,7 @@ def _iter_branch_measure(obj, arg) :
 
 class RecHMM(object) :
     def __init__(self, mode=1) :
-        self.max_iteration = 300
+        self.max_iteration = 200
         self.n_base = None
         self.mode = ['legacy', 'hybrid', 'intra', 'both'][mode]
         self.n_a, self.n_b = [[2, 2], [4, 3], [2, 3], [3, 3]][mode]
