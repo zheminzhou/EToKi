@@ -174,7 +174,8 @@ class RecHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        h = [1-model['h'][0], model['h'][0]]
+        #h = [1-model['h'][0], model['h'][0]]
+        h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.)]
         
         probability, pi, br = 0., [], []
         a = np.zeros(shape=[self.n_a, self.n_a])
@@ -252,7 +253,8 @@ class RecHMM(object) :
             a[1:, 0] = model['delta']
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, 3])
-            h = [1-model['h'][0], model['h'][0]]
+            #h = [1-model['h'][0], model['h'][0]]
+            h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.)]
             
             mut = d[0]
             
@@ -480,7 +482,7 @@ class RecHMM(object) :
         
         pp = np.array([d['probability'] for d in posterior])[bs]
 
-        h0 = 1-self.model['h'][0]
+        h0 = 1-self.model['h'][0]/2
 
         reports = {}
         
