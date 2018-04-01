@@ -174,7 +174,7 @@ class RecHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2]
+        h = [1-model['h'][0], model['h'][0]]
         
         probability, pi, br = 0., [], []
         a = np.zeros(shape=[self.n_a, self.n_a])
@@ -252,7 +252,7 @@ class RecHMM(object) :
             a[1:, 0] = model['delta']
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, 3])
-            h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2]
+            h = [1-model['h'][0], model['h'][0]]
             
             mut = d[0]
             
@@ -426,7 +426,7 @@ class RecHMM(object) :
         bv = b.T
         path = np.zeros(shape=[self.n_base, self.n_a], dtype=int)
         alpha = np.zeros(shape=[self.n_base, self.n_a])
-        alpha[0] = np.log(pi * bv[obs[0, 2]])
+        alpha[0] = np.log( np.dot(pi, a) * bv[obs[0, 2]])
 
         i = 0
         p = np.zeros([self.n_a, self.n_a])
@@ -452,7 +452,7 @@ class RecHMM(object) :
             p = p + pa + pb.T[o]
             path[i] = np.argmax(p, 0)
             alpha[i] = p[path[i], ids]
-        alpha[i] += np.log(pi)
+        alpha[i] += np.log( np.dot(pi, a.T) )
         max_path = np.argmax(alpha[i])
         regions = [] if max_path == 0 else [[i+1, i+1, max_path]]
         for id in np.arange(path.shape[0]-2, -1, -1) :
@@ -480,7 +480,7 @@ class RecHMM(object) :
         
         pp = np.array([d['probability'] for d in posterior])[bs]
 
-        h0 = 1-self.model['h'][0]/2
+        h0 = 1-self.model['h'][0]
 
         reports = {}
         
