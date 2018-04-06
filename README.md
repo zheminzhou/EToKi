@@ -71,7 +71,7 @@ Use EToKi.py <command> -h for help in each command.
 
 ## Examples: 
 
-### 1. phylogeny + ancestral reconstruction + recombination detection
+### 1. phylogeny + ancestral reconstruction + recombination detection (phylo_example.bash)
 ```
 cd examples
 python ../EToKi.py phylo -t all -p phylo_out -m phylo_rec.fasta
@@ -93,7 +93,7 @@ Outputs are:
 3. Mixed:    Repetitive imports from external sources to different branches of the tree. High SNP densities and high homoplasies. 
 
 You can use legacy RecHMM by setting --task 0, which considers only external source. 
-### 2. short reads preprocess + assembly + polish + consensus quality + evaluation
+### 2. short reads preprocess + assembly + polish + consensus quality + evaluation (assemble_example.bash)
 ```
 cd examples
 python ../EToKi.py prepare --pe A_R1.fastq.gz,A_R2.fastq.gz -p prep_out
