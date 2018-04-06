@@ -31,6 +31,8 @@ all methods related to Enterobase
 ## Installation: 
 ```
 git clone https://github.com/zheminzhou/EToKi.git
+cd EToKi
+pip install -r requirements.txt
 python EToKi.py configure -h
 ```
 Specify the links to external commands if they are not in the system PATH. 
