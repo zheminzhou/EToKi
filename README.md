@@ -21,7 +21,7 @@ all methods related to Enterobase
 
 ## Python version: 2.7.9
 
-## Packages:
+## PIP Packages:
 * ete3==3.0.0b17
 * hashlib==20081119
 * numpy==1.11.3
@@ -29,43 +29,37 @@ all methods related to Enterobase
 * psutil==5.1.0
 
 ## Installation: 
-1. git clone https://github.com/zheminzhou/EToKi.git
-2. python EToKi.py EnConf -h
-
+```
+git clone https://github.com/zheminzhou/EToKi.git
+python EToKi.py configure -h
+```
 Specify the links to external commands if they are not in the system PATH. 
 
 ## Usage:   EToKi.py <command> [options]
 
+```
 Commands:
-
-EnConf            configure external dependencies
-
-EnPrep            Preprocessing for short reads
-
-EnBler            de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
-
-EnOrth            Pan-genome prediction
-
-EnServ            Create database for MLST typing
-
-EnSign            MLST nomenclature
-
-EnPhyl            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
-
-RecHMM            Identify Recombination sketches.
-
+  configure        Configure external dependencies
+  prepare          Preprocessing for short reads
+  assemble         de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
+  ortho            Pan-genome prediction
+  MLSTdb           Create database for MLST typing
+  MLSType          MLST nomenclature
+  phylo            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
+  RecHMM           Identify Recombination sketches.
 
 
 Use EToKi.py <command> -h for help in each command.
-
+```
 
 ## Examples: 
 
 ### 1. phylogeny + ancestral reconstruction + recombination detection
-
-1. cd examples
-2. python ../EToKi.py phylo -t all -p phylo_out -m phylo_rec.fasta
-3. python ../EToKi.py RecHMM -d phylo_out.mutations.gz -p rec_out
+```
+cd examples
+python ../EToKi.py phylo -t all -p phylo_out -m phylo_rec.fasta
+python ../EToKi.py RecHMM -d phylo_out.mutations.gz -p rec_out
+```
 
 Outputs are:
 
@@ -83,9 +77,11 @@ Outputs are:
 
 You can use legacy RecHMM by setting --task 0, which considers only external source. 
 ### 2. short reads preprocess + assembly + polish + consensus quality + evaluation
-1. cd examples
-2. python ../EToKi.py prepare --pe A_R1.fastq.gz,A_R2.fastq.gz -p prep_out
-3. python ../EToKi.py assemble --pe prep_out_L1_R1.fastq.gz,prep_out_L1_R2.fastq.gz --se prep_out_L1_R3.fastq.gz -p asm_out
+```
+cd examples
+python ../EToKi.py prepare --pe A_R1.fastq.gz,A_R2.fastq.gz -p prep_out
+python ../EToKi.py assemble --pe prep_out_L1_R1.fastq.gz,prep_out_L1_R2.fastq.gz --se prep_out_L1_R3.fastq.gz -p asm_out
+```
 
 Outputs are:
 
