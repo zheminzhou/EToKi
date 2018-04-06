@@ -2,22 +2,30 @@
 all methods related to Enterobase
 
 ## External dependencies:
+#### phylo module
 * raxml
+
+#### prepare module
 * bbmap
+
+#### MLSType module
+* blastn
 * usearch
+
+#### assemble module
 * samtools
+* bwa
+* bowtie2
 * kraken
 * gatk
 * megahit
-* mcl
 * pilon
-* fasttree
-* bwa
-* bowite2
 * spades
-* blastn
-* vsearch
 
+#### ortho module
+* mcl
+* fasttree
+* vsearch
 
 ## Python version: 2.7.9
 
