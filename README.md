@@ -37,13 +37,18 @@ all methods related to Enterobase
 * psutil==5.1.0
 
 ## Installation: 
+Assume all the external dependencies are in system PATH.
 ```
 git clone https://github.com/zheminzhou/EToKi.git
 cd EToKi
 pip install -r requirements.txt
+python EToKi.py configure
+```
+Specify the links to external commands if they are not in the system PATH. Use
+```
 python EToKi.py configure -h
 ```
-Specify the links to external commands if they are not in the system PATH. 
+For additional information.
 
 ## Usage:   EToKi.py <command> [options]
 
