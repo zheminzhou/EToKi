@@ -23,7 +23,6 @@ all methods related to Enterobase
 
 ## PIP Packages:
 * ete3==3.0.0b17
-* hashlib==20081119
 * numpy==1.11.3
 * pandas==0.18.0
 * psutil==5.1.0
