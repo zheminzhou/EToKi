@@ -29,6 +29,8 @@ all methods related to Enterobase
 
 ## Python version: 2.7.9
 
+Please read [https://github.com/pyenv/pyenv] for python version control. 
+
 ## PIP Packages:
 * ete3==3.0.0b17
 * hashlib==20081119
