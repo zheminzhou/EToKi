@@ -2,24 +2,34 @@
 all methods related to Enterobase
 
 ## External dependencies:
+#### phylo module
 * raxml
+
+#### prepare module
 * bbmap
+
+#### MLSType module
+* blastn
 * usearch
+
+#### assemble module
 * samtools
+* bwa
+* bowtie2
 * kraken
 * gatk
 * megahit
-* mcl
 * pilon
-* fasttree
-* bwa
-* bowite2
 * spades
-* blastn
+
+#### ortho module
+* mcl
+* fasttree
 * vsearch
 
-
 ## Python version: 2.7.9
+
+Please read [https://github.com/pyenv/pyenv] for python version control. 
 
 ## PIP Packages:
 * ete3==3.0.0b17
@@ -28,13 +38,18 @@ all methods related to Enterobase
 * psutil==5.1.0
 
 ## Installation: 
+Assume all the external dependencies are in system PATH.
 ```
 git clone https://github.com/zheminzhou/EToKi.git
 cd EToKi
 pip install -r requirements.txt
+python EToKi.py configure
+```
+Specify the links to external commands if they are not in the system PATH. Use
+```
 python EToKi.py configure -h
 ```
-Specify the links to external commands if they are not in the system PATH. 
+For additional information.
 
 ## Usage:   EToKi.py <command> [options]
 
@@ -55,7 +70,7 @@ Use EToKi.py <command> -h for help in each command.
 
 ## Examples: 
 
-### 1. phylogeny + ancestral reconstruction + recombination detection
+### 1. phylogeny + ancestral reconstruction + recombination detection (phylo_example.bash)
 ```
 cd examples
 python ../EToKi.py phylo -t all -p phylo_out -m phylo_rec.fasta
@@ -77,7 +92,7 @@ Outputs are:
 3. Mixed:    Repetitive imports from external sources to different branches of the tree. High SNP densities and high homoplasies. 
 
 You can use legacy RecHMM by setting --task 0, which considers only external source. 
-### 2. short reads preprocess + assembly + polish + consensus quality + evaluation
+### 2. short reads preprocess + assembly + polish + consensus quality + evaluation (assemble_example.bash)
 ```
 cd examples
 python ../EToKi.py prepare --pe A_R1.fastq.gz,A_R2.fastq.gz -p prep_out
