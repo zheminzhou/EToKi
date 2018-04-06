@@ -29,7 +29,7 @@ class mainprocess(object) :
                 p = Popen("gzip -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
-            read_len = max(rl[1]/float(rl[0]), read_len)
+            read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
         logger('Estimated read length: {0}'.format(read_len))
         return read_len
     def __run_bowtie(self, reference, reads) :

@@ -38,9 +38,9 @@ Specify the links to external commands if they are not in the system PATH.
 
 Commands:
 
-  EnConf            configure external dependencies
+EnConf            configure external dependencies
 
-  EnPrep            Preprocessing for short reads
+EnPrep            Preprocessing for short reads
 
 EnBler            de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
 
@@ -59,22 +59,22 @@ RecHMM            Identify Recombination sketches.
 Use EToKi.py <command> -h for help in each command.
 
 
-## Example: 
+## Examples: 
 
-### phylogeny + ancestral reconstruction + recombination detection
+### 1. phylogeny + ancestral reconstruction + recombination detection
 
 1. cd examples
-2. python ../EToKi.py EnPhyl -t all -p sample_out -m sample.fasta
-3. python ../EToKi.py RecHMM -d sample_out.mutations.gz -p sample_out
+2. python ../EToKi.py phylo -t all -p phylo_out -m phylo_rec.fasta
+3. python ../EToKi.py RecHMM -d phylo_out.mutations.gz -p rec_out
 
 Outputs are:
 
-* examples/sample_out.matrix.gz - a table of mutations in the alignment. 
-* examples/sample_out.labeled.nwk - phylogeny with labeled internal nodes. 
-* examples/sample_out.ancestral_states.gz - Ancestral states of internal nodes. 
-* examples/sample_out.mutations.gz - Occurences of mutations on different branches. 
-* examples/sample_out.best.model.report - Estimated parameters for the recombinations. 
-* examples/sample_out.recombination.region - Identified recombination regions. 
+* examples/phylo_out.matrix.gz - a table of mutations in the alignment. 
+* examples/phylo_out.labeled.nwk - phylogeny with labeled internal nodes. 
+* examples/phylo_out.ancestral_states.gz - Ancestral states of internal nodes. 
+* examples/phylo_out.mutations.gz - Occurences of mutations on different branches. 
+* examples/rec_out.best.model.report - Estimated parameters for the recombinations. 
+* examples/rec_out.recombination.region - Identified recombination regions. 
 
 #### NOTE: New RecHMM identifies three categories of recombinations:
 1. External: Recombination with an external source. High SNP densities and low homoplasies. 
@@ -82,4 +82,16 @@ Outputs are:
 3. Mixed:    Repetitive imports from external sources to different branches of the tree. High SNP densities and high homoplasies. 
 
 You can use legacy RecHMM by setting --task 0, which considers only external source. 
-### ....
+### 2. short reads preprocess + assembly + polish + consensus quality + evaluation
+1. cd examples
+2. python ../EToKi.py prepare --pe A_R1.fastq.gz,A_R2.fastq.gz -p prep_out
+3. python ../EToKi.py assemble --pe prep_out_L1_R1.fastq.gz,prep_out_L1_R2.fastq.gz --se prep_out_L1_R3.fastq.gz -p asm_out
+
+Outputs are:
+
+* examples/prep_out_L1_R?.fastq.gz - Short reads after quality filtering
+* asm_out.result.fastq - Assembly with consensus quality information
+* asm_out.result.fasta - Assembly in fasta format
+
+#### NOTE: example is copied from sample data in SPAdes 3.10
+

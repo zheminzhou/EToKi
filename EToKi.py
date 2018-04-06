@@ -2,7 +2,7 @@ import argparse, numpy as np, sys
 
 def etoki() :
     try :
-        exec 'from {0} import {0}'.format(sys.argv[1])
+        exec 'from modules.{0} import {0}'.format(sys.argv[1])
     except Exception as e :
         print '''
 Program: EToKi (Enterobase Tool Kit)
