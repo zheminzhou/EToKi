@@ -1,0 +1,160 @@
+Branch	N_28	M=1.26142e-03	R=2.94425e-04
+	Recomb	N_28	19	2638	External
+	Recomb	N_28	6215	18773	External
+	Recomb	N_28	22853	37861	External
+	Recomb	N_28	43016	43277	External
+	Recomb	N_28	49049	56521	External
+	Recomb	N_28	62870	63826	External
+	Recomb	N_28	69204	81304	External
+	Recomb	N_28	85612	94671	External
+	Recomb	N_28	97304	99943	External
+Branch	N_27	M=7.68804e-04	R=3.18824e-04
+	Recomb	N_27	13	15051	External
+	Recomb	N_27	16266	16758	External
+	Recomb	N_27	23626	27838	External
+	Recomb	N_27	36829	45082	External
+	Recomb	N_27	48646	54765	External
+	Recomb	N_27	58529	66615	External
+	Recomb	N_27	67540	70593	External
+	Recomb	N_27	73003	80241	External
+	Recomb	N_27	82695	87239	External
+	Recomb	N_27	98349	99966	External
+Branch	N_23	M=1.48213e-04	R=1.81527e-04
+	Recomb	N_23	82	2096	External
+	Recomb	N_23	7262	9842	External
+	Recomb	N_23	28439	31380	External
+	Recomb	N_23	35321	56058	External
+	Recomb	N_23	59522	61223	External
+	Recomb	N_23	71028	85098	External
+	Recomb	N_23	90678	98228	External
+Branch	N_31	M=4.56012e-04	R=2.97918e-04
+	Recomb	N_31	17	17643	External
+	Recomb	N_31	19935	21003	External
+	Recomb	N_31	23561	26877	External
+	Recomb	N_31	41868	49483	External
+	Recomb	N_31	53917	56099	External
+	Recomb	N_31	58465	59623	External
+	Recomb	N_31	62034	68201	External
+	Recomb	N_31	72029	81231	External
+	Recomb	N_31	86940	87646	External
+	Recomb	N_31	90064	97604	External
+Branch	N_24	M=4.84381e-04	R=1.35727e-04
+	Recomb	N_24	17	15021	External
+	Recomb	N_24	24055	25050	External
+	Recomb	N_24	25946	26727	External
+	Recomb	N_24	34946	45235	External
+	Recomb	N_24	48145	48707	External
+	Recomb	N_24	58892	63129	External
+	Recomb	N_24	78048	79010	External
+	Recomb	N_24	92368	94863	External
+Branch	25	M=1.67888e-04	R=8.32911e-05
+	Recomb	25	3156	9641	External
+	Recomb	25	22616	29417	External
+	Recomb	25	52248	53981	External
+	Recomb	25	68559	74396	External
+	Recomb	25	87188	98871	External
+Branch	N_2	M=2.35382e-04	R=1.18351e-04
+	Recomb	N_2	35919	37914	External
+	Recomb	N_2	46738	48101	External
+	Recomb	N_2	58090	58204	External
+	Recomb	N_2	66582	69788	External
+	Recomb	N_2	71265	71696	External
+	Recomb	N_2	75110	78566	External
+	Recomb	N_2	81895	85661	External
+	Recomb	N_2	88528	99897	External
+Branch	N_76	M=3.29549e-04	R=9.15589e-05
+	Recomb	N_76	1726	5457	External
+	Recomb	N_76	9430	12813	External
+	Recomb	N_76	40072	41748	External
+	Recomb	N_76	42794	45133	External
+	Recomb	N_76	45892	47394	External
+	Recomb	N_76	58115	61551	External
+	Recomb	N_76	95121	99740	External
+Branch	N_73	M=9.99241e-07	R=5.17658e-05
+	Recomb	N_73	15091	22411	External
+	Recomb	N_73	24531	28532	External
+	Recomb	N_73	55831	56641	External
+	Recomb	N_73	84218	92045	External
+Branch	N_37	M=7.26683e-05	R=3.67737e-05
+	Recomb	N_37	10821	21371	External
+	Recomb	N_37	29740	29871	External
+	Recomb	N_37	43046	48389	External
+Branch	18	M=1.18206e-05	R=1.22104e-05
+	Recomb	18	32382	48161	External
+Branch	34	M=9.99241e-07	R=1.18675e-05
+	Recomb	34	10796	25286	External
+Branch	5	M=9.99241e-07	R=1.22122e-05
+	Recomb	5	18637	31771	External
+Branch	38	M=2.23985e-05	R=4.30118e-05
+	Recomb	38	12421	14604	External
+	Recomb	38	80303	82658	External
+	Recomb	38	85685	92392	External
+Branch	2	M=9.99241e-07	R=2.31119e-05
+	Recomb	2	5	7789	External
+	Recomb	2	44749	49133	External
+Branch	23	M=4.39115e-05	R=1.11932e-05
+	Recomb	23	36286	45247	External
+Branch	N_77	M=1.60850e-03	R=2.24649e-05
+	Recomb	N_77	13860	14412	External
+Branch	37	M=1.06018e-05	R=1.08742e-05
+	Recomb	37	65608	71868	External
+Branch	30	M=2.09161e-05	R=2.13599e-05
+	Recomb	30	36504	39369	External
+	Recomb	30	50931	52928	External
+Branch	N_38	M=3.14350e-05	R=2.13601e-05
+	Recomb	N_38	381	2590	External
+	Recomb	N_38	52416	54889	External
+Branch	N_6	M=9.99241e-07	R=2.12221e-05
+	Recomb	N_6	10620	12937	External
+	Recomb	N_6	18786	21109	External
+Branch	N_11	M=1.03910e-05	R=1.08449e-05
+	Recomb	N_11	43245	47577	External
+Branch	24	M=1.03785e-05	R=1.06190e-05
+	Recomb	24	95748	99976	External
+Branch	36	M=9.99241e-07	R=1.04081e-05
+	Recomb	36	36769	39866	External
+Branch	N_56	M=2.06236e-05	R=1.04919e-05
+	Recomb	N_56	57758	60954	External
+Branch	N_50	M=9.99241e-07	R=1.03982e-05
+	Recomb	N_50	59385	62357	External
+Branch	4	M=3.08140e-05	R=1.04738e-05
+	Recomb	4	93577	96378	External
+Branch	N_57	M=6.14195e-05	R=2.07186e-05
+	Recomb	N_57	15	1619	External
+	Recomb	N_57	86325	86758	External
+Branch	N_74	M=1.32703e-04	R=1.04541e-05
+	Recomb	N_74	29246	31409	External
+Branch	N_21	M=1.03782e-05	R=1.03639e-05
+	Recomb	N_21	77849	79931	External
+Branch	N_51	M=2.03082e-05	R=1.03284e-05
+	Recomb	N_51	38395	40143	External
+Branch	N_53	M=9.99241e-07	R=1.02291e-05
+	Recomb	N_53	37135	38571	External
+Branch	27	M=1.00051e-05	R=1.02214e-05
+	Recomb	27	59201	59876	External
+Branch	N_72	M=4.99360e-05	R=4.99360e-08
+Branch	N_22	M=3.99679e-05	R=3.99679e-08
+Branch	N_36	M=3.99692e-05	R=3.99692e-08
+Branch	N_75	M=2.99769e-05	R=2.99769e-08
+Branch	1	M=1.99847e-05	R=1.99847e-08
+Branch	N_13	M=1.99846e-05	R=1.99846e-08
+Branch	N_41	M=1.99847e-05	R=1.99847e-08
+Branch	N_62	M=1.99847e-05	R=1.99847e-08
+Branch	N_69	M=1.99847e-05	R=1.99847e-08
+Branch	0	M=9.99234e-06	R=9.99234e-09
+Branch	11	M=9.99234e-06	R=9.99234e-09
+Branch	12	M=9.99234e-06	R=9.99234e-09
+Branch	13	M=9.99234e-06	R=9.99234e-09
+Branch	14	M=9.99234e-06	R=9.99234e-09
+Branch	15	M=9.99234e-06	R=9.99234e-09
+Branch	21	M=9.99234e-06	R=9.99234e-09
+Branch	22	M=9.99234e-06	R=9.99234e-09
+Branch	29	M=9.99234e-06	R=9.99234e-09
+Branch	32	M=9.99234e-06	R=9.99234e-09
+Branch	33	M=9.99221e-06	R=9.99221e-09
+Branch	7	M=9.99234e-06	R=9.99234e-09
+Branch	8	M=9.99234e-06	R=9.99234e-09
+Branch	N_18	M=9.99234e-06	R=9.99234e-09
+Branch	N_46	M=9.99234e-06	R=9.99234e-09
+Branch	N_47	M=9.99234e-06	R=9.99234e-09
+Branch	N_52	M=9.99234e-06	R=9.99234e-09

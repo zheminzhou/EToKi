@@ -6,7 +6,7 @@ def _iter_branch_measure(obj, arg) :
     return obj.iter_branch_measure(arg)
 
 
-class RecHMM(object) :
+class recHMM(object) :
     def __init__(self, mode=1) :
         self.max_iteration = 200
         self.n_base = None
@@ -174,8 +174,7 @@ class RecHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        #h = [1-model['h'][0], model['h'][0]]
-        h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.)]
+        h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.]
         
         probability, pi, br = 0., [], []
         a = np.zeros(shape=[self.n_a, self.n_a])
@@ -253,8 +252,7 @@ class RecHMM(object) :
             a[1:, 0] = model['delta']
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, 3])
-            #h = [1-model['h'][0], model['h'][0]]
-            h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.)]
+            h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.]
             
             mut = d[0]
             
@@ -556,6 +554,7 @@ class RecHMM(object) :
                     sys.stdout.write( '{0}\t{1}\t{2:.6f}\t{3:.6f}\t{4:.6f} - {5:.6f}\n'.format(prefix.ljust(10), key.ljust(10), reports[key][0], np.std(reports[key][1]), *np.sort(reports[key][1])[[int(bootstrap*0.025), int(bootstrap*0.975)]].tolist()) )
             fout.write('{0}\tBIC       \t{1}\n'.format(prefix.ljust(10), reports['BIC'][0]))
             sys.stdout.write('{0}\tBIC       \t{1}\n'.format(prefix.ljust(10), reports['BIC'][0]))
+        print 'Global parameters are summarized in {0}'.format(prefix + '.best.model.report')
         return
     
 
@@ -573,12 +572,12 @@ def parse_arg(a) :
     args = parser.parse_args(a)
     return args
 
-def EnRaRe(args) :
+def RecHMM(args) :
     args = parse_arg(args)
     global pool
     pool = Pool(args.n_proc)
     
-    model = RecHMM(mode=args.task)
+    model = recHMM(mode=args.task)
     if not args.report or not args.model :
         data = pd.read_csv(args.data, sep='\t', dtype=str, header=0).as_matrix()
         names, branches = {}, []
@@ -600,11 +599,14 @@ def EnRaRe(args) :
     else :
         model.fit(branches, names=names, init=args.init, cool_down=args.cool_down)
         model.save(open(args.prefix + '.best.model.json', 'wb'))
+        print 'Best HMM model is saved in {0}'.format(args.prefix + '.best.model.json')
     model.get_parameter(args.bootstrap, args.prefix)
     
     if not args.report :
-        model.predict(branches, names=names, fout=open(args.prefix + '.recombination.region', 'w'))
+        region_out = args.prefix + '.recombination.region'
+        model.predict(branches, names=names, fout=open(region_out, 'w'))
+        print 'Imported regions are reported in {0}'.format(region_out)
 
 pool = None
 if __name__ == '__main__' :
-    EnRaRe(sys.argv[1:])
+    RecHMM(sys.argv[1:])

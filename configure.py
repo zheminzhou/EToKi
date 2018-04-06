@@ -78,8 +78,8 @@ def logger(log) :
     from datetime import datetime
     sys.stderr.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
-search_file = lambda x: [x] if os.path.exists(x) else [fname for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
-def EnConf(args) :
+search_file = lambda x: [os.path.abspath(x)] if os.path.exists(x) else [os.path.abspath(fname) for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
+def configure(args) :
     global externals
     externals = load_configure()
     defaults = dict(
@@ -125,9 +125,9 @@ def EnConf(args) :
     logger('Configuration complete.')
 
 def prepare_externals() :
-    externals['gatk']  = 'java -Xmx30g -jar ' + externals['gatk']
-    externals['pilon'] = 'java -Xmx30g -jar ' + externals['pilon']
-    externals['enbler_filter'] = 'python ' + externals['enbler_filter']
+    externals['gatk']  = 'java -Xmx30g -jar ' + externals.get('gatk', '')
+    externals['pilon'] = 'java -Xmx30g -jar ' + externals.get('pilon', '')
+    externals['enbler_filter'] = 'python ' + externals.get('enbler_filter', '')
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''Configure external dependencies for EToKi (Enterobase Tool Kit).
@@ -180,6 +180,6 @@ def write_configure() :
 
 externals = load_configure()
 if __name__ == '__main__' :
-    EnConf(sys.argv[1:])
+    configure(sys.argv[1:])
 else :
     prepare_externals()

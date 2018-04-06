@@ -1,7 +1,7 @@
 import os, sys, numpy as np
 from subprocess import Popen, PIPE
 from operator import itemgetter
-from EnConf import externals, logger, transeq
+from configure import externals, logger, transeq
 
 class dualBlast(object) :
     def fastaLength(self, filename) :
@@ -389,11 +389,11 @@ parameters = dict(
 )
 parameters.update(externals)
 
-def enSign() :
+def MLSType() :
     parameters.update(dict( arg.split('=', 1) for arg in sys.argv[1:] ))
     return nomenclature(**parameters)
 
 
 if __name__ == '__main__' :
     import json
-    print json.dumps(enSign(), indent=2, sort_keys=True)
+    print json.dumps(MLSType(), indent=2, sort_keys=True)

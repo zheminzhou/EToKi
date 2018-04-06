@@ -2,7 +2,7 @@ import os, io, sys, re, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from EnConf import externals, logger, readFasta
+from configure import externals, logger, readFasta
 from threading import Timer
 
 # mainprocess
@@ -415,7 +415,7 @@ class postprocess(object) :
                     L50 = l50)
 
 reads, prefix, parameters = None, None, None
-def EnBler(args) :
+def assemble(args) :
     global reads, prefix, parameters
     parameters = add_args(args).__dict__
     parameters.update(externals)
@@ -447,7 +447,7 @@ def EnBler(args) :
 def add_args(a) :
     import argparse
     parser = argparse.ArgumentParser(description='''
-EnBler
+EToKi.py assemble
 (1.1) assembles short reads into assemblies, or 
 (1.2) maps them onto a reference. 
 And
@@ -486,4 +486,4 @@ And
     return args
 
 if __name__ == '__main__' :
-    EnBler(sys.argv[1:])
+    assemble(sys.argv[1:])

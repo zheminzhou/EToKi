@@ -4,7 +4,7 @@ import subprocess, os, numpy as np
 from collections import Counter
 from time import gmtime, strftime
 from multiprocessing import Pool
-from EnConf import externals, logger, rc, transeq, readFasta
+from configure import externals, logger, rc, transeq, readFasta
 
 def iter_readGFF(fname) :
     seq, cds = {}, {}
@@ -910,7 +910,7 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
 def add_args(a) :
     import argparse
     parser = argparse.ArgumentParser(description='''
-EnOrth 
+EToKi.py ortho 
 (1) Retieves genes and genomic sequences from GFF files and FASTA files.
 (2) Groups genes into clusters using vsearch.
 (3) Maps gene clusters back to genomes. 
@@ -958,7 +958,7 @@ params = dict(
 )
 
 pool = None
-def EnOrth(args) :
+def ortho(args) :
     global params
     params.update(add_args(args).__dict__)
 
@@ -1022,4 +1022,4 @@ def EnOrth(args) :
     write_output(params['prefix'], params['prediction'], genomes, genes, old_predictions)
     
 if __name__ == '__main__' :
-    EnOrth(sys.argv[1:])
+    ortho(sys.argv[1:])

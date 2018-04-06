@@ -1,10 +1,10 @@
 import os, sys, hashlib, numpy as np
 from subprocess import Popen, PIPE
-from EnConf import externals, logger, transeq
+from configure import externals, logger, transeq
 from operator import itemgetter
 
 parameters = dict(
-    prefix = 'EnBase',
+    prefix = 'MLSTdb',
 	reIndex = True,
     fasta = [],
     id = 0.85,
@@ -28,7 +28,7 @@ def readFastaToList(fnames) :
         s[1] = ''.join( s[1] )
     return seq
 
-def EnBase() :
+def MLSTdb() :
     for arg in sys.argv[1:] :
         if arg.find('=') >= 0 :
             k, v = arg.split('=', 1)
@@ -84,4 +84,4 @@ def EnBase() :
     return '{0}.refset.fna'.format(parameters['prefix']), '{0}.refset.faa'.format(parameters['prefix'])
 
 if __name__ == '__main__' :
-    EnBase()
+    MLSTdb()

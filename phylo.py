@@ -1,7 +1,7 @@
 from ete3 import Tree
 import sys, numpy as np, os, glob, math, gzip, re, argparse
 from subprocess import Popen, PIPE
-from EnConf import externals
+from configure import externals
 
 raxml = externals['raxml']
 
@@ -88,7 +88,7 @@ def write_phylip(prefix, names, snp_list) :
     return prefix+'.phy' , prefix + '.phy.weight', asc_file
     
 def run_raxml(prefix, phy, weights, asc, model='CAT') :
-    for fname in glob.glob('*.{0}'.format(prefix)) :
+    for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
     if asc is None :
         cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T 7 -p 1234'.format(raxml, prefix, phy, weights, model)
@@ -99,7 +99,14 @@ def run_raxml(prefix, phy, weights, asc, model='CAT') :
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :
         return run_raxml(prefix, phy, weights, asc, 'GAMMA')
     else :
-        return 'RAxML_bestTree.{0}'.format(prefix)
+        fname = '{0}.unrooted.nwk'.format(prefix)
+        os.rename('RAxML_bestTree.{0}'.format(prefix), fname)
+        for fn in glob.glob('RAxML_*.{0}'.format(prefix)) :
+            try:
+                os.unlink(fn)
+            except :
+                pass
+        return fname
 
 def get_root(prefix, tree_file) :
     tree = Tree(tree_file, format=1)
@@ -342,7 +349,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             retvalue.append(tag[r])
     return tree, [ k for k, v in sorted(node_names.iteritems(), key=lambda x:x[1])], retvalue
 
-def EnPhyl(args) :
+def phylo(args) :
     args = add_args(args)
 
     prefix = args.prefix
@@ -399,4 +406,4 @@ def EnPhyl(args) :
                 fout.write('\t'.join([str(m) for m in mut]) + '\n')
 
 if __name__ == '__main__' :
-    EnPhyl(sys.argv[1:])
+    phylo(sys.argv[1:])

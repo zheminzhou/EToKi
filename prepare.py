@@ -2,7 +2,7 @@ import os, io, sys, re, shutil, numpy as np, signal, psutil, argparse
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from EnConf import externals, logger, readFasta
+from configure import externals, logger, readFasta
 from threading import Timer
 
 def kill_child_proc (p) :
@@ -121,7 +121,7 @@ class preprocess(object) :
         return new_reads
 
 reads, prefix, parameters = None, None, None
-def EnPrep(args) :
+def prepare(args) :
     global reads, prefix, parameters
     parameters = add_args(args).__dict__
     parameters.update(externals)
@@ -160,7 +160,7 @@ def EnPrep(args) :
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''
-EnPrep 
+EToKi.py prepare 
 (1) Concatenates reads of the same library together.
 (2) Trims sequences based on base-qualities.
 (3) Removes potential adapters and barcodes. 
@@ -179,4 +179,4 @@ EnPrep
     return parser.parse_args(a)
 
 if __name__ == '__main__' :
-    EnPrep(sys.argv[1:])
+    prepare(sys.argv[1:])

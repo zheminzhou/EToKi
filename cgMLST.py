@@ -1,11 +1,11 @@
 import sys, subprocess, json, pandas as pd, numpy as np, shutil, os
-from EnConf import transeq, logger, readFasta
+from configure import transeq, logger, readFasta
 try :
     import ujson as json
 except :
     import json
 
-def EnCore(allele_profile, allele_file) :
+def cgMLST(allele_profile, allele_file) :
     def get_allele_info(alleles) :
         allele_aa = transeq(alleles)
         allele_stat = {}
@@ -54,5 +54,5 @@ def EnCore(allele_profile, allele_file) :
 
 
 if __name__ == '__main__' :
-    genome_stat, locus_stat = EnCore(sys.argv[1], sys.argv[2])
+    genome_stat, locus_stat = cgMLST(sys.argv[1], sys.argv[2])
     json.dump({genome:genome_stat, locus:locus_stat}, open(sys.argv[3], 'wb') )
