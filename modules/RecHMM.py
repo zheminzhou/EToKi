@@ -5,6 +5,8 @@ from multiprocessing import Pool
 def _iter_branch_measure(obj, arg) :
     return obj.iter_branch_measure(arg)
 
+def _iter_viterbi(obj, arg) :
+    return obj.viterbi(arg)
 
 class recHMM(object) :
     def __init__(self, mode=1) :
@@ -414,15 +416,20 @@ class recHMM(object) :
         self.prepare_branches(branches)
         self.screen_out('Predict recombination sketches using', self.model)
         branch_params = self.update_branch_parameters(self.model, lower_limit=True)
-        for name, obs, param, (dm, dr) in zip(names, self.observations, branch_params, self.model['EventFreq']) :
+        regions = pool.map(functools.partial(_iter_viterbi, self), zip(self.observations, branch_params))
+        res = {}
+        for name, (dm, dr), obs, (region, snp_status) in zip(names, self.model['EventFreq'], self.observations, regions) :
+            res[name] = dict(zip(obs.T[0], snp_status))
             fout.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format( name, dm, dr ))
-            regions = self.viterbi(obs, pi=param['pi'], a=param['a'], b=param['b'])
-            for r in regions :
+            for r in region :
                 fout.write('\tRecomb\t{0}\t{1}\t{2}\t{3}\n'.format(name, r[0], r[1], ['External', 'Internal', 'Mixed'][r[2]-1]))
             fout.flush()
+        return res
 
 
-    def viterbi(self, obs, pi, a, b) :
+    def viterbi(self, data) :
+        obs, params = data
+        pi, a, b = params['pi'], params['a'], params['b']
         bv = b.T
         path = np.zeros(shape=[self.n_base, self.n_a], dtype=int)
         alpha = np.zeros(shape=[self.n_base, self.n_a])
@@ -455,14 +462,16 @@ class recHMM(object) :
         alpha[i] += np.log( np.dot(pi, a.T) )
         max_path = np.argmax(alpha[i])
         regions = [] if max_path == 0 else [[i+1, i+1, max_path]]
+        inrec = np.zeros(path.shape[0])
         for id in np.arange(path.shape[0]-2, -1, -1) :
             max_path = path[id+1, max_path]
             if max_path > 0 :
+                inrec[id] = 1
                 if len(regions) == 0 or regions[-1][0] != id + 2 :
                     regions.append([id+1, id+1, max_path])
                 else :
                     regions[-1][0] = id+1
-        return sorted(regions)
+        return sorted(regions), inrec[obs.T[0]-1]
     
     def get_parameter(self, bootstrap, prefix='') :
         if 'posterior' in self.model :
@@ -604,8 +613,13 @@ def RecHMM(args) :
     
     if not args.report :
         region_out = args.prefix + '.recombination.region'
-        model.predict(branches, names=names, fout=open(region_out, 'w'))
+        snp_status = model.predict(branches, names=names, fout=open(region_out, 'w'))
         print 'Imported regions are reported in {0}'.format(region_out)
+        import gzip
+        with gzip.open(args.prefix+'.mutations.status.gz', 'wb') as fout :
+            for d in data :
+                fout.write('{0}\t{1}\n'.format('\t'.join(d), snp_status[d[0]][int(d[2])]))
+        print 'Mutation status are reported in {0}'.format(args.prefix+'.mutations.status.gz')
 
 pool = None
 if __name__ == '__main__' :

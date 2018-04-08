@@ -3,6 +3,7 @@ import argparse, numpy as np, sys
 def etoki() :
     try :
         exec 'from modules.{0} import {0}'.format(sys.argv[1])
+        sys.argv[0] = ' '.join(sys.argv[:2])
     except Exception as e :
         print '''
 Program: EToKi (Enterobase Tool Kit)
@@ -23,8 +24,8 @@ Use EToKi.py <command> -h to get help for each command.
 '''
         import traceback
         traceback.print_exception(*sys.exc_info())
-        
         sys.exit(0)
+
     eval(sys.argv[1])(sys.argv[2:])
 
 
