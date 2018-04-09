@@ -18,7 +18,8 @@ Commands:
   MLSTdb           Create database for MLST typing
   MLSType          MLST nomenclature
   phylo            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
-  RecHMM           Identify Recombination sketches. 
+  RecHMM           Identify Recombination sketches
+  RecFilter        Remove Recombination sketches
 
 Use EToKi.py <command> -h to get help for each command.
 '''

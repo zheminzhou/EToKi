@@ -3,11 +3,11 @@ import phylo
 from ete3 import Tree
 
 def parse_arg(a) :
-    parser = argparse.ArgumentParser(description='Generate a matrix with only vertically inherited SNPs. ', formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description='Generate a matrix of only vertically inherited SNPs. ', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--prefix', '-p', help='prefix for the output', required=True)
-    parser.add_argument('--matrix', '-m', help='SNP matrix', required=True)
+    parser.add_argument('--snp', '-s', dest='matrix', help='SNP matrix', required=True)
     parser.add_argument('--tree', '-t', help='Labeled tree', required=True)
-    parser.add_argument('--rec', '-r', help='Recombinant sketches', default=True)
+    parser.add_argument('--rec', '-r', help='Recombinant sketches', required=True)
     parser.add_argument('--clonalframeml', help='The recombinant sketches are in ClonalFrameML format. ', default=False, action="store_true")
     parser.add_argument('--simbac', help='The recombinant sketches are in SimBac break format. ', default=False, action="store_true")
     args = parser.parse_args(a)
