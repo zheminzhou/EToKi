@@ -8,9 +8,35 @@ parameters = dict(
 	reIndex = True,
     fasta = [],
     id = 0.85,
+    n_thread = 7,
 )
 
 parameters.update(externals)
+
+def mmseq_cluster(prefix, genes, id) :
+    import shutil, glob
+
+    subprocess.Popen('{0} createdb {2} {1}.db -v 0'.format(params['mmseqs'], prefix, genes).split()).communicate()
+    if not os.path.isdir(prefix + '.tmp') :
+        os.makedirs(prefix + '.tmp')
+    if os.path.isfile(prefix + '.lc') :
+        for fname in glob.glob(prefix+'.lc*') :
+            try : 
+                os.unlink(fname)
+            except :
+                pass
+    subprocess.Popen('{0} cluster {1}.db {1}.lc {1}.tmp --min-seq-id {2} --threads {4} -v 0'.format(params['mmseqs'], prefix, id, params['n_thread']).split()).communicate()
+    subprocess.Popen('{0} result2repseq {1}.db {1}.lc {1}.rep --threads {2} -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
+    subprocess.Popen('{0} result2flat {1}.db {1}.db {1}.rep {1}.reference --use-fasta-header -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
+    shutil.rmtree(prefix + '.tmp')
+    for fn in (prefix+'.db*', prefix+'.lc*', prefix+'.rep*') :
+        for fname in glob.glob(fn) :
+            try :
+                os.unlink(fname)
+            except :
+                pass
+    return '{0}.reference'.format(prefix)
+
 
 def readFastaToList(fnames) :
     if isinstance(fnames, basestring) :
@@ -69,10 +95,8 @@ def MLSTdb() :
                 for id, seq in alleles :
                     if id in ids :
                         fout.write('>{0}_{1}\n{2}\n'.format(locus, id, seq))
-            Popen('{ublast} --cluster_smallmem {prefix}.alleles --id {id} --sortedby other -centroids {prefix}.ref'.format(
-                **parameters
-            ).split(), stdout=PIPE, stderr=PIPE).communicate()
-            with open('{0}.ref'.format(parameters['prefix'])) as fin :
+            outfile = mmseq_cluster(parameters['prefix'], parameters['prefix'] + '.alleles', parameters['id'])
+            with open(outfile) as fin :
                 for line in fin :
                     refout.write(line)
     refseq = readFastaToList('{0}.refset.fna'.format(parameters['prefix']))

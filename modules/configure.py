@@ -83,20 +83,21 @@ def configure(args) :
     global externals
     externals = load_configure()
     defaults = dict(
-        adapters='adapters.fa',
-        kraken_database='minikraken*',
-        bbduk='bbduk2.sh',
-        spades='spades.py',
-        megahit='megahit',
-        bwa='bwa',
-        bowtie2='bowtie2',
-        bowtie2build='bowtie2-build',
-        samtools='samtools',
-        gatk='gatk-package-4*',
-        pilon='pilon*',
-        kraken_program='kraken',
-        kraken_report='kraken-report',
-        vsearch='vsearch',
+        adapters='adapters.fa', 
+        kraken_database='minikraken*', 
+        bbduk='bbduk2.sh', 
+        spades='spades.py', 
+        megahit='megahit', 
+        bwa='bwa', 
+        bowtie2='bowtie2', 
+        bowtie2build='bowtie2-build', 
+        samtools='samtools', 
+        gatk='gatk-package-4*', 
+        pilon='pilon*', 
+        kraken_program='kraken', 
+        kraken_report='kraken-report', 
+        vsearch='vsearch', 
+        mmseqs='mmseqs', 
         mcl='mcl',
         fasttree='?fast?ree*',
         ublast='usearch*',
@@ -152,6 +153,7 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--kraken-report', dest='kraken_report')
     # EnOrth executables
     parser.add_argument('--vsearch')
+    parser.add_argument('--mmseqs')
     parser.add_argument('--mcl')
     parser.add_argument('--fasttree')
     # EnSign executables

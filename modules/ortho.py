@@ -633,9 +633,37 @@ def get_vclust(prefix, genes) :
     #os.unlink('{0}.gene'.format(prefix))
     return '{0}.gene.uc'.format(prefix), '{0}.gene.reference'.format(prefix)
 
+def get_mmseq(prefix, genes, cnt) :
+    import shutil, glob
+
+    subprocess.Popen('{0} createdb {2} {1}.db -v 0'.format(params['mmseqs'], prefix, genes).split()).communicate()
+    if not os.path.isdir(prefix + '.tmp') :
+        os.makedirs(prefix + '.tmp')
+    if os.path.isfile(prefix + '.lc') :
+        for fname in glob.glob(prefix+'.lc*') :
+            try : 
+                os.unlink(fname)
+            except :
+                pass
+    if cnt > 300000 :
+        subprocess.Popen('{0} linclust {1}.db {1}.lc {1}.tmp --min-seq-id {2} -c {3} --threads {4} -v 0'.format(params['mmseqs'], prefix, 1.0 - params['clust_difference'], params['clust_match_prop'], params['n_thread']).split()).communicate()
+    else :
+        subprocess.Popen('{0} cluster {1}.db {1}.lc {1}.tmp --min-seq-id {2} -c {3} --threads {4} -v 0'.format(params['mmseqs'], prefix, 1.0 - params['clust_difference'], params['clust_match_prop'], params['n_thread']).split()).communicate()
+    subprocess.Popen('{0} result2repseq {1}.db {1}.lc {1}.rep --threads {2} -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
+    subprocess.Popen('{0} result2flat {1}.db {1}.db {1}.rep {1}.gene.reference --use-fasta-header -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
+    shutil.rmtree(prefix + '.tmp')
+    for fn in (prefix+'.db*', prefix+'.lc*', prefix+'.rep*') :
+        for fname in glob.glob(fn) :
+            try :
+                os.unlink(fname)
+            except :
+                pass
+    return None, '{0}.gene.reference'.format(prefix)
+    
+
 def get_self_bsn(prefix, vclust) :
     subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], vclust).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blast'], vclust, prefix, int(params['n_thread'])))).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blastn'], vclust, prefix, int(params['n_thread'])))).communicate()
     return '{0}.self.bsn'.format(prefix)
 
 def writeGenomes(fname, seqs) :
@@ -651,7 +679,7 @@ def iter_map_bsn(data) :
         fout.write(''.join(seq))
     subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], gfile).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
     subprocess.Popen(shlex.split('{0} -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3} -task blastn -reward 2 -penalty -3 -evalue 0.01'.format(\
-        params['blast'], vclust, gfile, bsn, int(params['n_thread'])/10))).communicate()
+        params['blastn'], vclust, gfile, bsn, int(params['n_thread'])/10))).communicate()
     for fn in (gfile, gfile+'.nin', gfile+'.nsq', gfile+'.nhr') :
         os.unlink(fn)
     return bsn
@@ -709,6 +737,7 @@ def addGenomes(genomes, genome_file) :
 
 def writeGenes(fname, genes, priority) :
     uniques = {}
+    cnt = 0
     with open(fname, 'wb') as fout :
         for n in sorted(priority.iteritems(), key=itemgetter(1)) :
             s = genes[n[0]][6]
@@ -719,7 +748,8 @@ def writeGenes(fname, genes, priority) :
                 continue
             uniques[ len_s ][ hcode ] = 1
             fout.write( '>{0}\n{1}\n'.format(n[0], s) )
-    return fname
+            cnt += 1
+    return fname, cnt
 
 def perform_mcl(groups, matches, method, global_differences) :
     vclust_ref = readFasta(params['vclust'])
@@ -961,6 +991,7 @@ pool = None
 def ortho(args) :
     global params
     params.update(add_args(args).__dict__)
+    params.update(externals)
 
     global pool
     pool = Pool(10)
@@ -983,9 +1014,10 @@ def ortho(args) :
         first_classes = load_priority( params.get('priority', ''), genes )
 
         if 'vclust' not in params :
-            params['genes'] = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
+            params['genes'], cnt = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
-            params['uc'], params['vclust'] = get_vclust(params['prefix'], params['genes'])
+            #params['uc'], params['vclust'] = get_vclust(params['prefix'], params['genes'])
+            params['uc'], params['vclust'] = get_mmseq(params['prefix'], params['genes'], cnt)
             
         if 'homolog' not in params :
             if 'self_bsn' not in params :
