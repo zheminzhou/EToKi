@@ -47,13 +47,13 @@ def read_RecHMM(fname, nodes) :
     with open(fname) as fin :
         for line in fin :
             if line.startswith('\tRecomb') :
-                _, branch, s, e, t = line.strip().split('\t')
-                if branch not in rec :
-                    rec[branch] = []
-                rec[branch].append([int(s), int(e), t, nodes[branch]])
+                part = line.strip().split('\t')
+                if part[1] not in rec :
+                    rec[part[1]] = []
+                rec[part[1]].append([int(part[2]), int(part[3]), part[4], nodes[part[1]]])
     return rec
 
-def write_filtered_matrix(fname, names, sites, snps, masks) :
+def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
     invariants = { snp[0]:[base, snp[2]] for base, snp in snps.iteritems() if snp[1] == 0 and base[0] != '-' }
     bases = {}
     for inv in invariants.values() :
@@ -62,8 +62,10 @@ def write_filtered_matrix(fname, names, sites, snps, masks) :
     name_map = {name:id for id, name in enumerate(names)}
     with gzip.open(fname, 'w') as fout :
         fout.write('## Constant_bases: ' + ' '.join([str(inv[1]) for inv in sorted(bases.iteritems())]) + '\n')
-        fout.write('#seq\t#site\t' + '\t'.join(names) + '\n')
+        fout.write('#seq\t#site\t' + '\t'.join(names) + '\t#!W[RecFilter]\n')
         for site in sites :
+            if not len(m_weight[site[1]]) : continue
+            weight = np.mean(m_weight[site[1]].values()) 
             snvs = np.array(sv[site[2]])
             snv_x = []
             p = np.zeros(snvs.shape, dtype=bool)
@@ -72,13 +74,14 @@ def write_filtered_matrix(fname, names, sites, snps, masks) :
                 pp[ [name_map[mm] for mm in m] ] = False
                 p = (p | (~pp))
                 snv_x.append(np.copy(snvs))
-                snv_x[-1][pp] = 'N'
+                snv_x[-1][pp] = '-'
             snv_x.append(snvs)
-            snv_x[-1][p] = 'N'
+            snv_x[-1][p] = '-'
+            
             for snv in snv_x :
                 snv_type = np.unique(snv)
                 if snv_type[~ np.in1d(snv_type, ['-', 'N', 'n'])].size > 1 :
-                    fout.write('{1}\t{2}\t{0}\n'.format('\t'.join(snv.tolist()), *site[:2]))
+                    fout.write('{2}\t{3}\t{0}\t{1:.5f}\n'.format('\t'.join(snv.tolist()), weight, *site[:2]))
     return fname
 
 
@@ -103,11 +106,18 @@ def RecFilter(argv) :
         rec_regions = read_simbac(args.rec, nodes)
     else :
         rec_regions = read_RecHMM(args.rec, nodes)
+        
+    n_base = np.sum([v[2] for v in snps.values()])
+    br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[1]-rr[0]+1 for rr in r ])+.1) for b, r in rec_regions.iteritems() }
     curr = ['', [], 0]
     masks = {}
+    m_weight = {}
     for m in mutations :
         if curr[0] != m[0] :
             curr = [m[0], rec_regions.get(m[0], []), 0]
+        if m[2] not in m_weight :
+            m_weight[m[2]] = {}
+        m_weight[m[2]][m[0]] = br_weight.get(m[0], 1.)
         for id in range(curr[2], len(curr[1])) :
             r = curr[1][id]
             if m[2] > r[1] :
@@ -116,9 +126,11 @@ def RecFilter(argv) :
                 break
             elif m[2] not in masks :
                 masks[m[2]] = [r[3]]
+                m_weight[m[2]].pop(m[0])
             else :
                 masks[m[2]].append(r[3])
-    write_filtered_matrix(args.prefix+'.filtered.gz', names, sites, snps, masks)
+                m_weight[m[2]].pop(m[0])
+    write_filtered_matrix(args.prefix+'.filtered.gz', names, sites, snps, masks, m_weight)
     return
 
 if __name__ == '__main__' :

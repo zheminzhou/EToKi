@@ -142,11 +142,13 @@ def read_matrix(fname) :
         elif line.startswith('#') :
             part = np.array(line.strip().split('\t'))
             cols = (1 - np.char.startswith(part, '#')).astype(bool)
+            w_cols = np.char.startswith(part, '#!W')
             names = part[cols]
         elif line_id == 0 :
             part = np.array(line.strip().split('\t'))
             cols = np.ones(part.shape, dtype=bool)
             cols[:2] = False
+            w_cols = np.char.startswith(part, '#!W')
             names = part[cols]
         else :
             p2 = np.array(line.strip().split('\t'))
@@ -154,10 +156,14 @@ def read_matrix(fname) :
             types = dict(zip(*np.unique(part, return_index=True)))
             types.pop('-', None)
             b_key = '\t'.join(part)
-            if b_key not in snps :
-                snps[b_key] = [len(snps), len(types)-1, 1.0]
+            if np.sum(w_cols) :
+                w = np.multiply.reduce(p2[w_cols].astype(float))
             else :
-                snps[b_key][2] += 1.0
+                w = 1.
+            if b_key not in snps :
+                snps[b_key] = [len(snps), len(types)-1, w]
+            else :
+                snps[b_key][2] += w
             if len(types) > 1 :
                 sites.append([ p2[0], int(p2[1]), snps[b_key][0] ])
     fin.close()

@@ -112,8 +112,8 @@ class recHMM(object) :
                 model['p'] = model['p']/np.sum(model['p'])
             n_total = model['theta'] + model['R']
             model['theta'], model['R'] = model['theta']/n_total, model['R']/n_total
-            if self.brLens :
-                EventFreq[:] = EventFreq.T[0] * np.array([model['theta'], model['R']])
+            #if self.brLens :
+                #EventFreq[:] = EventFreq.T[0] * np.array([model['theta'], model['R']])
             self.screen_out('Initiate', model)
             self.models.append(model)
         return self.models
@@ -171,6 +171,8 @@ class recHMM(object) :
         return models[0]
 
     def screen_out(self, action, model) :
+        if not verbose :
+            return
         print '{2}\t{0} model {id}[{ite}] - BIC: {3:.8e} - EventFreq: {1:.3e}; theta: {theta:.3f}; R: {R:.3f}; delta: {4:.3e};  Nu: {v:.3e},{v2:.3e}; h: {h[0]:.3f},{h[1]:.3f}; REC sources: {p}'.format(action, np.sum(model['EventFreq']), str(datetime.datetime.now())[:19],  -2*model['probability'] + self.n_a*self.n_b*np.log(self.n_base*model['pi'].shape[0]), 1/model['delta'], **model)
         sys.stdout.flush()
 
@@ -397,7 +399,7 @@ class recHMM(object) :
         for branch in branches :
             branch[branch.T[1] > 1, 1] = 2
         if self.n_base is None :
-            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) + 100
+            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) #+ 100
         if not interval :
             interval = self.n_base
         def prepare_obs(obs, n_base, interval=None) :
@@ -423,12 +425,12 @@ class recHMM(object) :
         import gzip
         stats = self.margin_predict(branches, names, global_rec, marginal) if marginal > 0. and marginal < 1. else self.map_predict(branches, names, global_rec)
         with open(prefix+'.recombination.region', 'wb') as rec_out, gzip.open(prefix+'.mutations.status.gz', 'wb') as mut_out :
-            mut_out.write('#Branch\t#Site\t#Type\t#W[Mutational]\t#W[Presence]\n')
+            mut_out.write('#Branch\t#Site\t#Type\t#!W[Mutational]\t#!W[Presence]\n')
             for (name, branch) in zip(names, branches) :
                 stat = stats[name]
                 for site in branch :
                     mut_out.write( '{0}\t{1}\t{2}\t{3:.5f}\t{4:.5f}\n'.format(name, site[0], site[1], stat['stat'].get(site[0], 1.), np.sum(stat['weight_p']).astype(float)/stat['weight_p'][0]) )
-                rec_out.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format(name, stat['M'], stat['R']))
+                rec_out.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\tB={3:.3f}\n'.format(name, stat['M'], stat['R'], stat['weight_p'][0]))
                 for r in stat['sketches'] :
                     rec_out.write('\tRecomb\t{0}\t{1}\t{2}\t{3}\t{4:.3f}\n'.format(name, r[0], r[1], ['External', 'Internal', 'Mixed   '][r[2]-1], r[3]))
         
@@ -451,7 +453,7 @@ class recHMM(object) :
         return res
 
     def margin_predict(self, branches, names=None, global_rec=False, marginal=0.9) :
-        self.prepare_branches(branches, 200)
+        self.prepare_branches(branches, 100)
         self.names = np.array(names) if names else np.arange(len(self.observations)).astype(str)
         branch_params = self.update_branch_parameters(self.model, global_rec=global_rec)
         status = self.get_branch_measures(branch_params, self.observations, gammaOnly=True)
@@ -631,14 +633,16 @@ def parse_arg(a) :
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
     parser.add_argument('--global', '-g', dest='global_rec', help='Consensus R/theta ratio for the whole tree, default: False. ', default=False, action="store_true")
     parser.add_argument('--marginal', '-M', help='Calculate recombination sketches using posterior marginals instead of most likely path [default]. \nSet to 0 [default] use Viterbi algorithm to find most likely path.\n (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Suggest: 0.95].', default=0., type=float)
-    
+    parser.add_argument('--clean', '-v', help='Do not show intermediate results during the iterations.', default=False, action='store_true')
+
     args = parser.parse_args(a)
     return args
 
 def RecHMM(args) :
     args = parse_arg(args)
-    global pool
+    global pool, verbose
     pool = Pool(args.n_proc)
+    verbose = not args.clean
     
     model = recHMM(mode=args.task)
     if not args.report or not args.model :
@@ -669,5 +673,6 @@ def RecHMM(args) :
         model.predict(branches, names=names, global_rec=args.global_rec, marginal=args.marginal, prefix=args.prefix)
 
 pool = None
+verbose = True
 if __name__ == '__main__' :
     RecHMM(sys.argv[1:])
