@@ -96,7 +96,7 @@ def configure(args) :
         pilon='pilon*', 
         kraken_program='kraken', 
         kraken_report='kraken-report', 
-        vsearch='vsearch', 
+        #vsearch='vsearch', 
         mmseqs='mmseqs', 
         mcl='mcl',
         fasttree='?fast?ree*',
@@ -152,7 +152,7 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--kraken', dest='kraken_program')
     parser.add_argument('--kraken-report', dest='kraken_report')
     # EnOrth executables
-    parser.add_argument('--vsearch')
+    #parser.add_argument('--vsearch')
     parser.add_argument('--mmseqs')
     parser.add_argument('--mcl')
     parser.add_argument('--fasttree')

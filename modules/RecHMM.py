@@ -15,14 +15,13 @@ class recHMM(object) :
         self.mode = ['legacy', 'hybrid', 'intra', 'both'][mode]
         self.n_a, self.n_b = [[2, 2], [4, 3], [2, 3], [3, 3]][mode]
 
-    def fit(self, branches, names=None, brLens=None, init=None, cool_down=5) :
+    def fit(self, branches, names=None, init=None, cool_down=5, global_rec=False) :
         self.prepare_branches(branches)
-        self.brLens = np.array(brLens) if brLens else None
         self.names = np.array(names) if names else np.arange(len(self.observations)).astype(str)
 
         models = self.initiate(self.observations, init=init)
-        return self.BaumWelch(models, self.max_iteration, cool_down=cool_down)
-
+        return self.BaumWelch(models, self.max_iteration, cool_down=cool_down, global_rec=global_rec)
+        
     def save(self, fout):
         import json
         model = copy.deepcopy(self.model)
@@ -85,7 +84,7 @@ class recHMM(object) :
                     rec.extend(rec_region)
             mut_summary = np.array(mut_summary)
 
-            EventFreq = np.array([3./4.*(1-np.exp(-self.brLens)), 0.]) if self.brLens else (mut_summary.T[[1, 3]]/mut_summary.T[0]).T
+            EventFreq = (mut_summary.T[[1, 3]]/mut_summary.T[0]).T
 
             n_br, (bases, muts, homos, recs) = mut_summary.shape[0], np.sum(mut_summary, 0)
             model = dict(theta=muts/np.sum(EventFreq)/self.n_base,
@@ -120,7 +119,7 @@ class recHMM(object) :
         return self.models
 
 
-    def BaumWelch(self, models, max_iteration, cool_down=5) :
+    def BaumWelch(self, models, max_iteration, cool_down=5, global_rec=False) :
         n_model = len(models)
         for id, model in enumerate(models) :
             if 'id' not in model :
@@ -137,7 +136,7 @@ class recHMM(object) :
                 else :
                     print ''
                     self.screen_out('Assess', model)
-                    branch_params = self.update_branch_parameters(model)
+                    branch_params = self.update_branch_parameters(model, global_rec=global_rec)
                     branch_measures = self.get_branch_measures(branch_params, self.observations)
                     
                     prediction = self.estimation(model, branch_measures)
@@ -236,28 +235,26 @@ class recHMM(object) :
         max_br = np.max(np.array(br).T[0])
         if prediction['delta'] > 0.01 or prediction['delta'] < 0.00001 :
             prediction['delta'] = min(max(model['delta'], 0.00001), 0.01)
-        if prediction['v'] < 0.0005:
-            prediction['v'] = max( 0.0005, model['v'] )
+        if prediction['v'] < 0.001:
+            prediction['v'] = max( 0.001, model['v'] )
         if self.n_b > 2 and prediction['v2'] < max_br/2. :
             prediction['v2'] = max( max_br/2., model['v2'] )
         return prediction
 
-    def update_branch_parameters(self, model, lower_limit=False) :
+    def update_branch_parameters(self, model, lower_limit=False, global_rec=False) :
         branch_params = []
         
         for d, pi in zip(model['EventFreq'], model['pi']) :
             if lower_limit and np.sum(d) < 1./self.n_base:
                 d[:] = d/self.n_base/np.sum(d)
-                
+            mut, rec = (d[0], d[1]) if not global_rec else (np.sum(d) * model['theta'], np.sum(d) * model['R'])
             a = np.zeros(shape=[self.n_a, self.n_a])
-            a[0, 1:] = model['p']*d[1]
+            a[0, 1:] = model['p']*rec
             a[1:, 0] = model['delta']
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, 3])
             h = [1-model['h'][0]/2, np.sqrt(model['h'][0]*(2-model['h'][0]))/2.]
-            
-            mut = d[0]
-            
+                        
             b[0]  = [ 1-mut,                         mut*h[0],        mut*h[1]        ]
             extra = [ 1-model['v'],                  model['v']*h[0], model['v']*h[1] ]
             intra = [ 1-mut*h[0] - model['v2'],      mut*h[0],        model['v2']     ]
@@ -279,18 +276,18 @@ class recHMM(object) :
         return branch_params
 
     def iter_branch_measure(self, data) :
-        obs, param = data
+        obs, param, gammaOnly = data
         a2, a2x, saturate_id = self.update_distant_transition(param['a'], param['b'].T, np.max(obs.T[1]))
         alpha_Pr, alpha, beta = self.forward_backward(obs, pi=param['pi'], a2s=[a2, a2x], b=param['b'])
-        new_param = self.estimate_params(param['a'], param['b'], obs, alpha, beta, a2, saturate_id)
+        new_param = self.estimate_params(param['a'], param['b'], obs, alpha, beta, a2, saturate_id, gammaOnly)
         new_param['probability'] = alpha_Pr
         return new_param
 
-    def get_branch_measures(self, params, observations) :
-        branch_measures = pool.map(functools.partial(_iter_branch_measure, self), zip(observations, params))
+    def get_branch_measures(self, params, observations, gammaOnly=False) :
+        branch_measures = pool.map(functools.partial(_iter_branch_measure, self), zip(observations, params, [gammaOnly for p in params]))
         return branch_measures
 
-    def estimate_params(self, transition, emission, obs, alpha, beta, tr2, saturate_id, mode='accurate') : # mode = accurate
+    def estimate_params(self, transition, emission, obs, alpha, beta, tr2, saturate_id, gammaOnly=False) : # mode = accurate
         gamma = alpha*beta
         gamma = (gamma.T/np.sum(gamma, 1)).T
 
@@ -330,21 +327,24 @@ class recHMM(object) :
             g = g.T/np.sum(g, 1)
 
             b2[:, 0] += np.sum(g, 1)
-
-            s1 = np.zeros(shape=[d+1, self.n_a, self.n_a])
-            s1[0].T[:] = s
-            s1[1:].T[:] = a.T
-
-            s2 = np.zeros(shape=[d+1, self.n_a, self.n_a])
-            s2[:-1].T[:] = (b*emission.T[0]).T
-            s2 = s2.transpose((0, 2, 1))
-            s2[-1, :] = e*emission.T[o[2]]
-
-            t = (s1 * s2) * transition.reshape([1] + list(transition.shape))
-            a2 += np.sum(t.T/np.sum(t, axis=(1,2)), 2).T
+            if not gammaOnly :
+                s1 = np.zeros(shape=[d+1, self.n_a, self.n_a])
+                s1[0].T[:] = s
+                s1[1:].T[:] = a.T
+    
+                s2 = np.zeros(shape=[d+1, self.n_a, self.n_a])
+                s2[:-1].T[:] = (b*emission.T[0]).T
+                s2 = s2.transpose((0, 2, 1))
+                s2[-1, :] = e*emission.T[o[2]]
+    
+                t = (s1 * s2) * transition.reshape([1] + list(transition.shape))
+                a2 += np.sum(t.T/np.sum(t, axis=(1,2)), 2).T
         a2[0] += gamma[0]
         a2.T[0] += gamma[-1]
-        return dict(a=a2, b=b2, pi=pi2)
+        if gammaOnly :
+            return dict(b=b2, gamma=gamma)
+        else :
+            return dict(a=a2, b=b2, pi=pi2)
 
 
     def update_distant_transition(self, transition, emission, interval) :
@@ -392,38 +392,89 @@ class recHMM(object) :
     def get_brLens(self, branches, n_base) :
         return np.array([ np.sum(branch.T[1] > 0)/float(n_base) for branch in branches ])
 
-    def prepare_branches(self, branches) :
+    def prepare_branches(self, branches, interval=None) :
         branches = [ np.array(branch) for branch in branches ]
         for branch in branches :
             branch[branch.T[1] > 1, 1] = 2
         if self.n_base is None :
             self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) + 100
-        def prepare_obs(obs, n_base) :
+        if not interval :
+            interval = self.n_base
+        def prepare_obs(obs, n_base, interval=None) :
             observation = [[1, 0, 0]] if obs[0][0] != 1 else []
             if obs.T[0, -1] < n_base :
                 obs = np.vstack([obs, [n_base, 0]])
             p = 1
             for s, o in obs :
                 d = s - p
-                observation.append([s, d, o])
+                cuts = min(4, int(d/interval)+1)
+                itv = float(d)/cuts
+                px = p
+                for c in range(1, cuts+1) :
+                    x = int(c*itv)+p if c < cuts else s
+                    observation.append([x, x-px, 0 if c < cuts else o])
+                    px = x
                 p = s
             return np.array(observation)
-        self.observations = [prepare_obs(b, self.n_base) for b in branches]
+        self.observations = [prepare_obs(b, self.n_base, interval) for b in branches]
 
-    def predict(self, branches=None, names=None, fout=sys.stdout) :
+    def predict(self, branches=None, names=None, global_rec=False, marginal=0.5, prefix='RecHMM') :
         assert self.model, 'No model'
-
+        import gzip
+        stats = self.margin_predict(branches, names, global_rec, marginal) if marginal > 0. and marginal < 1. else self.map_predict(branches, names, global_rec)
+        with open(prefix+'.recombination.region', 'wb') as rec_out, gzip.open(prefix+'.mutations.status.gz', 'wb') as mut_out :
+            mut_out.write('#Branch\t#Site\t#Type\t#W[Mutational]\t#W[Presence]\n')
+            for (name, branch) in zip(names, branches) :
+                stat = stats[name]
+                for site in branch :
+                    mut_out.write( '{0}\t{1}\t{2}\t{3:.5f}\t{4:.5f}\n'.format(name, site[0], site[1], stat['stat'].get(site[0], 1.), np.sum(stat['weight_p']).astype(float)/stat['weight_p'][0]) )
+                rec_out.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format(name, stat['M'], stat['R']))
+                for r in stat['sketches'] :
+                    rec_out.write('\tRecomb\t{0}\t{1}\t{2}\t{3}\t{4:.3f}\n'.format(name, r[0], r[1], ['External', 'Internal', 'Mixed   '][r[2]-1], r[3]))
+        
+        print 'Imported regions are reported in {0}'.format(prefix+'.recombination.region')
+        print 'Mutation status are reported in {0}'.format(prefix+'.mutations.status.gz')
+        
+    def map_predict(self, branches=None, names=None, global_rec=False) :
         self.prepare_branches(branches)
         self.screen_out('Predict recombination sketches using', self.model)
-        branch_params = self.update_branch_parameters(self.model, lower_limit=True)
-        regions = pool.map(functools.partial(_iter_viterbi, self), zip(self.observations, branch_params))
+        branch_params = self.update_branch_parameters(self.model, lower_limit=True, global_rec=global_rec)
+        status = pool.map(functools.partial(_iter_viterbi, self), zip(self.observations, branch_params))
         res = {}
-        for name, (dm, dr), obs, (region, snp_status) in zip(names, self.model['EventFreq'], self.observations, regions) :
-            res[name] = dict(zip(obs.T[0], snp_status))
-            fout.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\n'.format( name, dm, dr ))
-            for r in region :
-                fout.write('\tRecomb\t{0}\t{1}\t{2}\t{3}\n'.format(name, r[0], r[1], ['External', 'Internal', 'Mixed'][r[2]-1]))
-            fout.flush()
+        for name, (dm, dr), obs, stat in zip(names, self.model['EventFreq'], self.observations, status) :
+            rec_len = np.sum([ e-s+1 for s, e, t, p in stat['sketches'] ])
+            res[name] = dict(stat=dict(zip(obs.T[0], stat['gamma'])), 
+                             sketches=stat['sketches'], 
+                             weight_p=np.array([self.n_base-rec_len, rec_len], dtype=float), 
+                             M=dm, 
+                             R=dr)
+        return res
+
+    def margin_predict(self, branches, names=None, global_rec=False, marginal=0.9) :
+        self.prepare_branches(branches, 200)
+        self.names = np.array(names) if names else np.arange(len(self.observations)).astype(str)
+        branch_params = self.update_branch_parameters(self.model, global_rec=global_rec)
+        status = self.get_branch_measures(branch_params, self.observations, gammaOnly=True)
+        res = {}
+        for name, (dm, dr), obs, stat in zip(names, self.model['EventFreq'], self.observations, status) :
+            path = []
+            for id, (o, s) in enumerate(zip(obs, stat['gamma'])) :
+                p = np.argmax(s)
+                if p > 0 and s[0] < 0.5 :
+                    if len(path) == 0 or path[-1][2] != p or path[-1][4] != obs[id-1][0] :
+                        if o[2] > 0 :
+                            path.append([o[0], o[0], p, o[0], o[0], 1-s[0]])
+                    else :
+                        path[-1][4] = o[0]
+                        if 1-s[0] > path[-1][5] :
+                            path[-1][5] = 1-s[0]
+                        if o[2] > 0 :
+                            path[-1][1] = o[0]
+            res[name] = dict(stat=dict(zip(obs.T[0], stat['gamma'].T[0])),
+                             sketches=[p[:3]+p[5:] for p in path if p[1]-p[0] > 0 and p[5] >= marginal],
+                             weight_p=np.sum(stat['b'], 1),
+                             M=dm, 
+                             R=dr)
         return res
 
 
@@ -461,17 +512,17 @@ class recHMM(object) :
             alpha[i] = p[path[i], ids]
         alpha[i] += np.log( np.dot(pi, a.T) )
         max_path = np.argmax(alpha[i])
-        regions = [] if max_path == 0 else [[i+1, i+1, max_path]]
+        regions = [] if max_path == 0 else [[i+1, i+1, max_path, 1.]]
         inrec = np.zeros(path.shape[0])
         for id in np.arange(path.shape[0]-2, -1, -1) :
             max_path = path[id+1, max_path]
             if max_path > 0 :
                 inrec[id] = 1
                 if len(regions) == 0 or regions[-1][0] != id + 2 :
-                    regions.append([id+1, id+1, max_path])
+                    regions.append([id+1, id+1, max_path, 1.])
                 else :
                     regions[-1][0] = id+1
-        return sorted(regions), inrec[obs.T[0]-1]
+        return dict(sketches=sorted(regions), gamma=1.-inrec[obs.T[0]-1])
     
     def get_parameter(self, bootstrap, prefix='') :
         if 'posterior' in self.model :
@@ -578,6 +629,9 @@ def parse_arg(a) :
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
     parser.add_argument('--bootstrap', '-b', help='Number of Randomizations for confidence intervals. \nDefault: 1000. ', type=int, default=1000)
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
+    parser.add_argument('--global', '-g', dest='global_rec', help='Consensus R/theta ratio for the whole tree, default: False. ', default=False, action="store_true")
+    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches using posterior marginals instead of most likely path [default]. \nSet to 0 [default] use Viterbi algorithm to find most likely path.\n (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Suggest: 0.95].', default=0., type=float)
+    
     args = parser.parse_args(a)
     return args
 
@@ -606,20 +660,13 @@ def RecHMM(args) :
     if args.model :
         model.load(open(args.model, 'rb'))
     else :
-        model.fit(branches, names=names, init=args.init, cool_down=args.cool_down)
+        model.fit(branches, names=names, init=args.init, cool_down=args.cool_down, global_rec=args.global_rec)
         model.save(open(args.prefix + '.best.model.json', 'wb'))
         print 'Best HMM model is saved in {0}'.format(args.prefix + '.best.model.json')
     model.get_parameter(args.bootstrap, args.prefix)
     
     if not args.report :
-        region_out = args.prefix + '.recombination.region'
-        snp_status = model.predict(branches, names=names, fout=open(region_out, 'w'))
-        print 'Imported regions are reported in {0}'.format(region_out)
-        import gzip
-        with gzip.open(args.prefix+'.mutations.status.gz', 'wb') as fout :
-            for d in data :
-                fout.write('{0}\t{1}\n'.format('\t'.join(d), snp_status[d[0]][int(d[2])]))
-        print 'Mutation status are reported in {0}'.format(args.prefix+'.mutations.status.gz')
+        model.predict(branches, names=names, global_rec=args.global_rec, marginal=args.marginal, prefix=args.prefix)
 
 pool = None
 if __name__ == '__main__' :
