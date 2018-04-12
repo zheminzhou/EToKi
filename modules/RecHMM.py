@@ -261,6 +261,12 @@ class recHMM(object) :
             extra = [ 1-model['v'],                  model['v']*h[0], model['v']*h[1] ]
             intra = [ 1-mut*h[0] - model['v2'],      mut*h[0],        model['v2']     ]
             mixed = [ 1-model['v']*h[0]-model['v2'], model['v']*h[0], model['v2']     ]
+            if intra[0] <= 0.01 :
+                intra[0] = 0.01
+        #        intra[1] = 1 - intra[0] - intra[2]
+            if mixed[0] <= 0.01 :
+                mixed[0] = 0.01
+        #        mixed[1] = 1 - mixed[0] - mixed[2]
             if self.n_a == 2 and self.n_b > 2 :
                 b[1] = intra
             else :
@@ -399,14 +405,15 @@ class recHMM(object) :
         for branch in branches :
             branch[branch.T[1] > 1, 1] = 2
         if self.n_base is None :
-            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) #+ 100
+            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) #+ 2
         if not interval :
             interval = self.n_base
         def prepare_obs(obs, n_base, interval=None) :
+            observation = [[0, 0, 0]] # if obs[0][0] != 1 else []
             observation = [[1, 0, 0]] if obs[0][0] != 1 else []
             if obs.T[0, -1] < n_base :
                 obs = np.vstack([obs, [n_base, 0]])
-            p = 1
+            p = -9
             for s, o in obs :
                 d = s - p
                 cuts = min(4, int(d/interval)+1)
@@ -514,17 +521,17 @@ class recHMM(object) :
             alpha[i] = p[path[i], ids]
         alpha[i] += np.log( np.dot(pi, a.T) )
         max_path = np.argmax(alpha[i])
-        regions = [] if max_path == 0 else [[i+1, i+1, max_path, 1.]]
+        regions = [] 
         inrec = np.zeros(path.shape[0])
-        for id in np.arange(path.shape[0]-2, -1, -1) :
+        for id in np.arange(path.shape[0]-2, 0, -1) :
             max_path = path[id+1, max_path]
             if max_path > 0 :
                 inrec[id] = 1
-                if len(regions) == 0 or regions[-1][0] != id + 2 :
-                    regions.append([id+1, id+1, max_path, 1.])
+                if len(regions) == 0 or regions[-1][0] != id + 1 :
+                    regions.append([id, id, max_path, 1.])
                 else :
-                    regions[-1][0] = id+1
-        return dict(sketches=sorted(regions), gamma=1.-inrec[obs.T[0]-1])
+                    regions[-1][0] = id
+        return dict(sketches=sorted(regions), gamma=1.-inrec[ obs.T[0] ])
     
     def get_parameter(self, bootstrap, prefix='') :
         if 'posterior' in self.model :
@@ -632,7 +639,7 @@ def parse_arg(a) :
     parser.add_argument('--bootstrap', '-b', help='Number of Randomizations for confidence intervals. \nDefault: 1000. ', type=int, default=1000)
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
     parser.add_argument('--global', '-g', dest='global_rec', help='Consensus R/theta ratio for the whole tree, default: False. ', default=False, action="store_true")
-    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches using posterior marginals instead of most likely path [default]. \nSet to 0 [default] use Viterbi algorithm to find most likely path.\n (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Suggest: 0.95].', default=0., type=float)
+    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches using posterior marginals instead of most likely path [default]. \nSet to 0 [default] use Viterbi algorithm to find most likely path.\n (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Suggest: 0.9].', default=0., type=float)
     parser.add_argument('--clean', '-v', help='Do not show intermediate results during the iterations.', default=False, action='store_true')
 
     args = parser.parse_args(a)

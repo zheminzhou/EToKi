@@ -393,7 +393,7 @@ def phylo(args) :
     if 'ancestral' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='viterbi')
         states = np.array(states)
-        final_tree.write(format=1, outfile=prefix + '.labeled.nwk')
+        final_tree.write(format=1, outfile=prefix + '.labelled.nwk')
         write_states(prefix+'.ancestral_states.gz', node_names, states, sites)
     elif 'mutation' in args.tasks :
         final_tree = Tree(args.tree, format=1)
@@ -401,7 +401,7 @@ def phylo(args) :
         
     if 'ancestral_proportion' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='margin')
-        final_tree.write(format=1, outfile=prefix + '.labeled.nwk')
+        final_tree.write(format=1, outfile=prefix + '.labelled.nwk')
         write_ancestral_proportion(prefix+'.ancestral_proportion.gz', node_names, states, sites)
 
     if 'mutation' in args.tasks :
