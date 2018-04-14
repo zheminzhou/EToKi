@@ -112,8 +112,6 @@ class recHMM(object) :
                 model['p'] = model['p']/np.sum(model['p'])
             n_total = model['theta'] + model['R']
             model['theta'], model['R'] = model['theta']/n_total, model['R']/n_total
-            #if self.brLens :
-                #EventFreq[:] = EventFreq.T[0] * np.array([model['theta'], model['R']])
             self.screen_out('Initiate', model)
             self.models.append(model)
         return self.models
@@ -261,12 +259,6 @@ class recHMM(object) :
             extra = [ 1-model['v'],                  model['v']*h[0], model['v']*h[1] ]
             intra = [ 1-mut*h[0] - model['v2'],      mut*h[0],        model['v2']     ]
             mixed = [ 1-model['v']*h[0]-model['v2'], model['v']*h[0], model['v2']     ]
-            if intra[0] <= 0.01 :
-                intra[0] = 0.01
-        #        intra[1] = 1 - intra[0] - intra[2]
-            if mixed[0] <= 0.01 :
-                mixed[0] = 0.01
-        #        mixed[1] = 1 - mixed[0] - mixed[2]
             if self.n_a == 2 and self.n_b > 2 :
                 b[1] = intra
             else :
@@ -275,7 +267,9 @@ class recHMM(object) :
                 b[2] = intra
                 if self.n_a > 3 :
                     b[3] = mixed
-
+            b[b.T[0] < 0.01, 0] = 0.01
+            b[2:, 1] = np.sum(b[2:], 1) - b[2:, 0] - b[2:, 2]
+            
             branch_params.append(dict(
                 pi = pi,
                 a = a,
@@ -405,15 +399,15 @@ class recHMM(object) :
         for branch in branches :
             branch[branch.T[1] > 1, 1] = 2
         if self.n_base is None :
-            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) #+ 2
+            self.n_base = np.max([ np.max(branch.T[0]) for branch in branches ]) + 2
         if not interval :
             interval = self.n_base
         def prepare_obs(obs, n_base, interval=None) :
             observation = [[0, 0, 0]] # if obs[0][0] != 1 else []
-            observation = [[1, 0, 0]] if obs[0][0] != 1 else []
+            #observation = [[1, 0, 0]] if obs[0][0] != 1 else []
             if obs.T[0, -1] < n_base :
-                obs = np.vstack([obs, [n_base, 0]])
-            p = -9
+                obs = np.vstack([obs, [n_base-1, 0]])
+            p = 0
             for s, o in obs :
                 d = s - p
                 cuts = min(4, int(d/interval)+1)
