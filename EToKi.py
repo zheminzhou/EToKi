@@ -20,6 +20,7 @@ Commands:
   phylo            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
   RecHMM           Identify Recombination sketches
   RecFilter        Remove Recombination sketches
+  BrRefine         Correct tree using RecHMM outpus
 
 Use EToKi.py <command> -h to get help for each command.
 '''

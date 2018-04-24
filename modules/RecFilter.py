@@ -8,6 +8,7 @@ def parse_arg(a) :
     parser.add_argument('--snp', '-s', dest='matrix', help='SNP matrix', required=True)
     parser.add_argument('--tree', '-t', help='Labeled tree', required=True)
     parser.add_argument('--rec', '-r', help='Recombinant sketches', required=True)
+    parser.add_argument('--prob', '-b', help='Minimum probability for rec sketches. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--clonalframeml', help='The recombinant sketches are in ClonalFrameML format. ', default=False, action="store_true")
     parser.add_argument('--simbac', help='The recombinant sketches are in SimBac break format. ', default=False, action="store_true")
     args = parser.parse_args(a)
@@ -42,12 +43,14 @@ def read_simbac(fname, nodes) :
     return {b:sorted(r) for b, r in rec.iteritems() }
 
 
-def read_RecHMM(fname, nodes) :
+def read_RecHMM(fname, nodes, prob) :
     rec = {}
     with open(fname) as fin :
         for line in fin :
             if line.startswith('\tRecomb') :
                 part = line.strip().split('\t')
+                if len(part) > 5 and float(part[5]) < prob :
+                    continue
                 if part[1] not in rec :
                     rec[part[1]] = []
                 rec[part[1]].append([int(part[2]), int(part[3]), part[4], nodes[part[1]]])
@@ -105,7 +108,7 @@ def RecFilter(argv) :
     elif args.simbac :
         rec_regions = read_simbac(args.rec, nodes)
     else :
-        rec_regions = read_RecHMM(args.rec, nodes)
+        rec_regions = read_RecHMM(args.rec, nodes, args.prob)
         
     n_base = np.sum([v[2] for v in snps.values()])
     br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[1]-rr[0]+1 for rr in r ])+.1) for b, r in rec_regions.iteritems() }

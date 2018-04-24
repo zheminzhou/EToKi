@@ -284,6 +284,9 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     for id,branch in enumerate(tree.traverse('postorder')) :
         if branch.name == '' :
             branch.name = 'N_' + str(len(node_names))
+        if not branch.up and len(branch.children) == 2 :
+            branch.children[1].dist += branch.children[0].dist - 1e-8
+            branch.children[0].dist = 1e-8
         node_names[str(branch.name)] = id
     states, branches = [ [ '-' for snp in snps ] for br in node_names ], []
     
