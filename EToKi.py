@@ -1,4 +1,4 @@
-import argparse, numpy as np, sys
+import numpy as np, sys
 
 def etoki() :
     try :
@@ -24,8 +24,9 @@ Commands:
 
 Use EToKi.py <command> -h to get help for each command.
 '''
-        import traceback
-        traceback.print_exception(*sys.exc_info())
+        if len(sys.argv) > 1 :
+            import traceback
+            traceback.print_exception(*sys.exc_info())
         sys.exit(0)
 
     eval(sys.argv[1])(sys.argv[2:])
