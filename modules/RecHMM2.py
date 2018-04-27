@@ -112,8 +112,8 @@ class recHMM(object) :
 
                 model['h'][1]  = max(model['h'][1], 1./2.*(rec2[3]+1)/(rec2[2]+1))
                 model['delta'] = np.array([ max(0.00002, min(0.005, (rec[0]+rec2[0])/(rec2[1] + rec[1]))) for id in np.unique(self.categories['delta']) ])
-                model['v']     = np.array([ np.max([0.001, np.min([0.7, (rec[2]+rec2[2])/(rec2[1] + rec[1])])]) for id in np.unique(self.categories['nu']) ])
-                model['v2']    = np.array([ np.min([0.7, (rec2[2]+1)/(rec2[1]+1)]) for id in np.unique(self.categories['nu']) ])
+                model['v']     = np.array([ np.max([0.001, np.min([0.5, (rec[2]+rec2[2])/(rec2[1] + rec[1])])]) for id in np.unique(self.categories['nu']) ])
+                model['v2']    = np.array([ np.min([0.5, (rec2[2]+1)/(rec2[1]+1)]) for id in np.unique(self.categories['nu']) ])
 
                 p = np.array([rec[0], np.sqrt(rec[0]*rec2[0]), rec2[0]])[:(self.n_a-1)]
                 p = p/np.sum(p)
@@ -175,36 +175,12 @@ class recHMM(object) :
 
     def verify_model(self, models) :
         for model in models :
-            if 'low_cov' not in model['categories'] :
-                model['categories']['low_cov'] = {}
             for brId, (theta, v) in enumerate(zip(model['posterior']['theta'], model['posterior']['v'])) :
-                if v[0] > .0001 * theta[0] and v[1]*theta[0] < theta[1]*v[0] :
-                    print 'Model {0}: Branch {1} is too divergent for Rec identification. Move to new category. '.format(model['id'], self.names[brId])
-                    model['categories']['nu'][brId] = new_id = model['categories']['nu'][brId] + 1
-                    if new_id >= model['v'].shape[0] :
-                        model['v'] = np.concatenate([model['v'], [0.]])
-                        model['v2'] = np.concatenate([model['v2'], [model['v2'][-1]]])
-                    if model['v'][new_id] < theta[1]/theta[0]*1.1 :
-                        model['v'][new_id] = theta[1]/theta[0]*1.1
-                    if model['v2'][new_id] < theta[1]/theta[0]*0.5 :
-                        model['v2'][new_id] = theta[1]/theta[0]*0.5
+                if brId not in model['categories']['noRec'] and v[0] > .01 * theta[0] and v[1]*theta[0] < theta[1]*v[0] :
+                    print 'Model {0}: Branch {1} is too divergent for Rec identification. Suspressed for further analysis. '.format(model['id'], self.names[brId])
+                    model['categories']['noRec'][brId] = 1
                     model['probability'] = -1e300
                     model['diff'] = 1e300
-                elif model['posterior']['R'][brId, 0] * 2. < self.n_base :
-                    tId = model['categories']['R/theta'][brId]
-                    if tId not in model['categories']['low_cov'] :
-                        if np.sum(model['categories']['R/theta']== tId) > 1:
-                            model['categories']['low_cov'][tId] = model['theta'].size
-                            model['categories']['low_cov'][model['theta'].size] = model['theta'].size
-                            model['R'] = np.vstack([model['R'], [model['R'][tId]]])
-                            model['theta'] = np.concatenate([model['theta'], [model['theta'][tId]]])
-                        else :
-                            model['categories']['low_cov'][tId] = tId
-                    if model['categories']['low_cov'][tId] != tId :
-                        print 'Model {0}: Branch {1} got too much recombined regions. Move to new category. '.format(model['id'], self.names[brId])
-                        model['categories']['R/theta'][brId] = model['categories']['low_cov'][tId]
-                        model['probability'] = -1e300
-                        model['diff'] = 1e300
 
     def screen_out(self, action, model) :
         if not verbose :
@@ -252,8 +228,6 @@ class recHMM(object) :
 
         for id, theta in enumerate(prediction['theta']) :
             ids = (model['categories']['R/theta'] == id)
-            #prediction['theta'][id] = np.sum(posterior['theta'][ids, 1])
-            #prediction['R'][id] = np.sum(posterior['R'][ids, 1:], 0)#
             prediction['theta'][id] = np.sum(EventFreq[ids, 0]/prediction['EventFreq'][ids])
             prediction['R'][id] = np.sum(EventFreq[ids, 1:].T/prediction['EventFreq'][ids], 1)
             if np.sum(prediction['R'][id]) < .001 * prediction['theta'][id] :
@@ -264,17 +238,17 @@ class recHMM(object) :
 
         for id, delta in enumerate(prediction['delta']) :
             ids = (model['categories']['delta'] == id)
-            prediction['delta'][id] = np.sum(posterior['delta'][ids, :, 1])/np.sum(posterior['delta'][ids, :, 0])
-            if prediction['delta'][id] > .01 or prediction['delta'][id] < .00001 :
-                prediction['delta'][id] = min(max(model['delta'][id], .00001), .01)
+            prediction['delta'][id] = np.mean(np.sum(posterior['delta'][ids, :, 1], 1)/np.sum(posterior['delta'][ids, :, 0], 1))
+            if prediction['delta'][id] > .02 or prediction['delta'][id] < .00001 :
+                prediction['delta'][id] = min(max(model['delta'][id], .00001), .02)
 
         for id, v in enumerate(prediction['v']) :
             ids = (model['categories']['nu'] == id)
             prediction['v'][id] = np.sum(posterior['v'][ids, 1])/np.sum(posterior['v'][ids, 0])
             prediction['v2'][id] = np.sum(posterior['v2'][ids, 1])/np.sum(posterior['v2'][ids, 0])
 
-            if prediction['v'][id] < 0.001 or prediction['v'][id] > 0.7:
-                prediction['v'][id] = min(max( model['v'][id], 0.001 ), 0.7)
+            if prediction['v'][id] < 0.001 or prediction['v'][id] > 0.5:
+                prediction['v'][id] = min(max( model['v'][id], 0.001 ), 0.5)
                 max_br = np.max(prediction['EventFreq'][ids])
                 if self.n_b > 2 and prediction['v2'][id] < max_br*h[1] :
                     prediction['v2'][id] = max( max_br*h[1], model['v2'][id] )
@@ -473,7 +447,7 @@ class recHMM(object) :
             return np.array(observation)
         self.observations = [prepare_obs(b, n_bases, interval) for b in branches]
 
-    def predict(self, branches=None, names=None, global_rec=False, marginal=0.8, prefix='RecHMM') :
+    def predict(self, branches=None, names=None, global_rec=False, marginal=0.5, prefix='RecHMM') :
         assert self.model, 'No model'
         import gzip
         stats = self.margin_predict(branches, names, global_rec, marginal) if marginal > 0. and marginal < 1. else self.map_predict(branches, names, global_rec)
@@ -597,8 +571,6 @@ class recHMM(object) :
         EventFreq = np.vstack([posterior['theta'].T[1]/posterior['theta'].T[0], posterior['R'][:, 1:].T/posterior['R'][:, 0]]).T
         reports['EventFreq'] = [np.sum(EventFreq), np.sum(EventFreq[bs], (1,2))]
 
-        #reports['theta'] = [np.sum(posterior['theta'].T[1]), np.sum(posterior['theta'].T[1][bs], 1)]
-        #reports['R'] = [np.sum(posterior['R'].T[1:]), np.sum(np.sum(posterior['R'].T[1:], 0)[bs])]
         reports['theta'] = [np.sum(EventFreq[:, 0]/self.model['EventFreq']), np.sum(EventFreq.T[0][bs]/self.model['EventFreq'][bs], 1)]
         reports['R'] = [np.sum(np.sum(EventFreq[:, 1:], 1)/self.model['EventFreq']), np.sum(np.sum(EventFreq.T[1:], 0)[bs]/self.model['EventFreq'][bs], 1)]
         tot = [reports['theta'][0]+reports['R'][0], reports['theta'][1]+reports['R'][1]]
