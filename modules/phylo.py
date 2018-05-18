@@ -302,7 +302,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     n_node = len(node_names)
     transitions = {}
     retvalue = []
-    for state in states :
+    for xi, state in enumerate(states) :
         tag, code = np.unique(state, return_inverse=True)
         n_state = tag.size
         missing = np.where(tag == '-')[0]
@@ -337,6 +337,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
                     alpha[t] *= np.dot(alpha[s]/beta[t], tr)
             retvalue.append([tag, alpha])
         else :
+            
             pt = np.log(transition)
             ids = np.arange(n_state)
             alpha = np.zeros(shape=[n_node, n_state, n_state])

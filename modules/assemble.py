@@ -115,7 +115,7 @@ class mainprocess(object) :
                 read_input = '-1 {0} -2 {1}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
         else :
             read_input = '-r {2}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
-        cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 33285996544 -o {outdir}'.format(
+        cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 0.9 -o {outdir}'.format(
               megahit=parameters['megahit'], read_input=read_input, outdir=outdir)
         run = Popen( cmd.split(), stdout=PIPE, bufsize=0 )
         run.communicate()

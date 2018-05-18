@@ -139,6 +139,7 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--krakenDB', dest='kraken_database', help='database to be used in kraken based species prediction.\nIt can be downloaded from \n"https://ccb.jhu.edu/software/kraken/"')
     # EnBler executables
     parser.add_argument('--bbduk')
+    parser.add_argument('--bbmerge')
     parser.add_argument('--spades')
     parser.add_argument('--bwa')
 
@@ -152,7 +153,6 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--kraken', dest='kraken_program')
     parser.add_argument('--kraken-report', dest='kraken_report')
     # EnOrth executables
-    #parser.add_argument('--vsearch')
     parser.add_argument('--mmseqs')
     parser.add_argument('--mcl')
     parser.add_argument('--fasttree')

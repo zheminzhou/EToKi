@@ -15,7 +15,7 @@ class recHMM(object) :
         self.mode = ['legacy', 'hybrid', 'intra', 'both'][mode]
         self.n_a, self.n_b = [[2, 2], [4, 3], [2, 3], [3, 3]][mode]
 
-    def fit(self, branches, names=None, categories=None, init=None, cool_down=5, global_rec=False) :
+    def fit(self, branches, names=None, categories=None, init=None, cool_down=5) :
         self.prepare_branches(branches)
         self.names = np.array(names) if names else np.arange(len(self.observations)).astype(str)
         self.categories = { 'noRec':{} }
@@ -28,7 +28,7 @@ class recHMM(object) :
                     self.categories[c][i] = categories[c].get(n, 0)
 
         models = self.initiate(self.observations, init=init)
-        return self.BaumWelch(models, self.max_iteration, cool_down=cool_down, global_rec=global_rec)
+        return self.BaumWelch(models, self.max_iteration, cool_down=cool_down)
 
     def save(self, fout):
         import json
@@ -116,17 +116,17 @@ class recHMM(object) :
                 model['v2']    = np.array([ np.min([0.7, (rec2[2]+1)/(rec2[1]+1)]) for id in np.unique(self.categories['nu']) ])
 
                 p = np.array([rec[0], np.sqrt(rec[0]*rec2[0]), rec2[0]])[:(self.n_a-1)]
-                p = p/np.sum(p)
+                p /= np.sum(p)
                 model['R'] = np.array([ recs/np.sum(EventFreq)/self.n_base * p for id in np.unique(self.categories['R/theta']) ])
                 tot_event = model['theta'][0] + np.sum(model['R'][0])
-                model['theta'] = model['theta']/tot_event
-                model['R'] = model['R']/tot_event
+                model['theta'] /= tot_event
+                model['R'] /= tot_event
                 self.screen_out('Initiate', model)
                 self.models.append(model)
         return self.models
 
 
-    def BaumWelch(self, models, max_iteration, cool_down=5, global_rec=False) :
+    def BaumWelch(self, models, max_iteration, cool_down=5) :
         n_model = len(models)
         for ite in np.arange(max_iteration) :
             new_models = []
@@ -138,7 +138,7 @@ class recHMM(object) :
                 else :
                     print ''
                     self.screen_out('Assess', model)
-                    branch_params = self.update_branch_parameters(model, global_rec=global_rec)
+                    branch_params = self.update_branch_parameters(model)
                     branch_measures = self.get_branch_measures(branch_params, self.observations)
 
                     prediction = self.estimation(model, branch_measures)
@@ -162,8 +162,8 @@ class recHMM(object) :
             if ite > 0 and ite % cool_down == 0 :
                 while len(new_models) > 1 and n_model - len(new_models) < ite/cool_down :
                     if new_models[-1]['probability'] + new_models[-1]['diff']/2 >= new_models[-2]['probability'] + new_models[-2]['diff']/2 :
-                        new_models[-1]['diff'] = new_models[-1]['diff']/2
-                        new_models[-2]['diff'] = new_models[-2]['diff']/2
+                        new_models[-1]['diff'] /= 2
+                        new_models[-2]['diff'] /= 2
                         break
                     else :
                         self.screen_out('Delete', new_models[-1])
@@ -228,14 +228,14 @@ class recHMM(object) :
         for id, measures in enumerate(branch_measures) :
             a, b = measures['a'], measures['b']
             if self.n_a == 2 and self.n_b > 2 :
-                posterior['theta'][id, :] = [ np.sum(b[0]) + np.sum(b[1])*h[0], np.sum(b[0, 1:]) + b[1, 1] ]
+                posterior['theta'][id, :] = [ np.sum(b[0]) + np.sum(b[1])*h[0]/2, np.sum(b[0, 1:]) + b[1, 1] ]
                 posterior['h'][id] = [ b[0, 1]+b[0, 2], b[0, 2], b[1, 1]+b[1, 2], b[1, 2] ]
                 posterior['v'][id] = [np.sum(b[1]), np.sum(b[1, 1:])]
                 posterior['v2'][id] = [np.sum(b[1]), b[1, 2]]
             else :
-                posterior['theta'][id, :] = [ np.sum(b[0]) + np.sum(b[2:3])*h[0], np.sum(b[0, 1:]) + np.sum(b[2:3, 1]) ]
+                posterior['theta'][id, :] = [ np.sum(b[0]) + np.sum(b[2:3])*h[0]/2, np.sum(b[0, 1:]) + np.sum(b[2:3, 1]) ]
                 posterior['h'][id] = [ np.sum(b[:2, 1:3]), np.sum(b[:2, 2]), np.sum(b[2:, 1:3]), np.sum(b[2:, 2]) ]
-                posterior['v'][id] = [np.sum(b[1]) + np.sum(b[3:])*h[0], np.sum(b[1, 1:]) + np.sum(b[3:, 1])]
+                posterior['v'][id] = [np.sum(b[1]) + np.sum(b[3:])*h[0]/2, np.sum(b[1, 1:]) + np.sum(b[3:, 1])]
                 posterior['v2'][id] = [np.sum(b[2:]), np.sum(b[2:, 2])]
 
             posterior['R'][id, 0], posterior['R'][id, 1:] = np.sum(a[0]), a[0, 1:]
@@ -276,11 +276,11 @@ class recHMM(object) :
             if prediction['v'][id] < 0.001 or prediction['v'][id] > 0.7:
                 prediction['v'][id] = min(max( model['v'][id], 0.001 ), 0.7)
                 max_br = np.max(prediction['EventFreq'][ids])
-                if self.n_b > 2 and prediction['v2'][id] < max_br*h[1] :
-                    prediction['v2'][id] = max( max_br*h[1], model['v2'][id] )
+                if self.n_b > 2 and prediction['v2'][id] < max_br/2 :
+                    prediction['v2'][id] = max( max_br/2, model['v2'][id] )
         return prediction
 
-    def update_branch_parameters(self, model, lower_limit=False, global_rec=False) :
+    def update_branch_parameters(self, model, lower_limit=False) :
         branch_params = []
 
         for brId, d in enumerate(model['EventFreq']) :
@@ -303,10 +303,10 @@ class recHMM(object) :
 
             v, v2 = model['v'][vId], model['v2'][vId]
 
-            b[0]  = [ 1-m,          m*h[0],  m*h[1] ]
-            extra = [ 1-v,          v*h[0],  v*h[1] ]
-            intra = [ 1-m*h[0]-v2,  m*h[0],  v2     ]
-            mixed = [ 1-v*h[0]-v2,  v*h[0],  v2     ]
+            b[0]  = [ 1-m,          m*h[0],      m*h[1] ]
+            extra = [ 1-v,          v*h[0],      v*h[1] ]
+            intra = [ 1-m*h[0]/2-v2,  m*h[0]/2,  v2     ]
+            mixed = [ 1-v*h[0]/2-v2,  v*h[0]/2,  v2     ]
             b[1] = intra if self.n_a == 2 and self.n_b > 2 else extra
 
             if self.n_a > 2 :
@@ -343,7 +343,7 @@ class recHMM(object) :
         nb = np.dot(beta[0], tr2[saturate_id].T)
         ng = na*nb/np.sum(na*nb)
         ne = np.array([na for i in np.arange(self.n_a)]).T * np.array([nb*emission.T[0] for i in np.arange(self.n_a)])*transition
-        ne = ne/np.sum(ne)
+        ne /= np.sum(ne)
 
         a2 = np.zeros(shape=[self.n_a, self.n_a])
         b2 = np.zeros(shape=[self.n_a, 3])
@@ -473,10 +473,10 @@ class recHMM(object) :
             return np.array(observation)
         self.observations = [prepare_obs(b, n_bases, interval) for b in branches]
 
-    def predict(self, branches=None, names=None, global_rec=False, marginal=0.8, prefix='RecHMM') :
+    def predict(self, branches=None, names=None, marginal=0.8, prefix='RecHMM') :
         assert self.model, 'No model'
         import gzip
-        stats = self.margin_predict(branches, names, global_rec, marginal) if marginal > 0. and marginal < 1. else self.map_predict(branches, names, global_rec)
+        stats = self.margin_predict(branches, names, marginal) if marginal > 0. and marginal < 1. else self.map_predict(branches, names)
         with open(prefix+'.recombination.region', 'wb') as rec_out, gzip.open(prefix+'.mutations.status.gz', 'wb') as mut_out :
             mut_out.write('#Branch\t#Site\t#Type\t#!W[Mutational]\t#!W[Presence]\n')
             for (name, branch) in zip(names, branches) :
@@ -490,10 +490,10 @@ class recHMM(object) :
         print 'Imported regions are reported in {0}'.format(prefix+'.recombination.region')
         print 'Mutation status are reported in {0}'.format(prefix+'.mutations.status.gz')
 
-    def map_predict(self, branches=None, names=None, global_rec=False) :
+    def map_predict(self, branches=None, names=None) :
         self.prepare_branches(branches)
         self.screen_out('Predict recombination sketches using', self.model)
-        branch_params = self.update_branch_parameters(self.model, lower_limit=True, global_rec=global_rec)
+        branch_params = self.update_branch_parameters(self.model, lower_limit=True)
         status = pool.map(functools.partial(_iter_viterbi, self), zip(self.observations, branch_params))
         res = {}
         for name, dm, dr, obs, stat in zip(names, self.model['posterior']['theta'], self.model['posterior']['R'], self.observations, status) :
@@ -505,10 +505,10 @@ class recHMM(object) :
                              R=np.sum(dr[1:])/dr[0])
         return res
 
-    def margin_predict(self, branches, names=None, global_rec=False, marginal=0.9) :
+    def margin_predict(self, branches, names=None, marginal=0.9) :
         self.prepare_branches(branches, 100)
         self.names = np.array(names) if names else np.arange(len(self.observations)).astype(str)
-        branch_params = self.update_branch_parameters(self.model, global_rec=global_rec)
+        branch_params = self.update_branch_parameters(self.model)
         status = self.get_branch_measures(branch_params, self.observations, gammaOnly=True)
         res = {}
         for name, dm, dr, obs, stat in zip(names, self.model['posterior']['theta'], self.model['posterior']['R'], self.observations, status) :
@@ -605,13 +605,13 @@ class recHMM(object) :
         reports['theta'] = [reports['theta'][0]/tot[0], reports['theta'][1]/tot[1]]
         reports['R'] = [reports['R'][0]/tot[0], reports['R'][1]/tot[1]]
 
-        reports['delta'] = [np.sum(posterior['delta'][:, :, 0])/np.sum(posterior['delta'][:, :, 1]), 
+        reports['delta'] = [np.sum(posterior['delta'][:, :, 0])/np.sum(posterior['delta'][:, :, 1]),
                             np.sum(posterior['delta'][:, :, 0][bs], (1,2))/np.sum(posterior['delta'][:, :, 1][bs], (1, 2))]
 
-        reports['nu'] = [np.sum(posterior['v'][:, 1])/np.sum(posterior['v'][:, 0]), 
+        reports['nu'] = [np.sum(posterior['v'][:, 1])/np.sum(posterior['v'][:, 0]),
                             np.sum(posterior['v'][:, 1][bs], 1)/np.sum(posterior['v'][:, 0][bs], 1)]
-        
-        reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]), 
+
+        reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]),
                             np.sum(posterior['v2'][:, 1][bs], 1)/np.sum(posterior['v2'][:, 0][bs], 1)]
 
         reports['R/theta'] = [reports['R'][0]/reports['theta'][0], reports['R'][1]/reports['theta'][1]]
@@ -638,13 +638,13 @@ def parse_arg(a) :
     parser.add_argument('--data', '-d', help='A list of mutations generated by EnPhyl', required=True)
     parser.add_argument('--model', '-m', help='Read a saved model instead of EM process', default='')
     parser.add_argument('--task', '-t', help='task to run. \n0: One rec category from external sources.\n1: Three rec categories considering internal, external and mixed sources [default].', default=1, type=int)
-    parser.add_argument('--init', '-i', help='Initiate models with guesses of recombinant proportions. \nDefault: 0.01,0.05,0.3,0.7,0.95,0.99', default='0.01,0.05,0.3,0.7,0.95,0.99')
+    parser.add_argument('--init', '-i', help='Initiate models with guesses of recombinant proportions. \nDefault: 0.05,0.5,0.95', default='0.05,0.5,0.95')
     parser.add_argument('--prefix', '-p', help='Prefix for all the outputs ', default='RecHMM')
     parser.add_argument('--cool_down', '-c', help='Delete the worst model every N iteration. Default:5', type=int, default=5)
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
     parser.add_argument('--bootstrap', '-b', help='Number of Randomizations for confidence intervals. \nDefault: 1000. ', type=int, default=1000)
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
-    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches. \nSet to 0 to use Viterbi algorithm to find most likely path.\n Otherwise (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Default: 0.8].', default=0.8, type=float)
+    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches. \nSet to 0 to use Viterbi algorithm to find most likely path.\n Otherwise (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Default: 0.9].', default=0.9, type=float)
     parser.add_argument('--clean', '-v', help='Do not show intermediate results during the iterations.', default=False, action='store_true')
     parser.add_argument('--local_r', '-lr', help='Specify a comma-delimited list of branches that share a different R/theta (Frequency of rec) ratio than the global consensus. Can be specified multiple times. \nUse "*" to assign different value for each branch.', default=[], action="append")
     parser.add_argument('--local_nu', '-ln', help='Specify a comma-delimited list of branches that share a different Nu (SNP density in rec) than the global consensus. Can be specified multiple times. \nUse "*" to assign different value for each branch.', default=[], action="append")

@@ -11,6 +11,7 @@ def parse_arg(a) :
     parser.add_argument('--prob', '-b', help='Minimum probability for rec sketches. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--clonalframeml', help='The recombinant sketches are in ClonalFrameML format. ', default=False, action="store_true")
     parser.add_argument('--simbac', help='The recombinant sketches are in SimBac break format. ', default=False, action="store_true")
+    parser.add_argument('--gubbins', help='convert VCF format to SNP matrix format. ', default=False, action="store_true")
     args = parser.parse_args(a)
     return args
 
@@ -57,39 +58,72 @@ def read_RecHMM(fname, nodes, prob) :
     return rec
 
 def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
-    invariants = { snp[0]:[base, snp[2]] for base, snp in snps.iteritems() if snp[1] == 0 and base[0] != '-' }
-    bases = {}
-    for inv in invariants.values() :
-        bases[inv[0]] = bases.get(inv[0], 0) + inv[1]
+    bases = {'A':0, 'C':0, 'G':0, 'T':0}
+    for base, snp in snps.iteritems() :
+        for n, c in zip(*np.unique(base.split('\t'), return_counts=True)) :
+            if n in  bases :
+                bases[n] += c*snp[2]
+    
     sv = {ss[0]:s.split('\t') for s, ss in snps.iteritems()}
     name_map = {name:id for id, name in enumerate(names)}
+    sss = []
+    for site in sites :
+        if not len(m_weight[site[1]]) : continue
+        weight = np.mean(m_weight[site[1]].values()) 
+        snvs = np.array(sv[site[2]])
+        snv_x = []
+        p = np.zeros(snvs.shape, dtype=bool)
+        for m in masks.get(site[1], []) :
+            pp = np.ones(snvs.shape, dtype=bool)
+            pp[ [name_map[mm] for mm in m] ] = False
+            p = (p | (~pp))
+            snv_x.append(np.copy(snvs))
+            snv_x[-1][pp] = '-'
+        snv_x.append(snvs)
+        snv_x[-1][p] = '-'
+        
+        for snv in snv_x :
+            snv_type, snv_cnt = np.unique(snv, return_counts=True)
+            snv_type, snv_cnt = snv_type[~ np.in1d(snv_type, ['-', 'N', 'n'])], snv_cnt[~ np.in1d(snv_type, ['-', 'N', 'n'])]
+            if snv_type.size > 1 :
+                for k,v in zip(snv_type, snv_cnt) :
+                    bases[k] -= v*weight
+                sss.append([ '\t'.join(snv.tolist()), weight, site[:2] ])
+                
     with gzip.open(fname, 'w') as fout :
-        fout.write('## Constant_bases: ' + ' '.join([str(inv[1]) for inv in sorted(bases.iteritems())]) + '\n')
+        fout.write('## Constant_bases: ' + ' '.join([str(int(inv[1]/names.size+0.5) if inv[1] > 0 else 0.) for inv in sorted(bases.iteritems())]) + '\n')
         fout.write('#seq\t#site\t' + '\t'.join(names) + '\t#!W[RecFilter]\n')
-        for site in sites :
-            if not len(m_weight[site[1]]) : continue
-            weight = np.mean(m_weight[site[1]].values()) 
-            snvs = np.array(sv[site[2]])
-            snv_x = []
-            p = np.zeros(snvs.shape, dtype=bool)
-            for m in masks.get(site[1], []) :
-                pp = np.ones(snvs.shape, dtype=bool)
-                pp[ [name_map[mm] for mm in m] ] = False
-                p = (p | (~pp))
-                snv_x.append(np.copy(snvs))
-                snv_x[-1][pp] = '-'
-            snv_x.append(snvs)
-            snv_x[-1][p] = '-'
-            
-            for snv in snv_x :
-                snv_type = np.unique(snv)
-                if snv_type[~ np.in1d(snv_type, ['-', 'N', 'n'])].size > 1 :
-                    fout.write('{2}\t{3}\t{0}\t{1:.5f}\n'.format('\t'.join(snv.tolist()), weight, *site[:2]))
+        for snv, weight, site in sss :
+            fout.write('{2}\t{3}\t{0}\t{1:.5f}\n'.format(snv, weight, *site))
     return fname
 
+def write_gubbins(rec_file) :
+    snp = 0
+    total_base = 0
+    import re
+    with open(rec_file) as fin :
+        for line in fin :
+            if line.startswith('##contig') :
+                import re
+                t = re.findall('length=(\d+)', line)[0]
+                total_base += int(t)
+            elif not line.startswith('#') :
+                snp += 1
+    constant = int((total_base - snp)/4+0.5)
+    with open(rec_file) as fin :
+        for line in fin :
+            if line.startswith('#CHROM') :
+                part = line.strip().split('\t')[9:]
+                print '## Constant_bases: {0} {0} {0} {0}\n#seq\t#site\t{1}'.format(constant, '\t'.join(part))
+            elif not line.startswith('#') :
+                part = line.strip().split('\t')
+                print '{0}\t{1}\t{2}'.format(part[0], part[1], '\t'.join(part[9:]))
 
 def RecFilter(argv) :
     args = parse_arg(argv)
+    if args.gubbins :
+        write_gubbins(args.rec)
+        sys.exit()
     names, sites, snps = phylo.read_matrix(args.matrix)
     snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
     tree = Tree(args.tree, format=1)
@@ -113,8 +147,8 @@ def RecFilter(argv) :
     n_base = np.sum([v[2] for v in snps.values()])
     br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[1]-rr[0]+1 for rr in r ])+.1) for b, r in rec_regions.iteritems() }
     curr = ['', [], 0]
-    masks = {}
-    m_weight = {}
+    m_weight, masks = {}, {}
+    
     for m in mutations :
         if curr[0] != m[0] :
             curr = [m[0], rec_regions.get(m[0], []), 0]

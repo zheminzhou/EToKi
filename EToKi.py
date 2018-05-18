@@ -1,10 +1,11 @@
-import numpy as np, sys
+import sys
 
-def etoki() :
-    try :
+
+def etoki():
+    try:
         exec 'from modules.{0} import {0}'.format(sys.argv[1])
         sys.argv[0] = ' '.join(sys.argv[:2])
-    except Exception as e :
+    except Exception as e:
         print '''
 Program: EToKi (Enterobase Tool Kit)
 
@@ -24,7 +25,7 @@ Commands:
 
 Use EToKi.py <command> -h to get help for each command.
 '''
-        if len(sys.argv) > 1 :
+        if len(sys.argv) > 1:
             import traceback
             traceback.print_exception(*sys.exc_info())
         sys.exit(0)
