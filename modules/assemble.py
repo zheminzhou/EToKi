@@ -32,6 +32,36 @@ class mainprocess(object) :
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
         logger('Estimated read length: {0}'.format(read_len))
         return read_len
+    def __run_minimap(self, reference, reads) :
+        if not os.path.isfile(reference+'.mmi') or (os.path.getmtime(reference+'.mmi') < os.path.getmtime(reference)) :
+            Popen('{minimap2} -k13 -w5 -d {0}.mmi {0}'.format(reference, **parameters).split(), stdout=PIPE, stderr=PIPE ).communicate()
+        else :
+            sleep(1)
+        
+        outputs = []
+        for lib_id, lib in enumerate(reads) :
+            se = [ lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
+            pe = [ '{0} {1}'.format(*lib[:2]), '{0}.mapping.{1}.pe1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.pe.bam'.format(prefix, lib_id) ] if len(lib) >= 2 else [None, None, None]
+            for r, o1, o in (se, pe) :
+                if r is not None :
+                    logger('Run minimap2 with: {0}'.format(r))
+                    cmd = '{minimap2} -a --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                            r = r, o = o1, reference =reference, **parameters)
+                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    for line in st_run[1].split('\n') :
+                        logger(line.rstrip())
+                    try:
+                        x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
+                            lib_id = lib_id, output=o, input=o1, \
+                            **parameters).split(), stdout=PIPE, stderr=PIPE )
+                        x.communicate()
+                        assert x.returncode == 0
+                        os.unlink(o1)
+                        outputs.append(o)
+                    except :
+                        outputs.append(o1)
+                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
+        return outputs
     def __run_bowtie(self, reference, reads) :
         if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
             Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE ).communicate()
@@ -183,7 +213,9 @@ class mainprocess(object) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
-            if parameters['mapper'] != 'bwa' :
+            if parameters['mapper'] == 'minimap2' :
+                bams = self.__run_minimap(reference, reads)
+            elif parameters['mapper'] != 'bwa' :
                 bams = self.__run_bowtie(reference, reads)
             else :
                 bams = self.__run_bwa(reference, reads)
@@ -234,7 +266,9 @@ class mainprocess(object) :
             return '{0}.fasta'.format(prefix)
 
     def get_quality(self, reference, reads) :
-        if parameters['mapper'] != 'bwa' :
+        if parameters['mapper'] == 'minimap2' :
+            bams = self.__run_minimap(reference, reads)
+        elif parameters['mapper'] != 'bwa' :
             bams = self.__run_bowtie(reference, reads)
         else :
             bams = self.__run_bwa(reference, reads)
@@ -338,12 +372,12 @@ class postprocess(object) :
                     if id % 4 == 0 :
                         part = line[1:].strip().split()
                         name = part[0]
-                        seq[name]= [0, float(part[2]) if len(part) > 2 else 0., None]
+                        seq[name]= [0, float(part[2]) if len(part) > 2 else 0., None, None]
                     elif id % 4 == 1 :
-                        seq[name][2] = np.array(list(line.strip()))
-                for n, s in seq.iteritems() :
-                    s[2] = ''.join(s[2].tolist())
-                    s[0] = len(s[2])
+                        seq[name][2] = line.strip()
+                        seq[name][0] = len(seq[name][2])
+                    elif id % 4 == 3 :
+                        seq[name][3] = np.array(list(line.strip()))
                 fasfile = assembly.rsplit('.', 1)[0] + '.fasta'
                 logger('Write fasta sequences into {0}'.format(fasfile))
                 with open(fasfile, 'w') as fout :
@@ -405,8 +439,10 @@ class postprocess(object) :
         ave_depth = acc[1]/acc[0]
         n_low = 0
         for s in seq :
-            ss = np.array(list(s[2]))
-            n_low += np.sum(ss == 'N')
+            if len(s) > 3 :
+                n_low += np.sum( (np.vectorize(ord)(s[3]) < 43) | (np.array(list(s[2])) == 'N') )
+            else :
+                n_low += np.sum( (np.array(list(s[2])) == 'N') )
         return dict(n_contig = n_seq,
                     n_base = n_base,
                     ave_depth = ave_depth,
@@ -461,7 +497,7 @@ And
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EnBler', default='EnBler')
     parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. Default: spades for single isolates, megahit for metagenome', default='')
     parser.add_argument('-k', '--kmers', help='Relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
-    parser.add_argument('-m', '--mapper', help='Aligner used for read mapping.\nDisabled if you specify a reference. \nDefault: bwa for single isolates, bowtie2 for metagenome', default='')
+    parser.add_argument('-m', '--mapper', help='Aligner used for read mapping.\nDisabled if you specify a reference. \n bwa for single isolates, bowtie2 for metagenome\nDefault: minimap2 for both', default='minimap2')
     parser.add_argument('-d', '--max_diff', help='Maximum proportion of mismatches in mapping. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
     parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this will disable assembly process. ', default=None)
     parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite polish process. \nRequired format:\n<cont_name> <site> <base_type>', default=None)
@@ -476,8 +512,8 @@ And
     args = parser.parse_args(a)
     if args.cont_depth == '' :
         args.cont_depth = '0.2,2.5' if not args.metagenome else '0.0001,10000'
-    if args.mapper == '' :
-        args.mapper = 'bwa' if not args.metagenome else 'bowtie2'
+    #if args.mapper == '' :
+        #args.mapper = 'bwa' if not args.metagenome else 'bowtie2'
     if args.assembler == '' :
         args.assembler = 'spades' if not args.metagenome else 'megahit'
     if args.max_diff < 0 :

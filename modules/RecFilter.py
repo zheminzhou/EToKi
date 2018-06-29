@@ -87,7 +87,8 @@ def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
             snv_type, snv_cnt = snv_type[~ np.in1d(snv_type, ['-', 'N', 'n'])], snv_cnt[~ np.in1d(snv_type, ['-', 'N', 'n'])]
             if snv_type.size > 1 :
                 for k,v in zip(snv_type, snv_cnt) :
-                    bases[k] -= v*weight
+                    if k in bases :
+                        bases[k] -= v*weight
                 sss.append([ '\t'.join(snv.tolist()), weight, site[:2] ])
                 
     with gzip.open(fname, 'w') as fout :

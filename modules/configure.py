@@ -88,6 +88,7 @@ def configure(args) :
         bbduk='bbduk2.sh', 
         spades='spades.py', 
         megahit='megahit', 
+        minimap2='minimap2', 
         bwa='bwa', 
         bowtie2='bowtie2', 
         bowtie2build='bowtie2-build', 
@@ -142,6 +143,7 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--bbmerge')
     parser.add_argument('--spades')
     parser.add_argument('--bwa')
+    parser.add_argument('--minimap2')
 
     parser.add_argument('--megahit')
     parser.add_argument('--bowtie2')

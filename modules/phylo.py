@@ -7,7 +7,7 @@ raxml = externals['raxml']
 
 def readFasta(fasta_file) :
     seqs = []
-    
+
     fin = Popen(['zcat', fasta_file],stdout=PIPE).stdout if fasta_file[-3:].lower() == '.gz' else open(fasta_file)
     for line in fin :
         if line.startswith('>') :
@@ -22,16 +22,16 @@ def readFasta(fasta_file) :
 def parse_snps(seq, core=0.95) :
     names = np.array([ s[0] for s in seq ])
     seqs = np.array([ list(re.sub(r'[^ACGT]', r'-', s[1].upper())) for s in seq ])
-    
+
     snps ={}
     sites = []
     const_sites = {
-        'A' : '\t'.join(['A' for b in seqs.T[0]]), 
-        'C' : '\t'.join(['C' for b in seqs.T[0]]), 
-        'G' : '\t'.join(['G' for b in seqs.T[0]]), 
-        'T' : '\t'.join(['T' for b in seqs.T[0]]), 
+        'A' : '\t'.join(['A' for b in seqs.T[0]]),
+        'C' : '\t'.join(['C' for b in seqs.T[0]]),
+        'G' : '\t'.join(['G' for b in seqs.T[0]]),
+        'T' : '\t'.join(['T' for b in seqs.T[0]]),
     }
-    
+
     ref_site = 0
     for bases in seqs.T :
         if bases[0] != '-' :
@@ -59,9 +59,15 @@ def write_phylip(prefix, names, snp_list) :
     invariants = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
     valid_values = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-'}
     for snp in snp_list :
+        bases = [ valid_values.get(s, '-') for s in snp[2] ]
+        if snp[2] != bases :
+            snp[2] = bases
+            ub = np.unique(bases)
+            if len(ub[ub != '-']) < 2 :
+                snp[3] = 0
         if snp[3] == 0 and snp[2][0].upper() in invariants :
             invariants[ snp[2][0] ] += snp[1]
-    
+
     snp2 = [snp for snp in snp_list if snp[3] > 0 and snp[2][0] in invariants]
     weights = [ snp[1] for snp in snp2 ]
     with open(prefix+'.phy.weight', 'w') as fout :
@@ -81,12 +87,12 @@ def write_phylip(prefix, names, snp_list) :
             fout.write('[asc~{0}], ASC_DNA,p1=1-{1}\n'.format(constant_file,n_seq))
         with open(constant_file, 'w') as fout :
             fout.write(' '.join([str(int(x+0.5)) for y,x in sorted(invariants.items())[1:]]) + '\n')
-    else : 
+    else :
         asc_file = None
         constant_file = None
 
     return prefix+'.phy' , prefix + '.phy.weight', asc_file
-    
+
 def run_raxml(prefix, phy, weights, asc, model='CAT') :
     for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
@@ -134,9 +140,9 @@ def read_matrix(fname) :
     sites, snps = [], {}
     invariant = []
     fin = Popen(['zcat', fname],stdout=PIPE).stdout if fname[-3:].lower() == '.gz' else open(fname)
-    
+
     for line_id, line in enumerate(fin) :
-        if line.startswith('##'): 
+        if line.startswith('##'):
             part = line[2:].strip().split()
             invariant = zip(['A', 'C', 'G', 'T'], [float(v) for v in part[1:]])
         elif line.startswith('#') :
@@ -152,7 +158,7 @@ def read_matrix(fname) :
             names = part[cols]
         else :
             p2 = np.array(line.strip().split('\t'))
-            part = np.char.upper(p2[cols])
+            part = np.char.upper(p2[cols[:len(p2)]])
             types = dict(zip(*np.unique(part, return_index=True)))
             types.pop('-', None)
             b_key = '\t'.join(part)
@@ -241,7 +247,7 @@ def read_states(fname) :
     for s, id in sorted(ss.iteritems(), key=lambda x:x[1]) :
         states.append(s.split('\t'))
     return names, np.array(states), sites
-    
+
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='Parameters for phylogeny_workflow.py', formatter_class=argparse.RawTextHelpFormatter)
@@ -258,7 +264,7 @@ all: matrix,phylogeny,ancestral,mutation
 aln2phy: matrix,phylogeny [default]
 snp2anc: phylogeny,ancestral
 mat2mut: ancestral,mutation''', default='aln2phy')
-    
+
     parser.add_argument('--prefix', '-p', help='prefix for all outputs.', required=True)
     parser.add_argument('--alignment', '-m', help='aligned sequences in either fasta format or Xmfa format. Required for "matrix" task.', default='')
     parser.add_argument('--snp', '-s', help='SNP matrix in specified format. Required for "phylogeny" and "ancestral" if alignment is not given', default='')
@@ -266,30 +272,29 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
-    
+
     args = parser.parse_args(a)
-    
+
     args.tasks = dict(
         all = 'matrix,phylogeny,ancestral,mutation',
         aln2phy = 'matrix,phylogeny',
-        snp2anc = 'phylogeny,ancestral', 
+        snp2anc = 'phylogeny,ancestral',
         mat2mut = 'ancestral,mutation',
     ).get(args.tasks, args.tasks).split(',')
-    
+
     return args
 
 def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     tree = Tree(tree, format=1)
     node_names = {}
     for id,branch in enumerate(tree.traverse('postorder')) :
-        if branch.name == '' :
+        if branch.name == '' or (not branch.is_leaf() and branch.name=='1'):
             branch.name = 'N_' + str(len(node_names))
         if not branch.up and len(branch.children) == 2 :
             branch.children[1].dist += branch.children[0].dist - 1e-8
             branch.children[0].dist = 1e-8
         node_names[str(branch.name)] = id
     states, branches = [ [ '-' for snp in snps ] for br in node_names ], []
-    
     for n, s in zip(names, np.array([ [ b.upper() for b in snp[2] ] for snp in snps ]).T) :
         states[ node_names[n] ] = s
     states = np.array(states).T
@@ -310,20 +315,22 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             tag, n_state = tag[tag != '-'], n_state - 1
             code[code == missing[0]] = -1
             code[code  > missing[0]] = code[code  > missing[0]] - 1
+        if len(tag) == 0 :
+            tag = np.array(['-'])
         if np.sum(np.in1d(tag, ['A', 'C', 'G', 'T'])) == n_state :
             n_state = 4
-        
+
         if n_state not in transitions :
             transitions[n_state] = np.zeros(shape=[n_node, n_state, n_state])
             for tr, (s, t, v) in zip(transitions[n_state], branches) :
                 tr.fill((1.0-v)/n_state)
                 np.fill_diagonal(tr, (1.+(n_state-1.)*v)/n_state)
-        
+
         transition = transitions[n_state]
 
         if infer == 'margin' :
             alpha = np.ones(shape=[n_node, n_state])/n_state
-            alpha[code >= 0] = 0        
+            alpha[code >= 0] = 0
             alpha[code >= 0, code[code >= 0]] = 1
             beta = np.ones(alpha.shape)
             for (s, t, v), tr in zip(branches, transition) :
@@ -331,20 +338,20 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
                 if s :
                     beta[t] = np.dot(alpha[t], tr)
                     alpha[s] *= beta[t]
-            
+
             for (s, t, v), tr in reversed(zip(branches, transition)) :
                 if s :
                     alpha[t] *= np.dot(alpha[s]/beta[t], tr)
             retvalue.append([tag, alpha])
         else :
-            
+
             pt = np.log(transition)
             ids = np.arange(n_state)
             alpha = np.zeros(shape=[n_node, n_state, n_state])
             path = np.zeros(shape=[n_node, n_state], dtype=int)
             alpha[code >= 0] = -9999
             alpha[code >= 0, :, code[code >=0]] = 0
-            
+
             for (s, t, v), tr in zip(branches, pt) :
                 x = alpha[t] + tr
                 path[t] = np.argmax(x, 1)
@@ -363,7 +370,7 @@ def phylo(args) :
     args = add_args(args)
 
     prefix = args.prefix
-    
+
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
         seq = readFasta( args.alignment )
@@ -378,8 +385,8 @@ def phylo(args) :
         if len(names) < 4 :
             raise ValueError('Taxa too few.')
         snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
-    
-        
+
+
     # build tree
     if 'phylogeny' in args.tasks :
         phy, weights, asc = write_phylip(prefix+'.tre', names, snp_list)
@@ -392,7 +399,7 @@ def phylo(args) :
         args.tree = get_root(prefix, args.tree)
     elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
-    
+
     # map snp
     if 'ancestral' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='viterbi')
@@ -402,7 +409,7 @@ def phylo(args) :
     elif 'mutation' in args.tasks :
         final_tree = Tree(args.tree, format=1)
         node_names, states, sites = read_states(args.ancestral)
-        
+
     if 'ancestral_proportion' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='margin')
         final_tree.write(format=1, outfile=prefix + '.labelled.nwk')

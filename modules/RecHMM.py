@@ -1,4 +1,4 @@
-import numpy as np, pandas as pd, sys, os, copy, argparse
+import numpy as np, pandas as pd, sys, os, copy, argparse, re
 import functools, time, datetime
 from multiprocessing import Pool
 
@@ -670,16 +670,17 @@ def RecHMM(args) :
 
     model = recHMM(mode=args.task)
     if not args.report or not args.model :
-        data = pd.read_csv(args.data, sep='\t', dtype=str, header=0).as_matrix()
+        data = pd.read_csv(args.data, sep='\t', dtype=str, header=0).values
         names, branches, blocks = {}, [], {}
         for d in data :
-            if d[1] not in blocks :
-                blocks[d[1]] = len(blocks)
-            if d[0] not in names :
-                names[d[0]] = len(names)
-                branches.append([])
-            id = names[d[0]]
-            branches[id].append([ blocks[d[1]], int(d[2]), int(d[3]) ])
+            if re.findall(r'^[ACGTacgt]->[ACGTacgt]$', d[4]) :
+                if d[1] not in blocks :
+                    blocks[d[1]] = len(blocks)
+                if d[0] not in names :
+                    names[d[0]] = len(names)
+                    branches.append([])
+                id = names[d[0]]
+                branches[id].append([ blocks[d[1]], int(d[2]), int(d[3]) ])
 
         names = [ n for n, id in sorted(names.iteritems(), key=lambda x:x[1]) ]
         ids = [id for id, b in sorted(enumerate(branches), key=lambda x: len(x[1]), reverse=True)]
