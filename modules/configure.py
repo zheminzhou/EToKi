@@ -1,45 +1,64 @@
-import os, sys, subprocess, numpy as np, argparse, glob
+import os, sys, subprocess, numpy as np, argparse, glob, gzip, io, re
 
-# packages:
-#   bbmap
-#   SPAdes-3.9.0
-#   megahit
-#   bowtie2
-#   samtools
-#   gatk
-#   pilon
-#   kraken
+class uopen(object) :
+    def __init__(self, fname, label='r') :
+        self.fout = None
+        if label.find('r')>=0 :
+            self.fstream = subprocess.Popen(['zcat', fname], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout if fname.lower().endswith('gz') else open(fname)
+        elif label.find('w') >= 0 :
+            if sys.version.startswith('3') :
+                self.fout = gzip.open(fname, 'wb')
+                self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
+            else :
+                self.fstream = gzip.open(fname, 'wb')
+    def __enter__(self) :
+        return self.fstream
+    def __exit__(self, type, value, traceback) :
+        self.fstream.close()
+        if self.fout :
+            self.fout.close()
+        return 
 
-#   usearch
-#   blast
 
+def readFastq(filename, tryFasta=True) :
+    with uopen(filename) as fin :
+        header = fin.readline()
+    if not header.startswith('@') :
+        if tryFasta :
+            return readFasta(filename, 10)
+        else :
+            raise ValueError('format error')
+    seq = {}
+    with uopen(filename) as fin :
+        for id, line in enumerate(fin) :
+            if id % 4 == 0 :
+                name = line[1:].strip().split()[0]
+                seq[name] = [None, None]
+            elif id % 4 == 1 :
+                seq[name][0] = line.strip()
+            elif id % 4 == 3 :
+                seq[name][1] = line.strip()
+    return seq
 
 def readFasta(filename, qual=None) :
     seq = {}
-    try:
-        fin = subprocess.Popen(['zcat', filename], stdout=subprocess.PIPE) if filename[-3:].lower() == '.gz' else subprocess.Popen(['cat', filename], stdout=subprocess.PIPE).stdout
-    except :
-        fin = open(filename)
-
-    for line in fin:
-        if line[0] == '>' :
-            name = line[1:].strip().split()[0]
-            seq[name] = []
-        else :
-            seq[name].append( line.strip() )
-    fin.close()
+    with uopen(filename) as fin :
+        for line in fin:
+            if line[0] == '>' :
+                name = line[1:].strip().split()[0]
+                seq[name] = []
+            else :
+                seq[name].append( line.strip() )
 
     if qual == None :
         for n in seq:
-            seq[n] = ''.join( seq[n] )
+            seq[n] = ''.join( seq[n] ).upper()
     else :
         for n in seq:
-            seq[n] = [''.join(seq[n]), []]
-            seq[n][1] = [chr(33+qual)] * len(seq[n][0])
+            seq[n] = [re.sub(r'[^ACGT]','N', ''.join(seq[n]).upper()), []]
+            seq[n][1] = np.array([chr(33+qual)] * len(seq[n][0]))
             if qual > 0 :
-                for id in xrange(len(seq[n][0])) :
-                    if seq[n][0] in ('n', 'N') :
-                        seq[n][1] = '!'
+                seq[n][1][np.array(list(seq[n][0])) == 'N'] = '!'
             seq[n][1] = ''.join(seq[n][1])
     return seq
 
@@ -62,9 +81,10 @@ def transeq(seq, frame=1, transl_table=11) :
         gtable.update({'GTG':'M', 'TTG':'M'})
     frames = {'F': [1,2,3],
               'R': [4,5,6],
-              '7': [1,2,3,4,5,6,7]}.get( str(frame).upper(), [int(frame)] )
+              '7': [1,2,3,4,5,6]}.get( str(frame).upper(), [int(frame)] )
     trans_seq = {}
-    for n,s in seq.iteritems() :
+    for n in seq :
+        s = seq[n]
         for frame in frames :
             trans_name = '{0}_{1}'.format(n, frame)
             if frame <= 3 :
@@ -86,6 +106,7 @@ def configure(args) :
         adapters='adapters.fa', 
         kraken_database='minikraken*', 
         bbduk='bbduk2.sh', 
+        bbmerge='bbmerge.sh',
         spades='spades.py', 
         megahit='megahit', 
         minimap2='minimap2', 
@@ -101,6 +122,7 @@ def configure(args) :
         mmseqs='mmseqs', 
         mcl='mcl',
         fasttree='?fast?ree*',
+        rapidnj='rapidnj',
         ublast='usearch*',
         blastn='blastn',
         formatdb='makeblastdb',
@@ -109,7 +131,8 @@ def configure(args) :
     )
     args = add_args(args)
 
-    for param, value in defaults.iteritems() :
+    for param in defaults :
+        value = defaults[param]
         if args.__dict__.get(param, None) :
             fn = search_file(args.__dict__[param])
             assert len(fn), 'The specified "{0}" is not found.'.format(param)
@@ -172,14 +195,15 @@ def load_configure() :
     EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
     try :
         mat = np.genfromtxt(EnConf_file, dtype=str, delimiter='=')
+        return dict(mat.tolist())
     except :
         return {}
-    return dict(mat.tolist())
+    
 
 def write_configure() :
     EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
-    with open(EnConf_file, 'wb') as fout :
-        for k,v in externals.iteritems() :
+    with open(EnConf_file, 'w') as fout :
+        for k,v in externals.items() :
             fout.write('{0}={1}\n'.format(k, v))
 
 externals = load_configure()

@@ -2,7 +2,7 @@ import os, io, sys, re, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from configure import externals, logger, readFasta
+from .configure import externals, logger, readFasta
 from threading import Timer
 
 # mainprocess
@@ -45,9 +45,9 @@ class mainprocess(object) :
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
-                    cmd = '{minimap2} -a --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                    cmd = '{minimap2} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
                             r = r, o = o1, reference =reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    st_run = Popen( cmd, shell=True, universal_newlines=True, stdout=PIPE, stderr=PIPE ).communicate()
                     for line in st_run[1].split('\n') :
                         logger(line.rstrip())
                     try:
@@ -191,10 +191,10 @@ class mainprocess(object) :
                     snps[part[0]].append([int(part[1]), part[-1]])
             self.snps = snps
 
-        for n, s in sequence.iteritems() :
+        for n, s in sequence.items() :
             sequence[n] = list(s)
 
-        for cont, sites in snps.iteritems() :
+        for cont, sites in snps.items() :
             for site,base in reversed(sites) :
                 if base.startswith('+') :
                     sequence[cont][site-1:site-1] = base[1:]
@@ -223,12 +223,12 @@ class mainprocess(object) :
             for bam in bams :
                 if bam is not None :
                     depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE)
-                    for line in iter(depth.stdout.readline, r'') :
+                    for line in depth.stdout :
                         part = line.strip().split()
                         if len(part) > 2 and float(part[2]) > 0 :
                             sites[part[0]] = 1
             sequence = readFasta(filename=reference)
-            sequence = {n:s for n,s in sequence.iteritems() if n in sites}
+            sequence = {n:s for n,s in sequence.items() if n in sites}
 
             with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
                 for n, s in sorted(sequence.items()) :
@@ -274,10 +274,10 @@ class mainprocess(object) :
             bams = self.__run_bwa(reference, reads)
         
         sequence = readFasta(filename=reference, qual=0)
-        for n, s in sequence.iteritems() :
+        for n, s in sequence.items() :
             s[1] = list(s[1])
 
-        sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.iteritems() }
+        sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.items() }
         for bam in bams :
             if bam is not None :
                 depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE).communicate()[0]
@@ -285,7 +285,7 @@ class mainprocess(object) :
                     part = line.strip().split()
                     if len(part) > 2 and float(part[2]) > 0 :
                         sites[part[0]][int(part[1]) - 1] += float(part[2])
-        sites = {n:[s.size, np.mean(s), 0.] for n, s in sites.iteritems()}
+        sites = {n:[s.size, np.mean(s), 0.] for n, s in sites.items()}
         depth = np.array(sites.values())
         depth = depth[np.argsort(-depth.T[0])]
         size = np.sum(depth.T[0])
@@ -296,11 +296,11 @@ class mainprocess(object) :
                 break
         ave_depth = acc[1]/acc[0]
         exp_mut_depth = max(ave_depth * 0.2, 1.)
-        for n, s in sites.iteritems() :
+        for n, s in sites.items() :
             s[2] = s[1]/ave_depth
         logger('Average read depth: {0}'.format(ave_depth))
         logger('Sites with over {0} or 15% unsupported reads is not called'.format(exp_mut_depth))
-        sequence = {n:s for n, s in sequence.iteritems() if sites[n][1]>0.}
+        sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
         with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
             for n, s in sorted(sequence.items()) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in range(0, len(s[0]), 100)])))
@@ -333,7 +333,7 @@ class mainprocess(object) :
                 except :
                     fout.write(line)
         if self.snps is not None :
-            for n, snvs in self.snps.iteritems() :
+            for n, snvs in self.snps.items() :
                 for site, snv in snvs :
                     if snv.find('N') >= 0 : continue
                     if snv.startswith('+') :
@@ -344,7 +344,7 @@ class mainprocess(object) :
                         sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
         with open('{0}.result.fastq'.format(prefix), 'w') as fout :
-            for n, (s, q) in sequence.iteritems() :
+            for n, (s, q) in sequence.items() :
                 if sites[n][2] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( n, s, ''.join(q), *sites[n] ) )
         os.unlink( '{0}.mapping.vcf'.format(prefix) )
@@ -391,7 +391,7 @@ class postprocess(object) :
                         seq[name] = [0, 0., []]
                     else :
                         seq[name][2].extend( line.strip().split() )
-                for n, s in seq.iteritems() :
+                for n, s in seq.items() :
                     s[2] = ''.join(s[2])
                     s[0] = len(s[2])
         return seq, fasfile
@@ -478,7 +478,7 @@ def assemble(args) :
         assembly = parameters['reference']
     report = postprocess().launch(assembly)
     import json
-    print json.dumps(report, sort_keys=True, indent=2)
+    print(json.dumps(report, sort_keys=True, indent=2))
 
 def add_args(a) :
     import argparse

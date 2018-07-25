@@ -3,28 +3,30 @@ import sys
 
 def etoki():
     try:
-        exec 'from modules.{0} import {0}'.format(sys.argv[1])
+        exec('from modules.{0} import {0}'.format(sys.argv[1]))
         sys.argv[0] = ' '.join(sys.argv[:2])
     except Exception as e:
-        print '''
+        print('''
 Program: EToKi (Enterobase Tool Kit)
 
 Usage:   EToKi.py <command> [options]
 
 Commands:
-  configure        Configure external dependencies
-  prepare          Preprocessing for short reads
-  assemble         de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
-  ortho            Pan-genome prediction
-  MLSTdb           Create database for MLST typing
-  MLSType          MLST nomenclature
-  phylo            Infer phylogeny and ancestral states from genomic alignments or SNP matrix
-  RecHMM           Identify Recombination sketches
-  RecFilter        Remove Recombination sketches
-  BrRefine         Correct tree using RecHMM outpus
+  0)configure        Configure external dependencies
+  1)prepare          Preprocessing for short reads
+  10)assemble        de novo / reference-guided asembly for either metagenomic or non-metagenomic reads
+  11)ortho           Pan-genome prediction (prepare for wgMLST scheme)
+  12)MLSTdb          Create database for MLST typing
+  13)MLSType         MLST nomenclature
+  14)cgMLST          evaluate wgMLST genes using a reference set of genomes
+  15)clustering      hierarchical clustering of MLST profiles and evaluation
+  20)align           align genomes onto a reference
+  21)toVCF           combine multiple alignments into matrix
+  22)phylo           Infer phylogeny and ancestral states from genomic alignments or SNP matrix
+  23)RecHMM          Identify Recombination sketches
 
 Use EToKi.py <command> -h to get help for each command.
-'''
+''')
         if len(sys.argv) > 1:
             import traceback
             traceback.print_exception(*sys.exc_info())

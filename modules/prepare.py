@@ -2,7 +2,7 @@ import os, io, sys, re, shutil, numpy as np, signal, psutil, argparse
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from configure import externals, logger, readFasta
+from .configure import externals, logger, readFasta
 from threading import Timer
 
 def kill_child_proc (p) :
@@ -207,7 +207,7 @@ def prepare(args) :
     reads = preprocess().launch(reads)
     for lib_id, lib in enumerate(reads) :
         for r_id, read in enumerate(lib) :
-            if r_id+1 >= len(lib) :
+            if r_id != 1 and r_id+1 >= len(lib) :
                 new_read = '{0}_L{1}_SE.fastq.gz'.format(parameters['prefix'], lib_id+1)
             elif r_id >= 2 :
                 new_read = '{0}_L{1}_MP.fastq.gz'.format(parameters['prefix'], lib_id+1)
@@ -223,7 +223,7 @@ def prepare(args) :
                 report.extend(['--se', ','.join(lib[2:])])
         elif len(lib) == 1 :
             report.extend(['--se', '{0}'.format(lib[-1])])
-    print ' '.join(report)
+    print(' '.join(report))
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''

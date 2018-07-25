@@ -1,70 +1,97 @@
 from ete3 import Tree
-import sys, numpy as np, os, glob, math, gzip, re, argparse
+import sys, numpy as np, os, glob, math, re, argparse, pandas as pd
 from subprocess import Popen, PIPE
-from configure import externals
+from multiprocessing import Pool
+
+try :
+    from configure import externals, uopen
+except :
+    from .configure import externals, uopen
 
 raxml = externals['raxml']
 
-def readFasta(fasta_file) :
-    seqs = []
-
-    fin = Popen(['zcat', fasta_file],stdout=PIPE).stdout if fasta_file[-3:].lower() == '.gz' else open(fasta_file)
-    for line in fin :
-        if line.startswith('>') :
-            name = line[1:].strip().split()[0]
-            seqs.append([name, []])
-        else :
-            seqs[-1][1].extend(line.strip().split())
-    fin.close()
-    return [ [n, ''.join(s)] for n, s in seqs ]
-
+def readXFasta(fasta_file) :
+    seqs = [[]]
+    
+    nameMap = {}
+    with uopen(fasta_file) as fin :
+        for line in fin :
+            if line.startswith('>') :
+                name = line[1:].strip().split()[0]
+                seqName = name.split(':', 1)[0]
+                contName = name.split(':', 1)[-1]
+                if seqName in nameMap :
+                    seqId = nameMap[seqName]
+                    seqs[-1][seqId] = [seqName, contName, []]
+                else :
+                    seqId = nameMap[seqName] = len(seqs[-1])
+                    seqs[-1].append([seqName, contName, []])
+            elif line.startswith('=') :
+                seqs.append([[seqName, str(len(seqs)), []] for seqName, contName, _ in seqs[0] ])
+            else :
+                seqs[-1][seqId][2].extend(line.strip().split())
+    res = []
+    for blocks in seqs:
+        seqLen = 0
+        for block in blocks :
+            block[2] = ''.join(block[2])
+            seqLen = max(seqLen, len(block[2]))
+        for block in blocks :
+            if len(block[2]) < seqLen :
+                block[2] += '-' * (seqLen - len(block[2]))
+        if seqLen > 0 :
+            res.append(blocks)
+    return res
 
 def parse_snps(seq, core=0.95) :
-    names = np.array([ s[0] for s in seq ])
-    seqs = np.array([ list(re.sub(r'[^ACGT]', r'-', s[1].upper())) for s in seq ])
+    names = np.array([ s[0] for s in seq[0] ])
+    missing = []
+    contNames = []
+    snps, sites ={}, []
 
-    snps ={}
-    sites = []
     const_sites = {
-        'A' : '\t'.join(['A' for b in seqs.T[0]]),
-        'C' : '\t'.join(['C' for b in seqs.T[0]]),
-        'G' : '\t'.join(['G' for b in seqs.T[0]]),
-        'T' : '\t'.join(['T' for b in seqs.T[0]]),
+        b'A' : tuple([b'A' for b in names]),
+        b'C' : tuple([b'C' for b in names]),
+        b'G' : tuple([b'G' for b in names]),
+        b'T' : tuple([b'T' for b in names]),
     }
 
-    ref_site = 0
-    for bases in seqs.T :
-        if bases[0] != '-' :
-            ref_site += 1
-
-        types = dict(zip(*np.unique(bases, return_counts=True)))
-        types.pop('-', 0)
-        n_type = len(types)
-
-        if n_type > 0 and np.sum(types.values()) >= core * bases.size :
-            if n_type > 1 :
-                b_key = '\t'.join(bases)
+    for ss in seq :
+        contName = ss[0][1]
+        contNames.append([contName, len(ss[0][2])])
+        seqs = np.array([ (re.sub(r'[^ACGT]', r'-', s[2].upper())) for s in ss ], dtype='c')
+    
+        for ref_site, bases in enumerate(seqs.T) :
+            b_key = tuple(bases)
+            if b_key in snps :
+                snps[b_key][2] += 1
+                if snps[b_key][1] > 0 :
+                    sites.append([contName, ref_site+1, snps[b_key][0]])
+                continue
+            
+            types, counts = np.unique(bases, return_counts=True)
+            types, counts = types[types != b'-'], counts[types != b'-']
+    
+            if types.size > 0 and np.sum(counts) >= core * bases.size :
+                if types.size == 1 :
+                    b_key = const_sites[types[0]]
+    
+                if b_key not in snps :
+                    snps[b_key] = [len(snps), types.size-1, 1.]
+                else :
+                    snps[b_key][2] += 1.
+                if types.size > 1 :
+                    sites.append([contName, ref_site+1, snps[b_key][0]])
             else :
-                b_key = const_sites[types.keys()[0]]
-
-            if b_key not in snps :
-                snps[b_key] = [len(snps), n_type-1, 1.]
-            else :
-                snps[b_key][2] += 1.
-            if n_type > 1 :
-                sites.append([names[0], ref_site, snps[b_key][0]])
-    return names, sites, snps
+                if len(missing) and missing[-1][0] == contName and missing[-1][2] == ref_site :
+                    missing[-1][2] = ref_site+1
+                else :
+                    missing.append([contName, ref_site+1, ref_site+1])
+    return names, sites, { tuple([s.decode('utf-8') for s in snp]): info for snp,info in snps.items()}, contNames, missing
 
 def write_phylip(prefix, names, snp_list) :
     invariants = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
-    valid_values = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-'}
     for snp in snp_list :
-        bases = [ valid_values.get(s, '-') for s in snp[2] ]
-        if snp[2] != bases :
-            snp[2] = bases
-            ub = np.unique(bases)
-            if len(ub[ub != '-']) < 2 :
-                snp[3] = 0
         if snp[3] == 0 and snp[2][0].upper() in invariants :
             invariants[ snp[2][0] ] += snp[1]
 
@@ -73,7 +100,7 @@ def write_phylip(prefix, names, snp_list) :
     with open(prefix+'.phy.weight', 'w') as fout :
         fout.write(' '.join([str(x) for x in weights]))
 
-    snp_array = np.array([ [ valid_values.get(s, '-') for s in snp[2]] for snp in snp2 ]).T
+    snp_array = np.array([s[2] for s in snp2]).T
     n_tax, n_seq = snp_array.shape
     with open(prefix + '.phy', 'w') as fout :
         fout.write('\t{0} {1}\n'.format(n_tax, n_seq))
@@ -93,17 +120,17 @@ def write_phylip(prefix, names, snp_list) :
 
     return prefix+'.phy' , prefix + '.phy.weight', asc_file
 
-def run_raxml(prefix, phy, weights, asc, model='CAT') :
+def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5) :
     for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
     if asc is None :
-        cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T 7 -p 1234'.format(raxml, prefix, phy, weights, model)
+        cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
     else :
-        cmd = '{0} -m ASC_GTR{5} -n {1} -s {2} -a {3} -T 7 -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model)
+        cmd = '{0} -m ASC_GTR{5} -n {1} -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
     run = Popen(cmd.split())
     run.communicate()
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :
-        return run_raxml(prefix, phy, weights, asc, 'GAMMA')
+        return run_raxml(prefix, phy, weights, asc, 'GAMMA', n_proc)
     else :
         fname = '{0}.unrooted.nwk'.format(prefix)
         os.rename('RAxML_bestTree.{0}'.format(prefix), fname)
@@ -123,14 +150,18 @@ def get_root(prefix, tree_file) :
     tree.write(outfile='{0}.rooted.nwk'.format(prefix), format=1)
     return '{0}.rooted.nwk'.format(prefix)
 
-def write_matrix(fname, names, sites, snps) :
-    invariants = { snp[0]:[base, snp[2]] for base, snp in snps.iteritems() if snp[1] == 0 and base[0] != '-' }
+def write_matrix(fname, names, sites, snps, seqNames, missing) :
+    invariants = { snp[0]:[base, snp[2]] for base, snp in snps.items() if snp[1] == 0 and base[0] != '-' }
     bases = {}
     for inv in invariants.values() :
         bases[inv[0]] = bases.get(inv[0], 0) + inv[1]
-    sv = {ss[0]:s for s, ss in snps.iteritems()}
-    with gzip.open(fname, 'w') as fout :
-        fout.write('## Constant_bases: ' + ' '.join([str(inv[1]) for inv in sorted(bases.iteritems())]) + '\n')
+    sv = {ss[0]:'\t'.join(s) for s, ss in snps.items()}
+    with uopen(fname, 'w') as fout :
+        fout.write('## Constant_bases: ' + ' '.join([str(inv[1]) for inv in sorted(bases.items())]) + '\n')
+        for n, l in seqNames :
+            fout.write('## Sequence_length: {0} {1}\n'.format(n, l))
+        for n, s, e in missing :
+            fout.write('## Missing_region: {0} {1} {2}\n'.format(n, s, e))
         fout.write('#seq\t#site\t' + '\t'.join(names) + '\n')
         for site in sites :
             fout.write('{1}\t{2}\t{0}\n'.format(sv[site[2]], *site[:2]))
@@ -139,47 +170,61 @@ def write_matrix(fname, names, sites, snps) :
 def read_matrix(fname) :
     sites, snps = [], {}
     invariant = []
-    fin = Popen(['zcat', fname],stdout=PIPE).stdout if fname[-3:].lower() == '.gz' else open(fname)
-
-    for line_id, line in enumerate(fin) :
-        if line.startswith('##'):
-            part = line[2:].strip().split()
-            invariant = zip(['A', 'C', 'G', 'T'], [float(v) for v in part[1:]])
-        elif line.startswith('#') :
-            part = np.array(line.strip().split('\t'))
-            cols = (1 - np.char.startswith(part, '#')).astype(bool)
-            w_cols = np.char.startswith(part, '#!W')
-            names = part[cols]
-        elif line_id == 0 :
-            part = np.array(line.strip().split('\t'))
-            cols = np.ones(part.shape, dtype=bool)
-            cols[:2] = False
-            w_cols = np.char.startswith(part, '#!W')
-            names = part[cols]
+    seqLens, missing = [], []
+    with uopen(fname) as fin :
+        for line_id, line in enumerate(fin) :
+            if line.startswith('##'):
+                if line.startswith('## Constant_bases') :
+                    part = line[2:].strip().split()
+                    invariant = zip(['A', 'C', 'G', 'T'], [float(v) for v in part[1:]])
+                elif line.startswith('## Sequence_length:') :
+                    part = line[2:].strip().split()
+                    seqLens.append([part[1], int(part[2])])
+                elif line.startswith('## Missing_region:') :
+                    part = line[2:].strip().split()
+                    missing.append([part[1], int(part[2]), int(part[3])])
+            elif line.startswith('#') :
+                part = np.array(line.strip().split('\t'))
+                cols = (1 - np.char.startswith(part, '#')).astype(bool)
+                w_cols = np.where(np.char.startswith(part, '#!W'))[0]
+                names = part[cols]
+                break
+            else :
+                part = np.array(line.strip().split('\t'))
+                cols = np.ones(part.shape, dtype=bool)
+                cols[:2] = False
+                w_cols = np.char.startswith(part, '#!W')
+                names = part[cols]
+                break
+        mat = pd.read_csv(fin, header=None, sep='\t', usecols=np.where(cols)[0].tolist() + w_cols.tolist() + [0,1]).values
+        
+    val = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-', '.':'.'}
+    validate = np.vectorize(lambda b: b if len(b) > 1 else val.get(b, '-'))
+    
+    for p2 in mat :
+        part = validate(np.char.upper(p2[cols].astype(str)))
+        b_key = tuple(part)
+        w = np.multiply.reduce(p2[w_cols].astype(float)) if w_cols.size else 1.
+        
+        if b_key in snps :
+            snps[b_key][2] += w
         else :
-            p2 = np.array(line.strip().split('\t'))
-            part = np.char.upper(p2[cols[:len(p2)]])
             types = dict(zip(*np.unique(part, return_index=True)))
             types.pop('-', None)
-            b_key = '\t'.join(part)
-            if np.sum(w_cols) :
-                w = np.multiply.reduce(p2[w_cols].astype(float))
-            else :
-                w = 1.
-            if b_key not in snps :
-                snps[b_key] = [len(snps), len(types)-1, w]
-            else :
-                snps[b_key][2] += w
-            if len(types) > 1 :
-                sites.append([ p2[0], int(p2[1]), snps[b_key][0] ])
-    fin.close()
+            if len(types) <= 1 :
+                print ('')
+            snps[b_key] = [len(snps), len(types)-1, w]
+            
+        if snps[b_key][1] > 0 :
+            sites.append([ p2[0], int(p2[1]), snps[b_key][0] ])
+
     for inv in invariant :
-        b_key = '\t'.join([inv[0]] * len(names))
+        b_key = tuple([inv[0]] * len(names))
         if b_key not in snps :
             snps[b_key] = [len(snps), 0, float(inv[1])]
         else :
             snps[b_key][2] += float(inv[1])
-    return names, sites, snps
+    return names, sites, snps, seqLens, missing
 
 def read_ancestor(fname, names, snp_list) :
     snp_array = np.array([snp[2] for snp in snp_list]).T
@@ -219,14 +264,23 @@ def get_mut(final_tree, names, states, sites) :
             outputs.append([mut[0], c, p, len_m[mut[-1]], mut[1]])
     return sorted(outputs)
 
-def write_states(fname, names, states, sites) :
-    with gzip.open(fname, 'w') as fout :
+def write_states(fname, names, states, sites, seqLens, missing) :
+    with uopen(fname, 'w') as fout :
+        for sl in seqLens :
+            fout.write('## Sequence_length: {0} {1}\n'.format(*sl))
+        for ms in missing :
+            fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
         fout.write('#Seq\t#Site\t' + '\t'.join(names) + '\n')
         for site in sites :
             fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(states[site[2]]) ))
 
-def write_ancestral_proportion(fname, names, states, sites) :
-    with gzip.open(fname, 'w') as fout :
+def write_ancestral_proportion(fname, names, states, sites, seqLens, missing) :
+    with uopen(fname, 'w') as fout :
+        for sl in seqLens :
+            fout.write('## Sequence_length: {0} {1}\n'.format(*sl))
+        for ms in missing :
+            fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
+        
         fout.write('#Seq\t#Site\t#Type:Proportion\n')
         for c, p, i in sites :
             tag, state = states[i]
@@ -236,7 +290,7 @@ def write_ancestral_proportion(fname, names, states, sites) :
 
 def read_states(fname) :
     names, ss, sites = [], {}, []
-    with gzip.open(fname) as fin :
+    with uopen(fname) as fin :
         names = fin.readline().strip().split('\t')[2:]
         for line in fin :
             seq, site, snp_str = line.strip().split('\t', 2)
@@ -244,7 +298,7 @@ def read_states(fname) :
                 ss[snp_str] = len(ss)
             sites.append([seq, int(site), ss[snp_str]])
     states = []
-    for s, id in sorted(ss.iteritems(), key=lambda x:x[1]) :
+    for s, id in sorted(ss.items(), key=lambda x:x[1]) :
         states.append(s.split('\t'))
     return names, np.array(states), sites
 
@@ -271,7 +325,7 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     parser.add_argument('--tree', '-z', help='phylogenetic tree. Required for "ancestral" task', default='')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
-    parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
+    parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
     args = parser.parse_args(a)
 
@@ -283,6 +337,65 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     ).get(args.tasks, args.tasks).split(',')
 
     return args
+
+def infer_ancestral2(data) :
+    state, branches, n_node, infer = data
+    transitions = {}
+    tag, code = np.unique(state, return_inverse=True)
+    n_state = tag.size
+    missing = np.where(tag == '-')[0]
+    if missing.size > 0 :
+        tag, n_state = tag[tag != '-'], n_state - 1
+        code[code == missing[0]] = -1
+        code[code  > missing[0]] = code[code  > missing[0]] - 1
+    if len(tag) == 0 :
+        tag = np.array(['-'])
+    if np.sum(np.in1d(tag, ['A', 'C', 'G', 'T'])) == n_state :
+        n_state = 4
+
+    if n_state not in transitions :
+        transitions[n_state] = np.zeros(shape=[n_node, n_state, n_state])
+        for tr, (s, t, v) in zip(transitions[n_state], branches) :
+            tr.fill((1.0-v)/n_state)
+            np.fill_diagonal(tr, (1.+(n_state-1.)*v)/n_state)
+
+    transition = transitions[n_state]
+
+    if infer == 'margin' :
+        alpha = np.ones(shape=[n_node, n_state])/n_state
+        alpha[code >= 0] = 0
+        alpha[code >= 0, code[code >= 0]] = 1
+        beta = np.ones(alpha.shape)
+        for (s, t, v), tr in zip(branches, transition) :
+            alpha[t] = alpha[t]/np.sum(alpha[t])
+            if s :
+                beta[t] = np.dot(alpha[t], tr)
+                alpha[s] *= beta[t]
+
+        for (s, t, v), tr in reversed(zip(branches, transition)) :
+            if s :
+                alpha[t] *= np.dot(alpha[s]/beta[t], tr)
+        return [tag, alpha]
+    else :
+        pt = np.log(transition)
+        ids = np.arange(n_state)
+        alpha = np.zeros(shape=[n_node, n_state, n_state])
+        path = np.zeros(shape=[n_node, n_state], dtype=int)
+        alpha[code >= 0] = -9999
+        alpha[code >= 0, :, code[code >=0]] = 0
+
+        for (s, t, v), tr in zip(branches, pt) :
+            x = alpha[t] + tr
+            path[t] = np.argmax(x, 1)
+            alpha[s] += x[ids, path[t]]
+
+        r = np.zeros(shape=[n_node], dtype=int)
+        for s, t, v in reversed(branches) :
+            if not s :
+                r[t] = np.argmax(alpha[t, 0])
+            else :
+                r[t] = path[t][r[s]]
+        return tag[r]
 
 def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     tree = Tree(tree, format=1)
@@ -305,98 +418,41 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             branches.append([ None, node_names[branch.name], 1e-8 ])
 
     n_node = len(node_names)
-    transitions = {}
-    retvalue = []
-    for xi, state in enumerate(states) :
-        tag, code = np.unique(state, return_inverse=True)
-        n_state = tag.size
-        missing = np.where(tag == '-')[0]
-        if missing.size > 0 :
-            tag, n_state = tag[tag != '-'], n_state - 1
-            code[code == missing[0]] = -1
-            code[code  > missing[0]] = code[code  > missing[0]] - 1
-        if len(tag) == 0 :
-            tag = np.array(['-'])
-        if np.sum(np.in1d(tag, ['A', 'C', 'G', 'T'])) == n_state :
-            n_state = 4
-
-        if n_state not in transitions :
-            transitions[n_state] = np.zeros(shape=[n_node, n_state, n_state])
-            for tr, (s, t, v) in zip(transitions[n_state], branches) :
-                tr.fill((1.0-v)/n_state)
-                np.fill_diagonal(tr, (1.+(n_state-1.)*v)/n_state)
-
-        transition = transitions[n_state]
-
-        if infer == 'margin' :
-            alpha = np.ones(shape=[n_node, n_state])/n_state
-            alpha[code >= 0] = 0
-            alpha[code >= 0, code[code >= 0]] = 1
-            beta = np.ones(alpha.shape)
-            for (s, t, v), tr in zip(branches, transition) :
-                alpha[t] = alpha[t]/np.sum(alpha[t])
-                if s :
-                    beta[t] = np.dot(alpha[t], tr)
-                    alpha[s] *= beta[t]
-
-            for (s, t, v), tr in reversed(zip(branches, transition)) :
-                if s :
-                    alpha[t] *= np.dot(alpha[s]/beta[t], tr)
-            retvalue.append([tag, alpha])
-        else :
-
-            pt = np.log(transition)
-            ids = np.arange(n_state)
-            alpha = np.zeros(shape=[n_node, n_state, n_state])
-            path = np.zeros(shape=[n_node, n_state], dtype=int)
-            alpha[code >= 0] = -9999
-            alpha[code >= 0, :, code[code >=0]] = 0
-
-            for (s, t, v), tr in zip(branches, pt) :
-                x = alpha[t] + tr
-                path[t] = np.argmax(x, 1)
-                alpha[s] += x[ids, path[t]]
-
-            r = np.zeros(shape=[n_node], dtype=int)
-            for s, t, v in reversed(branches) :
-                if not s :
-                    r[t] = np.argmax(alpha[t, 0])
-                else :
-                    r[t] = path[t][r[s]]
-            retvalue.append(tag[r])
-    return tree, [ k for k, v in sorted(node_names.iteritems(), key=lambda x:x[1])], retvalue
+    #retvalue = [infer_ancestral2([state, branches, n_node, infer]) for state in states]
+    retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
+    return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], retvalue
 
 def phylo(args) :
     args = add_args(args)
-
-    prefix = args.prefix
-
+    global pool
+    pool = Pool(args.n_proc)
+    
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
-        seq = readFasta( args.alignment )
-        names, sites, snps = parse_snps(seq, args.core)
-        args.snp = write_matrix(prefix+'.matrix.gz', names, sites, snps)
+        seq = readXFasta( args.alignment )
+        names, sites, snps, seqLens, missing = parse_snps(seq, args.core)
+        args.snp = write_matrix(args.prefix+'.matrix.gz', names, sites, snps, seqLens, missing)
         if len(names) < 4 :
             raise ValueError('Taxa too few.')
-        snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
+        snp_list = sorted([[info[0], int(math.ceil(info[2])), list(line), info[1]] for line, info in snps.items() ])
     elif 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         assert os.path.isfile( args.snp )
-        names, sites, snps = read_matrix(args.snp)
+        names, sites, snps, seqLens, missing = read_matrix(args.snp)
         if len(names) < 4 :
             raise ValueError('Taxa too few.')
-        snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
+        snp_list = sorted([[info[0], int(math.ceil(info[2])), list(line), info[1]] for line, info in snps.items() ])
 
 
     # build tree
     if 'phylogeny' in args.tasks :
-        phy, weights, asc = write_phylip(prefix+'.tre', names, snp_list)
+        phy, weights, asc = write_phylip(args.prefix+'.tre', names, snp_list)
         if phy != '' :
-            args.tree = run_raxml(prefix +'.tre', phy, weights, asc)
+            args.tree = run_raxml(args.prefix +'.tre', phy, weights, asc, 'CAT', args.n_proc)
         else :
-            args.tree = prefix + '.tre'
+            args.tree = args.prefix + '.tre'
             with open(args.tree, 'w') as fout :
                 fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
-        args.tree = get_root(prefix, args.tree)
+        args.tree = get_root(args.prefix, args.tree)
     elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
 
@@ -404,23 +460,29 @@ def phylo(args) :
     if 'ancestral' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='viterbi')
         states = np.array(states)
-        final_tree.write(format=1, outfile=prefix + '.labelled.nwk')
-        write_states(prefix+'.ancestral_states.gz', node_names, states, sites)
+        final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
+        write_states(args.prefix+'.ancestral_states.gz', node_names, states, sites, seqLens, missing)
     elif 'mutation' in args.tasks :
         final_tree = Tree(args.tree, format=1)
         node_names, states, sites = read_states(args.ancestral)
 
     if 'ancestral_proportion' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snp_list, sites, infer='margin')
-        final_tree.write(format=1, outfile=prefix + '.labelled.nwk')
-        write_ancestral_proportion(prefix+'.ancestral_proportion.gz', node_names, states, sites)
+        final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
+        write_ancestral_proportion(args.prefix+'.ancestral_proportion.gz', node_names, states, sites, seqLens, missing)
 
     if 'mutation' in args.tasks :
         mutations = get_mut(final_tree, node_names, states, sites)
-        with gzip.open(prefix + '.mutations.gz', 'w') as fout :
+        with uopen(args.prefix + '.mutations.gz', 'w') as fout :
+            for sl in seqLens :
+                fout.write('## Sequence_length: {0} {1}\n'.format(*sl))
+            for ms in missing :
+                fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
+            
             fout.write('#Node\t#Seq\t#Site\t#Homoplasy\t#Mutation\n')
             for mut in mutations :
                 fout.write('\t'.join([str(m) for m in mut]) + '\n')
 
+pool = None
 if __name__ == '__main__' :
     phylo(sys.argv[1:])
