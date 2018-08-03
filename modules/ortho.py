@@ -59,13 +59,15 @@ def readGFF(fnames) :
 
     seq, cds = {}, {}
     for fname, (ss, cc) in zip(fnames, combo) :
+        fprefix = fname.split('.')[0]
         for n in ss :
-            seq['{0}:{1}'.format(fname, n)] = ss[n][:]
+            seq['{0}:{1}'.format(fprefix, n)] = ss[n][:]
 
         for n in cc :
             c = cc[n]
             if len(c[6]) > 0 :
-                cds['{0}:{1}'.format(fname, n)] = c[:]
+                c[1] = '{0}:{1}'.format(fprefix, c[1])
+                cds['{0}:{1}'.format(fprefix, n)] = c[:]
     return seq, cds
 
 def get_similar_pairs(self_bsn) :
@@ -333,10 +335,11 @@ def global_difference2(mat) :
     diff = compare_seq(seqs)
     return diff
 
-def global_difference(groups) :
+def global_difference(groups, counts=3000) :
     global_differences = {}
-    grp_order = [ go[0] for go in sorted([ (grp, len([m for genome, m in mat.items() if len(m) == 1])) for grp, mat in groups.items() ], key=itemgetter(1), reverse=True)[:5000] if go[1] > 0]
-    diffs = [ global_difference2(groups[g]) for g in grp_order ]
+    grp_order = [ go[0] for go in sorted([ (grp, len([m for genome, m in mat.items() if len(m) == 1])) for grp, mat in groups.items() ], key=itemgetter(1), reverse=True)[:counts] if go[1] > 0]
+    #diffs = [ global_difference2(groups[g]) for g in grp_order ]
+    diffs = pool.map(global_difference2, [groups[g] for g in grp_order])
     for diff in diffs :
         for pair, (mut, aln) in diff.items() :
             if pair not in global_differences :
@@ -353,7 +356,7 @@ def filt_per_group(data) :
     for (r1, r2), (mut, aln) in diff.items() :
         if aln > 0 :
             distances[(r1, r2)] = distances[(r2, r1)] = max(0., 1-(aln - mut)/aln/(1 - global_differences.get((r1[0], r2[0]), 0.001)) )
-            ave = max(params['mutation_variation']*global_differences.get((r1[0], r2[0]), 0.01)*aln, 1.)
+            ave = max(params['mutation_variation']*global_differences.get((r1[0], r2[0]), 0.015)*aln, 1.)
             difference = (mut - ave)/np.sqrt(ave)/2.807
         else :
             difference = 1.5
@@ -535,8 +538,8 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                         to_run.append([{ (genome, str(i)):get_seq(region) for genome, m in mat.items() for i,region in enumerate(m) }, \
                                                    gene, mat, {'{0}__REF'.format(gene.split(':')[-1]):vclust_ref[gene]}, global_differences])
                         to_run_id.append(gene)
-                #working_groups = pool.map(filt_per_group, to_run)
-                working_groups = [filt_per_group(d) for d in to_run]
+                working_groups = pool.map(filt_per_group, to_run)
+                #working_groups = [filt_per_group(d) for d in to_run]
                 for gene, working_group in zip(to_run_id, working_groups) :
                     for g, m in working_group.items() :
                         m.sort(key=lambda x:x[0]*x[1], reverse=True)
@@ -725,6 +728,8 @@ def iter_map_bsn(data) :
     return bsn
 
 def get_map_bsn(prefix, vclust, genomes) :
+    if len(genomes) == 0 :
+        sys.exit(1)
     taxa = {}
     for g, s in genomes.items() :
         if s[0] not in taxa : taxa[s[0]] = []
@@ -762,11 +767,12 @@ def checkCDS(n, s) :
 def addGenes(genes, gene_file) :
     for gfile in gene_file.split(',') :
         if gfile == '' : continue
+        gprefix = gfile.split('.')[0]
         ng = readFasta(gfile)
         for name in ng :
             s = ng[name]
             if checkCDS(name, s) :
-                genes['{0}:{1}'.format(gfile,name)] = [ gfile, '', 0, 0, '+', int(hashlib.sha1(s.encode('utf-8')).hexdigest(), 16), s]
+                genes['{0}:{1}'.format(gprefix,name)] = [ gfile, '', 0, 0, '+', int(hashlib.sha1(s.encode('utf-8')).hexdigest(), 16), s]
     return genes
 
 def writeGenes(fname, genes, priority) :
@@ -785,7 +791,7 @@ def writeGenes(fname, genes, priority) :
             cnt += 1
     return fname, cnt
 
-def perform_mcl(groups, method, global_differences) :
+def precluster(groups, global_differences) :
     vclust_ref = readFasta(params['vclust'])
     
     species = {}
@@ -793,57 +799,31 @@ def perform_mcl(groups, method, global_differences) :
         for ss in s :
             if ss not in species :
                 species[ss] = len(species)
-    glb_diff = {(species[g1], species[g2]): d for (g1, g2), d in global_differences.items()}
-    genes = list(groups.keys())
-    with open('{prefix}.edges'.format(**params), 'w') as fout :    
-        for gid, gene in enumerate(genes) :
-            group = groups[gene]
-        #for gene, group in groups.items() :
-            if method != 'pairwise' :
-                for sp, grp in group.items() :
-                    for id, g in enumerate(grp) :
-                        fout.write('{0}_REF\t{1}\t{2}\n'.format(gid, "{0}_{1}_{2}".format(gid, species[g], id), g[1]/len(vclust_ref)))
-            else :
-                seqs = { (species[sp], id):get_seq(g) for sp, grp in group.items() for id,g in enumerate(grp) }
-                differences = compare_seq(seqs)
-                for (g1, g2), (mut, aln) in differences.items() :
-                    if aln <= 0 :
-                        diff = 1
-                    else :
-                        gd = glb_diff.get((g1[0], g2[0]), 0.015)
-                        ave = max(params['mutation_variation']*gd*aln, 1.)
-                        diff = (mut - ave)/np.sqrt(ave)/2.807
-                    if diff < 1 :
-                        score = min( (1-mut/aln)/(1-gd), 1. )
-                        fout.write('{0}\t{1}\t{2}\n'.format("{0}_{1}_{2}".format(gid, g1[0], g1[1]), "{0}_{1}_{2}".format(gid, g2[0], g2[1]), score))
-    subprocess.Popen('{mcl} {prefix}.edges -I 5 --abc -o {prefix}.mcl'.format(**params).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
     
-    mcl = {}
-    with open('{prefix}.mcl'.format(**params)) as fin :
-        for line in fin :
-            part = line.strip().split('\t')
-            for p in part :
-                mcl[p] = part[0]
+    genes = list(groups.keys())
     for gid, gene in enumerate(genes) :
         group = groups[gene]
-    #for gene, group in groups.items() :
-        best_mcl = {}
-        for sp, grp in group.items() :
-            for id, g in enumerate(grp) :
-                key = "{0}_{1}_{2}".format(gid, species[sp], id)
-                mcl_group = mcl.get(key, key)
-                best_mcl[mcl_group] = max(best_mcl.get(mcl_group, [0., 0.]), [g[1], g[2]])
-        if len(best_mcl) > 0 :
-            best_mcl = max(best_mcl.items(), key=itemgetter(1))[0]
-            for sp, grp in group.items() :
-                todel = []
-                for id, g in enumerate(grp) :
-                    key = "{0}_{1}_{2}".format(gid, species[sp], id)
-                    mcl_group = mcl.get(key, key)
-                    if mcl_group != best_mcl :
-                        todel.append(id)
-                for id in reversed(todel) :
-                    del grp[id]
+        refLen = len(vclust_ref[gene])
+        matches = sorted([ [sp, id, refLen*(1.-g[2]/100.)] for sp, grp in group.items() for id, g in enumerate(grp) ], key=lambda x:x[2])
+        nMatch = len(matches)
+        inGroup = {0:1}
+        newGroup = {sp:[] for sp in group}
+        for i1, m1 in enumerate(matches) :
+            if i1 in inGroup :
+                newGroup[m1[0]].append(group[m1[0]][m1[1]])
+
+                for i2 in xrange(i1+1, nMatch) :
+                    if i2 in inGroup : 
+                        continue
+                    m2 = matches[i2]
+                    diff = m2[2] - m1[2]
+                    if diff > 0 :
+                        gd = global_differences.get((m1[0], m2[0]), 0.015)
+                        ave = max(params['mutation_variation']*gd*refLen, 1.)
+                        diff = (diff - ave)/np.sqrt(ave)/2.807
+                    if diff < 1 :
+                        inGroup[i2] = 1
+        groups[gene] = newGroup
     return groups
 
 def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
@@ -894,7 +874,7 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
             predictions[part[4]].append(part)
     
     op = ['', 0, []]
-    with open('{0}.EnOrth.gff'.format(prefix), 'w') as fout :
+    with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
         for gid, (g, predict) in enumerate(predictions.items()) :
             predict.sort(key=itemgetter(5, 9, 10))
             for pid, pred in enumerate(predict) :
@@ -913,14 +893,17 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
                         s2, e2 = s - min(int(3*((s - 1)/3)), 300), e + min(3*int((pred[13] - e)/3), 30)
                         seq = rc(genomes[pred[5]][1][(s2-1):e2])
                         rp, lp = s - s2, e2 - e
-                    if pred[7] == 1 and pred[8] == pred[12] :
-                        seq2 = seq[(lp):(len(seq)-rp)]
-                        if seq2 not in alleles[pred[0]] :
+                        
+                    seq2 = seq[(lp):(len(seq)-rp)]
+                    if seq2 not in alleles[pred[0]] :
+                        if pred[3] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
                             alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
+                        else :
+                            alleles[pred[0]][seq2] = 'LowQ{0}'.format(len(alleles[pred[0]])+1)
                         allele_id = str(alleles[pred[0]][seq2])
                         allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], allele_id, seq2))
                     else :
-                        allele_id = 'uncertain'
+                        allele_id = str(alleles[pred[0]][seq2])
                         
                     if len(seq) % 3 > 0 :
                         cds = 'frameshift'
@@ -964,10 +947,10 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
                         if frame == 0 :
                             old_tag.append('{0}:{1}-{2}'.format(*opd))
 
-                fout.write('{0}\t{1}\tEnOrth\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog group:{6},allele ID:{7},matched region:{8}-{9}{10}{11}\n'.format(
+                fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog group:{6},allele ID:{7},matched region:{8}-{9}{10}{11}\n'.format(
                     pred[5], 'CDS' if cds == 'CDS' else 'pseudogene', start, stop, pred[11], 
                     '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, s, e, 
-                    '' if pred[0] == pred[3] else ',structure variant group:' + part[3], 
+                    '' if pred[0] == pred[3] else ',structure variant group:' + pred[3], 
                     '' if cds == 'CDS' else ';pseudogene=' + cds, 
                     '' if len(old_tag) == 0 else 'locus_tag={0};'.format(','.join(old_tag)), 
                 ))
@@ -987,18 +970,17 @@ EToKi.py ortho
 (5) identify a set of most probable non-overlapping orthologs.
 (6) Re-annotate genomes using the new set of orthologs. 
 ''', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('GFFs', metavar='N', nargs='+')
+    parser.add_argument('GFFs', metavar='N', help='GFF files containing both annotations and sequences.', nargs='*')
     parser.add_argument('-g', '--genes', help='Comma delimited files for additional genes. ', default='')
     parser.add_argument('-P', '--priority', help='Comma delimited filenames that contain highly confident genes. ', default='')
     
-    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EnOrth', default='EnOrth')
-    parser.add_argument('-f', '--prefilter', dest='precluster', help='Method for MCL clustering. pairwise [default] or reference', default='pairwise')
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi', default='EToKi')
     parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml or rapid (for extremely large datasets)', default='nj')
 
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 120.', default=120., type=float)
 
-    parser.add_argument('--clust_identity', help='max distance in mmseq clusters. Default: 0.05', default=0.95, type=float)
+    parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.05', default=0.95, type=float)
     parser.add_argument('--clust_match_prop', help='minimum matches in vsearch clusters. Default: 0.9', default=0.9, type=float)
 
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.6', default=0.6, type=float)
@@ -1016,7 +998,7 @@ EToKi.py ortho
     parser.add_argument('--edge_rescue', help='Consider fragments that are within N bases of contig edges as part of a synteny block. Default: 150', default=150., type=float)
 
     parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
-    parser.add_argument('--incompleteCDS', help='Number of internal stop codon in the reference genes. Default: False.', default=False, action='store_true')
+    parser.add_argument('--incompleteCDS', help='Do not do CDS checking for the reference genes. Default: False.', default=False, action='store_true')
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --prefilter reference"', default=False, action='store_true')
 
     params = parser.parse_args(a)
@@ -1065,10 +1047,10 @@ def ortho(args) :
             params['uc'], params['vclust'] = get_mmseq(params['prefix'], params['genes'], cnt)
             
         if 'homolog' not in params :
-            if 'self_bsn' not in params :
-                params['self_bsn'] = get_self_bsn(params['prefix'], params['vclust'])
             if 'map_bsn' not in params :
                 params['map_bsn'] = get_map_bsn(params['prefix'], params['vclust'], genomes)
+            if 'self_bsn' not in params :
+                params['self_bsn'] = get_self_bsn(params['prefix'], params['vclust'])
     
             matches = load_matches(params['map_bsn'], genomes)
             groups = combine_matches(matches)
@@ -1084,17 +1066,15 @@ def ortho(args) :
                 for g in grp :
                     for id in xrange(3, len(g)) :
                         g[id] = matches[g[id]]
-        global_differences = {}
-        if params['precluster'] in ('pairwise', 'reference') :
-            if params['precluster'] == 'pairwise' :
-                if 'global' not in params :
-                    params['global'] = params['prefix'] + '.global.dump'
-                    global_differences = global_difference(groups)
-                    marshal.dump({ pair:'{0:.40f}'.format(value) for pair, value in global_differences.items()}, open(params['global'], 'wb'))
-                global_differences = {pair:max(float(value), 0.015) for pair, value in marshal.load(open(params['global'], 'rb')).items()}
-                global_differences.update({(pair[1], pair[0]):value  for pair, value in global_differences.items() })
-            groups = perform_mcl(groups, params['precluster'], global_differences)
-        
+
+        if 'global' not in params :
+            params['global'] = params['prefix'] + '.global.dump'
+            global_differences = global_difference(groups, 3000)
+            marshal.dump({ pair:'{0:.40f}'.format(value) for pair, value in global_differences.items()}, open(params['global'], 'wb'))
+        global_differences = {pair:max(float(value), 0.015) for pair, value in marshal.load(open(params['global'], 'rb')).items()}
+        global_differences.update({(pair[1], pair[0]):value  for pair, value in global_differences.items() })
+
+        groups = precluster(groups, global_differences)
         params['prediction'] = filt_genes(params['prefix'], matches, groups, global_differences, conflicts, first_classes)
         genes = readFasta(params['vclust'])
     else :

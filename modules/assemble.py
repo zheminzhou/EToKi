@@ -2,8 +2,14 @@ import os, io, sys, re, shutil, numpy as np
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from .configure import externals, logger, readFasta
-from threading import Timer
+try:
+    from .configure import externals, logger, readFasta
+except :
+    from configure import externals, logger, readFasta
+try:
+    xrange(3)
+except :
+    xrange = range
 
 # mainprocess
 class mainprocess(object) :
@@ -16,7 +22,7 @@ class mainprocess(object) :
             else :
                 result = self.do_megahit(reads)
         if not parameters['noPolish'] :
-            result = self.do_polish(result, reads)
+            result = self.do_polish(result, reads, parameters['reassemble'])
         if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
         return result
@@ -26,7 +32,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("gzip -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE).communicate()[0].split()
+                p = Popen("gzip -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE, universal_newlines=True).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
@@ -34,7 +40,7 @@ class mainprocess(object) :
         return read_len
     def __run_minimap(self, reference, reads) :
         if not os.path.isfile(reference+'.mmi') or (os.path.getmtime(reference+'.mmi') < os.path.getmtime(reference)) :
-            Popen('{minimap2} -k13 -w5 -d {0}.mmi {0}'.format(reference, **parameters).split(), stdout=PIPE, stderr=PIPE ).communicate()
+            Popen('{minimap2} -k13 -w5 -d {0}.mmi {0}'.format(reference, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
         else :
             sleep(1)
         
@@ -47,24 +53,24 @@ class mainprocess(object) :
                     logger('Run minimap2 with: {0}'.format(r))
                     cmd = '{minimap2} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
                             r = r, o = o1, reference =reference, **parameters)
-                    st_run = Popen( cmd, shell=True, universal_newlines=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                     for line in st_run[1].split('\n') :
                         logger(line.rstrip())
                     try:
                         x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
                             lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE )
+                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
                         x.communicate()
                         assert x.returncode == 0
                         os.unlink(o1)
                         outputs.append(o)
                     except :
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
+                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
         return outputs
     def __run_bowtie(self, reference, reads) :
         if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
-            Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE ).communicate()
+            Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
         else :
             sleep(1)
 
@@ -77,25 +83,25 @@ class mainprocess(object) :
                     logger('Run Bowtie2 with: {0}'.format(r))
                     cmd= '{bowtie2} -p 8 --no-unal --mp 6,6 --np 6 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
                         r=r, o=o1, reference=reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                     for line in st_run[1].split('\n') :
                         logger(line.rstrip())
                     try:
                         x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
                             lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE )
+                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
                         x.communicate()
                         assert x.returncode == 0
                         os.unlink(o1)
                         outputs.append(o)
                     except :
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
+                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
         return outputs
 
     def __run_bwa(self, reference, reads) :
         if not os.path.isfile(reference + '.bwt') or (os.path.getmtime(reference + '.bwt') < os.path.getmtime(reference)) :
-            Popen('{bwa} index {reference}'.format(reference=reference, bwa=parameters['bwa']).split(), stdout=PIPE, stderr=PIPE ).communicate()
+            Popen('{bwa} index {reference}'.format(reference=reference, bwa=parameters['bwa']).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
         else :
             sleep(1)
 
@@ -108,20 +114,20 @@ class mainprocess(object) :
                     logger('Run bwa with: {0}'.format(r))
                     cmd= '{bwa} mem -A 2 -B 6 -T 40 -t 8 -m 40 {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
                         r=r, o=o1, reference=reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE ).communicate()
+                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                     for line in st_run[1].split('\n') :
                         logger(line.rstrip())
                     try:
                         x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
                             lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE )
+                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
                         x.communicate()
                         assert x.returncode == 0
                         os.unlink(o1)
                         outputs.append(o)
                     except :
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE ).communicate()
+                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
         return outputs
 
 
@@ -147,7 +153,7 @@ class mainprocess(object) :
             read_input = '-r {2}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
         cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 0.9 -o {outdir}'.format(
               megahit=parameters['megahit'], read_input=read_input, outdir=outdir)
-        run = Popen( cmd.split(), stdout=PIPE, bufsize=0 )
+        run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
         run.communicate()
         if run.returncode != 0 :
             sys.exit(7351685)
@@ -173,7 +179,7 @@ class mainprocess(object) :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
         cmd = '{spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
               spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
-        spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0 )
+        spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
             sys.exit(20123)
@@ -206,10 +212,10 @@ class mainprocess(object) :
         with open('{0}.fasta'.format(prefix), 'w') as fout :
             for n, s in sorted(sequence.items()) :
                 s = ''.join(s)
-                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in range(0, len(s), 100)])))
+                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
         return '{0}.fasta'.format(prefix)
         
-    def do_polish(self, reference, reads) :
+    def do_polish(self, reference, reads, reassemble=False) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
@@ -222,7 +228,7 @@ class mainprocess(object) :
             sites = {}
             for bam in bams :
                 if bam is not None :
-                    depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE)
+                    depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
                     for line in depth.stdout :
                         part = line.strip().split()
                         if len(part) > 2 and float(part[2]) > 0 :
@@ -232,12 +238,15 @@ class mainprocess(object) :
 
             with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
                 for n, s in sorted(sequence.items()) :
-                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in range(0, len(s), 100)])))
+                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
 
             bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-
-            pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-            pilon_out = Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE ).communicate()
+            if reassemble :
+                pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+            else :
+                pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+            
+            pilon_out = Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
             snps = []
             with open('{0}.mapping.vcf'.format(prefix)) as fin, open('{0}.mapping.changes'.format(prefix), 'w') as fout :
                 for line in fin :
@@ -262,7 +271,7 @@ class mainprocess(object) :
             with open('{0}.fasta'.format(prefix), 'w') as fout :
                 for n, s in sorted(sequence.items()) :
                     s = ''.join(s)
-                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in range(0, len(s), 100)])))
+                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
             return '{0}.fasta'.format(prefix)
 
     def get_quality(self, reference, reads) :
@@ -280,13 +289,13 @@ class mainprocess(object) :
         sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.items() }
         for bam in bams :
             if bam is not None :
-                depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE).communicate()[0]
-                for line in depth.split('\n') :
+                depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
+                for line in depth.stdout :
                     part = line.strip().split()
                     if len(part) > 2 and float(part[2]) > 0 :
                         sites[part[0]][int(part[1]) - 1] += float(part[2])
         sites = {n:[s.size, np.mean(s), 0.] for n, s in sites.items()}
-        depth = np.array(sites.values())
+        depth = np.array(list(sites.values()))
         depth = depth[np.argsort(-depth.T[0])]
         size = np.sum(depth.T[0])
         acc = [0, 0]
@@ -303,10 +312,11 @@ class mainprocess(object) :
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
         with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
             for n, s in sorted(sequence.items()) :
-                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in range(0, len(s[0]), 100)])))
+                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in xrange(0, len(s[0]), 100)])))
         bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
+        #pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
         pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-        Popen( pilon_cmd.split(), stdout=PIPE ).communicate()
+        Popen( pilon_cmd.split(), stdout=PIPE, universal_newlines=True ).communicate()
 
         cont_depth = [float(d) for d in parameters['cont_depth'].split(',')]
         logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]*ave_depth))
@@ -340,7 +350,7 @@ class mainprocess(object) :
                         s, e = site-4, site+3+len(snv)
                     else :
                         s, e = site-4, site+4
-                    for k in range(s, e) :
+                    for k in xrange(s, e) :
                         sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
         with open('{0}.result.fastq'.format(prefix), 'w') as fout :
@@ -382,7 +392,7 @@ class postprocess(object) :
                 logger('Write fasta sequences into {0}'.format(fasfile))
                 with open(fasfile, 'w') as fout :
                     for n, s in sorted(seq.items()) :
-                        fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[2][site:(site+100)] for site in range(0, len(s[2]), 100)])))
+                        fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[2][site:(site+100)] for site in xrange(0, len(s[2]), 100)])))
             else :
                 fasfile = assembly
                 for line in enumerate(fin) :
@@ -400,14 +410,14 @@ class postprocess(object) :
         cmd = '{kraken_program} -db {kraken_database} --fasta-input {assembly} --threads 8 > {assembly}.kraken'.format(
             assembly=assembly, **parameters
         )
-        Popen(cmd, stderr=PIPE, stdout=PIPE, shell=True).communicate()
+        Popen(cmd, stderr=PIPE, stdout=PIPE, shell=True, universal_newlines=True).communicate()
         cmd = '{kraken_report} -db {kraken_database} {assembly}.kraken'.format(
             assembly=assembly, **parameters
         )
 
-        kraken_out = Popen(cmd.split(' '), stderr=PIPE, stdout=PIPE).communicate()
+        kraken_out = Popen(cmd.split(' '), stderr=PIPE, stdout=PIPE, universal_newlines=True)
         species = {}
-        for line in kraken_out[0].split('\n') :
+        for line in kraken_out.stdout :
             part = line.strip().split('\t')
             if len(part) < 5 :
                 continue
@@ -426,7 +436,7 @@ class postprocess(object) :
         return species
 
     def do_evaluation(self, fastq) :
-        seq = sorted([s for s in fastq.values() if s >= 300], key=lambda x:-x[0])
+        seq = sorted([s for s in fastq.values() if s[0] >= 300], key=lambda x:-x[0])
         n_seq = len(seq)
         n_base = sum([s[0] for s in seq])
         n50, acc = 0, [0, 0]
@@ -504,6 +514,7 @@ And
     parser.add_argument('-c', '--cont_depth', help='Lower and upper limits of read depths for a valid contig. Default: 0.2,2.5', default='')
     
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
+    parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
     parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
@@ -518,7 +529,9 @@ And
         args.assembler = 'spades' if not args.metagenome else 'megahit'
     if args.max_diff < 0 :
         args.max_diff = 0.1 if not args.metagenome else 0.05
-
+    if args.metagenome :
+        args.reassemble = False
+        
     return args
 
 if __name__ == '__main__' :

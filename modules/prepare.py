@@ -2,8 +2,11 @@ import os, io, sys, re, shutil, numpy as np, signal, psutil, argparse
 from glob import glob
 from subprocess import Popen, PIPE, STDOUT
 from time import sleep
-from .configure import externals, logger, readFasta
 from threading import Timer
+try:
+    from .configure import externals, logger, readFasta
+except :
+    from configure import externals, logger, readFasta
 
 def kill_child_proc (p) :
     for child in psutil.Process(p.pid).children() :
@@ -44,7 +47,7 @@ class preprocess(object) :
                     outputs = 'out={0} outu1={1} outu2={2}'.format(*library_file2)
                     bb_run, bb_out = monitor_proc(
                         Popen('{bbmerge} -Xmx{memory} threads=8 loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
-                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
+                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
                         for fname in library_file :
@@ -68,7 +71,7 @@ class preprocess(object) :
                     outputs = 'out={0} out2={1} outs={2}'.format(*library_file2)
                     bb_run, bb_out = monitor_proc(
                         Popen('{bbduk} -Xmx{memory} threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} {read} {outputs}'.format( \
-                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
+                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
                         for fname in library_file :
@@ -94,7 +97,7 @@ class preprocess(object) :
 
                 bb_run, bb_out = monitor_proc(
                     Popen('{bbduk} -Xmx{memory} threads=8 rref={adapters} overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} {read} {outputs}'.format( \
-                        read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE)
+                        read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 )
                 if bb_run.returncode == 0 :
                     nr.extend(library_file2)
@@ -123,12 +126,12 @@ class preprocess(object) :
         for lib_id, (library, stat, new_lib) in enumerate(zip(reads, read_stats, new_reads)) :
             read_information = [0, 0]
             for fname in library :
-                p = Popen("zcat {0}|awk 'NR%4==2'|wc".format(fname), shell=True, stdout=PIPE).communicate()[0].strip().split()
+                p = Popen("zcat {0}|awk 'NR%4==2'|wc".format(fname), shell=True, stdout=PIPE, universal_newlines=True).communicate()[0].strip().split()
                 n_base, n_read = int(p[2]) - int(p[1]), int(p[0])
                 read_information[0] += n_base
                 read_information[1] += n_read
                 bcomp = [[0, 0, 0, 0, 0] for i in range(10)]
-                p = Popen("zcat {0}|head -200000|awk 'NR%20==2'".format(fname), shell=True, stdout=PIPE, stderr=PIPE)
+                p = Popen("zcat {0}|head -200000|awk 'NR%20==2'".format(fname), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 for line in p.stdout :
                     for b, bc in zip(line[:10], bcomp) :
                         bc[encode.get(b, 4)] += 1

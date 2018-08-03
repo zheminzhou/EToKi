@@ -258,8 +258,7 @@ class recHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        #h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
-        h = [ ((1-model['h'][0])*(model['h'][0]**n))**(1/(n+1)) for n in np.arange(self.n_b-1) ]
+        h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
 
         probability, br = 0., []
 
@@ -349,8 +348,7 @@ class recHMM(object) :
 
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, self.n_b])
-            #h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
-            h = [ ((1-model['h'][0])*(model['h'][0]**n))**(1/(n+1)) for n in np.arange(self.n_b-1) ]
+            h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
 
             v, v2 = model['v'][vId], model['v2'][vId]
 
@@ -501,7 +499,7 @@ class recHMM(object) :
         blocks = np.array(blocks, dtype=int)
         blocks.T[4] = np.arange(blocks.shape[0])
         anchors = [np.vstack([ np.vstack([branches, np.repeat(block[0], branches.size), np.repeat(block[1]-1, branches.size), np.zeros([3, branches.size])]).T, 
-                               np.vstack([branches, np.repeat(block[0], branches.size), np.repeat(block[2]+1, branches.size), np.zeros([3, branches.size])]).T ] ) for block in blocks]
+                              np.vstack( [branches, np.repeat(block[0], branches.size), np.repeat(block[2]+1, branches.size), np.zeros([3, branches.size])]).T ] ) for block in blocks]
         mutations = np.vstack([mutations] + anchors).astype(int)
         mutations = mutations[np.lexsort(mutations.T[::-1])]
         self.n_base = 0
@@ -515,19 +513,10 @@ class recHMM(object) :
                     s[1, ms[1]:ms[2]+1] = -2
                     s[1, ms[2]+1:] -= ms[2]-ms[1]+1
             for r in regions :
-                if r[4] == 55 :
-                    print ('')
                 s[0, r[1]-1:r[2]+2] = r[4]
-                if s[1, r[1]] > 1 :
-                    s[1, r[1]-1] = s[1, r[1]] - 1
-                else :
-                    ss = s[1, r[1]:r[2]+1]
-                    s[1, r[2]+1] = np.min(ss[ss>0]) - 1
+                s[1, r[1]-1] = s[1, r[1]] - 1
                 s[1, r[1]-1:r[2]+1] -= s[1, r[1]-1]
-                if s[1, r[2]] > 0 :
-                    s[1, r[2]+1] = s[1, r[2]] + 1
-                else :
-                    s[1, r[2]+1] = np.max(s[1, r[1]:r[2]+1]) + 1
+                s[1, r[2]+1] = s[1, r[2]] + 1
                 
                 r[3] = np.sum(s[1, r[1]:r[2]+1]>0)
             self.n_base += int(np.sum(s[1] >= 0))
@@ -546,12 +535,15 @@ class recHMM(object) :
                 anchors.T[3] -= 1
                 anchors = anchors[anchors.T[3] > 0]
         mutations = mutations[np.lexsort(mutations.T[[5, 4, 0]])]
-        mutations[mutations.T[2] == 0, 2] = 1
-        mutations[mutations.T[2] > blocks[mutations.T[4], 2], 2] -= 1
         if self.n_b > 2 :
             self.n_b = int(max(3, np.max(mutations.T[3]) + 1))
         else :
             mutations[mutations.T[3] > 1, 3] = 1
+        #counts = np.bincount(mutations[mutations.T[3] > 0, 3])
+        #counts = counts/np.sum(counts)
+        #t = np.argmax(np.cumsum(counts) >= 1./3.)
+        #mutations[(mutations.T[3] > 0) & (mutations.T[3] <= t), 3] = 1
+        #mutations[mutations.T[3] > t, 3] = 2
         
         def prepare_obs(obs, blocks, interval=None) :
             res = [ obs[obs.T[4] == blkId] for blkId, block in enumerate(blocks) ]
@@ -595,7 +587,8 @@ class recHMM(object) :
         res = {}
         for name, dm, dr, stat in zip(self.branches, self.model['posterior']['theta'], self.model['posterior']['R'], status) :
             rec_len = np.sum([ e1-s1+1 for c, s, e, t, s1, e1, p in stat['sketches'] ])
-            res[name] = dict(sketches=[ k[:4]+k[6:] for k in stat['sketches']],
+            res[name] = dict(#stat=dict(zip(tuple(zip(obs.T[3], obs.T[4])), stat['gamma'])),
+                             sketches=[ k[:4]+k[6:] for k in stat['sketches']],
                              weight_p=np.array([self.n_base-rec_len, rec_len], dtype=float),
                              M=dm[1]/dm[0],
                              R=np.sum(dr[1:])/dr[0])
@@ -612,15 +605,16 @@ class recHMM(object) :
                     p = np.argmax(s)
                     if p > 0 and s[0] < 0.5 :
                         if len(path) == 0 or path[-1][3] != p or path[-1][5] != obs[id-1][5] :
-                            if o[2] >= 0 :
+                            if o[2] > 0 :
                                 path.append([o[1], o[2], o[2], p, o[5], o[5], 1-s[0]])
                         else :
                             path[-1][5] = o[5]
                             if 1-s[0] > path[-1][6] :
                                 path[-1][6] = 1-s[0]
-                            if o[2] >= 0 :
+                            if o[3] > 0 :
                                 path[-1][2] = o[2]
-            res[name] = dict(sketches=[p[:4]+p[6:] for p in path if p[2]-p[1] > 0 and p[6] >= marginal],
+            res[name] = dict(#stat=dict(zip(tuple(zip(obs.T[3], obs.T[4])), stat['gamma'].T[0])),
+                             sketches=[p[:4]+p[6:] for p in path if p[2]-p[1] > 0 and p[6] >= marginal],
                              weight_p=np.sum(stat['b'], 1),
                              M=dm[1]/dm[0],
                              R=np.sum(dr[1:])/dr[0])
@@ -746,7 +740,7 @@ def parse_arg(a) :
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 5. ', type=int, default=5)
     parser.add_argument('--bootstrap', '-b', help='Number of Randomizations for confidence intervals. \nDefault: 1000. ', type=int, default=1000)
     parser.add_argument('--report', '-r', help='Only report the model and do not calculate external sketches. ', default=False, action="store_true")
-    parser.add_argument('--marginal', '-M', help='Find recombinant regions using marginal likelihood rather than [DEFAULT] maximum likelihood method. \n[DEFAULT] 0 to use Viterbi algorithm to find most likely path.\n Otherwise (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches.', default=0, type=float)
+    parser.add_argument('--marginal', '-M', help='Calculate recombination sketches. \nSet to 0 to use Viterbi algorithm to find most likely path.\n Otherwise (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant sketches [Default: 0.9].', default=0.9, type=float)
     parser.add_argument('--tree', '-T', help='[INPUT, OPTIONAL] A labelled tree. Only used to generate corresponding mutational tree.', default=None)
     parser.add_argument('--clean', '-v', help='Do not show intermediate results during the iterations.', default=False, action='store_true')
     parser.add_argument('--local_r', '-lr', help='Specify a comma-delimited list of branches that share a different R/theta (Frequency of rec) ratio than the global consensus. Can be specified multiple times. \nUse "*" to assign different value for each branch.', default=[], action="append")

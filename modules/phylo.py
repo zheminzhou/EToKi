@@ -124,9 +124,15 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5) :
     for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
     if asc is None :
-        cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
+        if model == 'CAT' :
+            cmd = '{0} -m GTR{4} -n {1} -f d -V -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
+        else :
+            cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
     else :
-        cmd = '{0} -m ASC_GTR{5} -n {1} -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
+        if model == 'CAT' :
+            cmd = '{0} -m ASC_GTR{5} -n {1} -f d -V -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
+        else :
+            cmd = '{0} -m ASC_GTR{5} -n {1} -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
     run = Popen(cmd.split())
     run.communicate()
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :

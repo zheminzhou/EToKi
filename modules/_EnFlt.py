@@ -20,6 +20,8 @@ for line in sys.stdin :
             aln = len(part[10])
         if len(gap) > 1 and min(gap) >= 10 :
             continue
+        if sum(gap) >= 4 * aln :
+            continue
         try:
             score = int(re.findall('AS:i:(\d+)', line)[0])
             dist = (aln*2. - score)/8.
