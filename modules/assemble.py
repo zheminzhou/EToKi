@@ -22,7 +22,7 @@ class mainprocess(object) :
             else :
                 result = self.do_megahit(reads)
         if not parameters['noPolish'] :
-            result = self.do_polish(result, reads, parameters['reassemble'])
+            result = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
         if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
         return result
@@ -32,7 +32,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("gzip -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE, universal_newlines=True).communicate()[0].split()
+                p = Popen("pigz -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE, universal_newlines=True).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
@@ -215,7 +215,7 @@ class mainprocess(object) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
         return '{0}.fasta'.format(prefix)
         
-    def do_polish(self, reference, reads, reassemble=False) :
+    def do_polish(self, reference, reads, reassemble=False, onlySNP=False) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
@@ -255,8 +255,9 @@ class mainprocess(object) :
                     if part[-1] != '0/0':
                         try :
                             if (part[6] == 'PASS' or float(part[7][-4:]) >= 0.75) and re.match(r'^[ACGTN]+$', part[4]):
-                                snps.append( [ part[0], int(part[1])-1, part[3], part[4] ] )
-                                fout.write(line)
+                                if (not onlySNP) or (len(part[3]) == 1 and len(part[4]) == 1 ) :
+                                    snps.append( [ part[0], int(part[1])-1, part[3], part[4] ] )
+                                    fout.write(line)
                         except :
                             pass
 
@@ -456,7 +457,7 @@ class postprocess(object) :
         return dict(n_contig = n_seq,
                     n_base = n_base,
                     ave_depth = ave_depth,
-                    n_lowQual = n_low,
+                    n_lowQual = float(n_low),
                     N50 = n50,
                     L50 = l50)
 
@@ -516,6 +517,7 @@ And
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
     parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
+    parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
     parser.add_argument('--noKraken', help='Do not run species prediciton.', action='store_true', default=False)

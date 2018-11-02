@@ -24,7 +24,7 @@ for line in sys.stdin :
             continue
         try:
             score = int(re.findall('AS:i:(\d+)', line)[0])
-            dist = (aln*2. - score)/8.
+            dist = (aln*2. - score)/6.
         except :
             continue
         if dist >= aln*cutoff :

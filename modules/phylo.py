@@ -95,7 +95,7 @@ def write_phylip(prefix, names, snp_list) :
         if snp[3] == 0 and snp[2][0].upper() in invariants :
             invariants[ snp[2][0] ] += snp[1]
 
-    snp2 = [snp for snp in snp_list if snp[3] > 0 and snp[2][0] in invariants]
+    snp2 = [snp for snp in snp_list if snp[3] > 0 and snp[2][0] in invariants and max([len(s) for s in snp[2] ]) == 1]
     weights = [ snp[1] for snp in snp2 ]
     with open(prefix+'.phy.weight', 'w') as fout :
         fout.write(' '.join([str(x) for x in weights]))
@@ -125,21 +125,23 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5) :
         os.unlink(fname)
     if asc is None :
         if model == 'CAT' :
-            cmd = '{0} -m GTR{4} -n {1} -f d -V -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
+            cmd = '{0} -m GTR{4} -n {1} -f D -V -s {2} -a {3} -T {6} --no-bfgs -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
         else :
-            cmd = '{0} -m GTR{4} -n {1} -s {2} -a {3} -T {6} -p 1234'.format(raxml, prefix, phy, weights, model, n_proc)
+            cmd = '{0} -m GTR{4} -n {1} -f D -s {2} -a {3} -T {6} -p 1234 --no-bfgs'.format(raxml, prefix, phy, weights, model, n_proc)
     else :
         if model == 'CAT' :
-            cmd = '{0} -m ASC_GTR{5} -n {1} -f d -V -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
+            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -V -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis --no-bfgs -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
         else :
-            cmd = '{0} -m ASC_GTR{5} -n {1} -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
+            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -s {2} -a {3} -T {6} -p 1234 --asc-corr stamatakis --no-bfgs -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc)
     run = Popen(cmd.split())
     run.communicate()
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :
         return run_raxml(prefix, phy, weights, asc, 'GAMMA', n_proc)
     else :
+        cmd = '{0} -m GTRCAT -n 2.{1} -f b -z RAxML_rellBootstrap.{1} -t RAxML_bestTree.{1}'.format(raxml, prefix)
+        Popen(cmd.split()).communicate()
         fname = '{0}.unrooted.nwk'.format(prefix)
-        os.rename('RAxML_bestTree.{0}'.format(prefix), fname)
+        os.rename('RAxML_bipartitions.2.{0}'.format(prefix), fname)
         for fn in glob.glob('RAxML_*.{0}'.format(prefix)) :
             try:
                 os.unlink(fn)
@@ -217,8 +219,6 @@ def read_matrix(fname) :
         else :
             types = dict(zip(*np.unique(part, return_index=True)))
             types.pop('-', None)
-            if len(types) <= 1 :
-                print ('')
             snps[b_key] = [len(snps), len(types)-1, w]
             
         if snps[b_key][1] > 0 :
@@ -407,8 +407,19 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     tree = Tree(tree, format=1)
     node_names = {}
     for id,branch in enumerate(tree.traverse('postorder')) :
-        if branch.name == '' or (not branch.is_leaf() and branch.name=='1'):
-            branch.name = 'N_' + str(len(node_names))
+        digit = ''
+        if not branch.is_leaf() :
+            try :
+                float(branch.name)
+                digit = branch.name
+                branch.name = ''
+            except :
+                pass
+        if branch.name == '' :
+            if digit == '' :
+                branch.name = 'N_' + str(len(node_names))
+            else :
+                branch.name = 'N_' + str(len(node_names)) + '__{0}'.format(digit)
         if not branch.up and len(branch.children) == 2 :
             branch.children[1].dist += branch.children[0].dist - 1e-8
             branch.children[0].dist = 1e-8
@@ -425,7 +436,11 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
 
     n_node = len(node_names)
     #retvalue = [infer_ancestral2([state, branches, n_node, infer]) for state in states]
-    retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
+    try :
+        retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
+    except :
+        pool = Pool(5)
+        retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
     return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], retvalue
 
 def phylo(args) :

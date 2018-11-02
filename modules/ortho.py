@@ -11,6 +11,7 @@ except :
 
 def iter_readGFF(fname) :
     seq, cds = {}, {}
+    names = {}
     with uopen(fname) as fin :
         sequenceMode = False
         for line in fin :
@@ -25,16 +26,25 @@ def iter_readGFF(fname) :
                 seq[name][1].extend(line.strip().split())
             else :
                 part = line.strip().split('\t')
-                if len(part) > 2 and part[2] == 'CDS' :
+                if len(part) > 2 :
                     name = re.findall(r'locus_tag=([^;]+)', part[8])
+                    if len(name) == 0 :
+                        parent = re.findall(r'Parent=([^;]+)', part[8])
+                        if len(parent) and parent[0] in names :
+                            name = names[parent[0]]
                     if len(name) == 0 :
                         name = re.findall(r'Name=([^;]+)', part[8])
                     if len(name) == 0 :
                         name = re.findall(r'ID=([^;]+)', part[8])
-                    assert len(name) > 0, logger('Error: CDS has no name. {0}'.format(line))
-                    #assert name[0] not in cds, logger('Error: duplicated CDS. {0}'.format(line))
-                    ##        source_file, seqName, Start,       End,      Direction, hash, Sequences
-                    cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, '']
+
+                    if part[2] == 'CDS' :
+                        assert len(name) > 0, logger('Error: CDS has no name. {0}'.format(line))
+                        #          source_file, seqName, Start,       End,      Direction, hash, Sequences
+                        cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, '']
+                    else :
+                        ids = re.findall(r'ID=([^;]+)', part[8])
+                        if len(ids) :
+                            names[ids[0]] = name
 
     for n in seq :
         seq[n][1] = ''.join(seq[n][1]).upper()
@@ -55,6 +65,7 @@ def iter_readGFF(fname) :
 
 def readGFF(fnames) :
     if not isinstance(fnames, list) : fnames = [fnames]
+    #combo = map(iter_readGFF, fnames)
     combo = pool.map(iter_readGFF, fnames)
 
     seq, cds = {}, {}
@@ -122,7 +133,7 @@ def get_similar_pairs(self_bsn) :
 
 def load_matches(bsn_file, genomes) :
     matches = []
-    with open(bsn_file) as bsn :
+    with uopen(bsn_file) as bsn :
         for id, line in enumerate(bsn) :
             if id % 100000 == 0 :
                 logger('Loading BLASTn results. {1} : {0}'.format(len(matches), id))
@@ -495,7 +506,7 @@ def get_gene(groups, first_classes, cnt=1) :
     return genes
 
 def filt_genes(prefix, matches, groups, global_differences, conflicts, first_classes = None) :
-    vclust_ref = readFasta(params['vclust'])
+    clust_ref = readFasta(params['clust'])
     
     pangenes, used, results, run = {}, {}, {}, {}
     group_id = 0
@@ -536,7 +547,7 @@ def filt_genes(prefix, matches, groups, global_differences, conflicts, first_cla
                                 m[:] = [ region for region in m if region[1]/m[0][1] >= cut ]
     
                         to_run.append([{ (genome, str(i)):get_seq(region) for genome, m in mat.items() for i,region in enumerate(m) }, \
-                                                   gene, mat, {'{0}__REF'.format(gene.split(':')[-1]):vclust_ref[gene]}, global_differences])
+                                                   gene, mat, {'{0}__REF'.format(gene.split(':')[-1]):clust_ref[gene]}, global_differences])
                         to_run_id.append(gene)
                 working_groups = pool.map(filt_per_group, to_run)
                 #working_groups = [filt_per_group(d) for d in to_run]
@@ -671,7 +682,7 @@ def load_priority(priority_list, genes) :
 
     return first_classes
 
-def get_vclust(prefix, genes) :
+def get_clust(prefix, genes) :
     subprocess.Popen('{0} --dbmask soft --usersort --cluster_smallmem {4} --uc {1}.gene.uc --centroids {1}.gene.reference --id {2} --query_cov {3} --target_cov {3} --threads {5}'.format(params['vsearch'], prefix, params['clust_identity'], params['clust_match_prop'], genes, params['n_thread']).split()).wait()
     #os.unlink('{0}.gene'.format(prefix))
     return '{0}.gene.uc'.format(prefix), '{0}.gene.reference'.format(prefix)
@@ -688,14 +699,29 @@ def get_mmseq(prefix, genes, cnt) :
                 os.unlink(fname)
             except :
                 pass
-    #if cnt > 10000 :
     subprocess.Popen('{0} linclust {1}.db {1}.lc {1}.tmp --min-seq-id {2} -c {3} --threads {4} -v 0'.format(params['mmseqs'], prefix, params['clust_identity'], params['clust_match_prop'], params['n_thread']).split()).communicate()
-    #else :
-        #subprocess.Popen('{0} cluster {1}.db {1}.lc {1}.tmp --min-seq-id {2} -c {3} --threads {4} -v 0'.format(params['mmseqs'], prefix, params['clust_identity'], params['clust_match_prop'], params['n_thread']).split()).communicate()
-    subprocess.Popen('{0} result2repseq {1}.db {1}.lc {1}.rep --threads {2} -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
-    subprocess.Popen('{0} result2flat {1}.db {1}.db {1}.rep {1}.gene.reference --use-fasta-header -v 0'.format(params['mmseqs'], prefix, params['n_thread']).split()).communicate()
+    subprocess.Popen('{0} createtsv {1}.db {1}.db {1}.lc {1}.tab'.format(params['mmseqs'], prefix).split(), stdout = subprocess.PIPE).communicate()
+    grps = {}
+    with open('{0}.tab'.format(prefix)) as fin :
+        for line in fin :
+            part = line.strip().split()
+            grps[part[1]] = part[0]
+    with open(genes) as fin, open('{0}.gene.reference'.format(prefix), 'w') as fout :
+        write, used_grps = False, {}
+        
+        for line in fin :
+            if line.startswith('>') :
+                name = line[1:].strip().split()[0]
+                grp = grps[name]
+                if grp in used_grps :
+                    write = False
+                else :
+                    write = True
+                    used_grps[grp] = 1
+            if write :
+                fout.write(line)
     shutil.rmtree(prefix + '.tmp')
-    for fn in (prefix+'.db*', prefix+'.lc*', prefix+'.rep*') :
+    for fn in (prefix+'.db*', prefix+'.lc*') :
         for fname in glob.glob(fn) :
             try :
                 os.unlink(fname)
@@ -704,9 +730,9 @@ def get_mmseq(prefix, genes, cnt) :
     return None, '{0}.gene.reference'.format(prefix)
     
 
-def get_self_bsn(prefix, vclust) :
-    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], vclust).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blastn'], vclust, prefix, int(params['n_thread'])))).communicate()
+def get_self_bsn(prefix, clust) :
+    subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], clust).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {3} -query {1} -db {1} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {2}.self.bsn -task blastn -reward 2 -penalty -3 -evalue 0.1'.format(params['blastn'], clust, prefix, int(params['n_thread'])))).communicate()
     return '{0}.self.bsn'.format(prefix)
 
 def writeGenomes(fname, seqs) :
@@ -716,18 +742,18 @@ def writeGenomes(fname, seqs) :
     return fname
 
 def iter_map_bsn(data) :
-    prefix, vclust, id, taxon, seq = data
+    prefix, clust, id, taxon, seq = data
     gfile, bsn = '{0}.{1}.genome'.format(prefix, id), '{0}.{1}.bsn'.format(prefix, id)
     with open(gfile, 'w') as fout :
         fout.write(''.join(seq))
     subprocess.Popen('{0} -dbtype nucl -in {1}'.format(params['formatdb'], gfile).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-    subprocess.Popen(shlex.split('{0} -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3} -task blastn -reward 2 -penalty -3 -evalue 0.01'.format(\
-        params['blastn'], vclust, gfile, bsn, int(params['n_thread']/10)))).communicate()
+    subprocess.Popen(shlex.split('{0} -num_threads {4} -query {1} -db {2} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -max_target_seqs 2000 -out {3} -task blastn -reward 2 -penalty -3 -qcov_hsp_perc 10 -evalue 0.001'.format(\
+        params['blastn'], clust, gfile, bsn, int(params['n_thread']/10)))).communicate()
     for fn in (gfile, gfile+'.nin', gfile+'.nsq', gfile+'.nhr') :
         os.unlink(fn)
     return bsn
 
-def get_map_bsn(prefix, vclust, genomes) :
+def get_map_bsn(prefix, clust, genomes) :
     if len(genomes) == 0 :
         sys.exit(1)
     taxa = {}
@@ -735,11 +761,11 @@ def get_map_bsn(prefix, vclust, genomes) :
         if s[0] not in taxa : taxa[s[0]] = []
         taxa[s[0]].append('>{0}\n{1}\n'.format(g, s[1]))
     
-    bsns = pool.map(iter_map_bsn, [(prefix, vclust, id, taxon, seq) for id, (taxon, seq) in enumerate(taxa.items())])
-    subprocess.Popen('cat {0} > {1}.map.bsn'.format(' '.join(bsns), prefix), shell=True).communicate()
+    bsns = pool.map(iter_map_bsn, [(prefix, clust, id, taxon, seq) for id, (taxon, seq) in enumerate(taxa.items())])
+    subprocess.Popen('cat {0} |pigz > {1}.map.bsn.gz'.format(' '.join(bsns), prefix), shell=True).communicate()
     for bsn in bsns :
         os.unlink(bsn)
-    return '{0}.map.bsn'.format(prefix)
+    return '{0}.map.bsn.gz'.format(prefix)
 
 def checkCDS(n, s) :
     if len(s) < params['min_cds'] :
@@ -792,7 +818,7 @@ def writeGenes(fname, genes, priority) :
     return fname, cnt
 
 def precluster(groups, global_differences) :
-    vclust_ref = readFasta(params['vclust'])
+    clust_ref = readFasta(params['clust'])
     
     species = {}
     for s in groups.values() :
@@ -803,7 +829,7 @@ def precluster(groups, global_differences) :
     genes = list(groups.keys())
     for gid, gene in enumerate(genes) :
         group = groups[gene]
-        refLen = len(vclust_ref[gene])
+        refLen = len(clust_ref[gene])
         matches = sorted([ [sp, id, refLen*(1.-g[2]/100.)] for sp, grp in group.items() for id, g in enumerate(grp) ], key=lambda x:x[2])
         nMatch = len(matches)
         inGroup = {0:1}
@@ -826,7 +852,7 @@ def precluster(groups, global_differences) :
         groups[gene] = newGroup
     return groups
 
-def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
+def write_output(prefix, prediction, genomes, clust_ref, old_prediction) :
     predictions, alleles = {}, {}
     
     allele_file = open('{0}.allele.fna'.format(prefix), 'w')
@@ -834,8 +860,8 @@ def write_output(prefix, prediction, genomes, vclust_ref, old_prediction) :
         for line in fin :
             part = line.strip().split()
             if part[0] not in alleles :
-                alleles[part[0]] = {vclust_ref[part[0]]:1}
-                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, vclust_ref[part[0]]))
+                alleles[part[0]] = {clust_ref[part[0]]:1}
+                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[part[0]]))
             part[7:14] = [int(p) for p in part[7:14]]
             if part[9] > 0 :
                 l, r = min(part[7]-1, part[9]-1), min(part[12]-part[8], part[13]-part[10])
@@ -964,7 +990,7 @@ def add_args(a) :
     parser = argparse.ArgumentParser(description='''
 EToKi.py ortho 
 (1) Retieves genes and genomic sequences from GFF files and FASTA files.
-(2) Groups genes into clusters using vsearch.
+(2) Groups genes into clusters using mmseq.
 (3) Maps gene clusters back to genomes. 
 (4) Filters paralogous cluster alignments.
 (5) identify a set of most probable non-overlapping orthologs.
@@ -978,10 +1004,10 @@ EToKi.py ortho
     parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml or rapid (for extremely large datasets)', default='nj')
 
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
-    parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 120.', default=120., type=float)
+    parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
 
-    parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.05', default=0.95, type=float)
-    parser.add_argument('--clust_match_prop', help='minimum matches in vsearch clusters. Default: 0.9', default=0.9, type=float)
+    parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.95', default=0.95, type=float)
+    parser.add_argument('--clust_match_prop', help='minimum matches in mmseq clusters. Default: 0.9', default=0.9, type=float)
 
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.6', default=0.6, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for short genes in BLAST search. Default: 0.7', default=0.7, type=float)
@@ -991,8 +1017,8 @@ EToKi.py ortho
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.4', default=0.4, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 60', default=60., type=float)
     
-    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 150', default=150., type=float)
-    parser.add_argument('--synteny_diff', help='. Default: 1.5', default=1.5, type=float)
+    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 200', default=200., type=float)
+    parser.add_argument('--synteny_diff', help='. Default: 1.2', default=1.2, type=float)
     parser.add_argument('--synteny_ovl_prop', help='Max proportion of overlaps between two fragments in a synteny block. Default: 0.7', default=0.7, type=float)
     parser.add_argument('--synteny_ovl_len', help='Max length of overlaps between two fragments in a synteny block. Default: 300', default=300, type=float)
     parser.add_argument('--edge_rescue', help='Consider fragments that are within N bases of contig edges as part of a synteny block. Default: 150', default=150., type=float)
@@ -1022,7 +1048,7 @@ def ortho(args) :
     params.update(externals)
 
     global pool
-    pool = Pool(10)
+    pool = Pool(params['n_thread'])
     genomes, genes = readGFF(params['GFFs'])
     genes = addGenes(genes, params['genes'])
     if 'old_prediction' not in params :
@@ -1041,16 +1067,16 @@ def ortho(args) :
     if 'prediction' not in params :
         first_classes = load_priority( params.get('priority', ''), genes )
 
-        if 'vclust' not in params :
+        if 'clust' not in params :
             params['genes'], cnt = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
-            params['uc'], params['vclust'] = get_mmseq(params['prefix'], params['genes'], cnt)
+            params['uc'], params['clust'] = get_mmseq(params['prefix'], params['genes'], cnt)
             
         if 'homolog' not in params :
             if 'map_bsn' not in params :
-                params['map_bsn'] = get_map_bsn(params['prefix'], params['vclust'], genomes)
+                params['map_bsn'] = get_map_bsn(params['prefix'], params['clust'], genomes)
             if 'self_bsn' not in params :
-                params['self_bsn'] = get_self_bsn(params['prefix'], params['vclust'])
+                params['self_bsn'] = get_self_bsn(params['prefix'], params['clust'])
     
             matches = load_matches(params['map_bsn'], genomes)
             groups = combine_matches(matches)
@@ -1076,7 +1102,7 @@ def ortho(args) :
 
         groups = precluster(groups, global_differences)
         params['prediction'] = filt_genes(params['prefix'], matches, groups, global_differences, conflicts, first_classes)
-        genes = readFasta(params['vclust'])
+        genes = readFasta(params['clust'])
     else :
         genes = {n:s[-1] for n,s in genes.items() }
     pool.close()

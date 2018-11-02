@@ -14,7 +14,7 @@ def parseArgs(argv) :
     parser.add_argument('-r', '--reference', help='reference genomes to be aligned against.[REQUIRED]', required=True)
     parser.add_argument('-c', '--core', help='percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)#, required=True)
     parser.add_argument('-a', '--alignment', help='[OUTPUT] Generate core genomic alignments in FASTA format', default=False, action='store_true')
-    parser.add_argument('-m', '--matrix', help='[OUTPUT] Generate core SNP matrix', default=False, action='store_true')
+    parser.add_argument('-m', '--matrix', help='[OUTPUT] Do not generate core SNP matrix', default=True, action='store_false')
     parser.add_argument('-n', '--n_proc', help='number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
@@ -225,6 +225,10 @@ def alignAgainst(data) :
                     continue
                 mutations.append([aln[5], aln[0]] + m)
     with uopen(prefix + '.gff.gz', 'w') as fout :
+        fout.write('##gff-version 3\n')
+        fout.write('## Reference: {0}\n'.format(reference))
+        fout.write('## Query: {0}\n'.format(query))
+        fout.write('## Tag: {0}\n'.format(tag))
         for aln in alignments :
             if aln[5] == aln[0] and aln[2] == aln[7] and aln[3] == aln[8] :
                 fout.write('{0}\trefMapper\tmisc_feature\t{1}\t{2}\t{3}\t{4}\t.\t/inference="Self%20Alignments"\n'.format(
@@ -256,15 +260,21 @@ def readMap(data) :
     presences, absences, mutations = [], [], []
     
     aligns = ['', 0, 0]
-    with uopen(mFile) as fin :
-        headLine = fin.readline()
-    if headLine.find('Self%20Alignments') >= 0 : 
-        miss = -999999999
-    else :
-        miss = -1
-                
+    miss = -1
     with uopen(mFile) as fin :
         for line in fin :
+            if line.startswith('##') :
+                if line.startswith('## Reference: ') :
+                    ref = line.split(' ')[-1]
+                elif line.startswith('## Query: ') :
+                    qry = line.split(' ')[-1]
+                    if ref == qry :
+                        miss = -99999999
+            else :
+                break
+    with uopen(mFile) as fin :
+        for line in fin :
+            if line.startswith('#') : continue
             part = line.strip().split('\t')
             part[3:5] = [int(part[3]), int(part[4])]
             if part[2] == 'misc_feature' :

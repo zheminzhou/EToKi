@@ -1,6 +1,10 @@
 import numpy as np, pandas as pd, sys, math, argparse, gzip
-import phylo 
 from ete3 import Tree
+import phylo 
+try:
+    from configure import uopen
+except :
+    from .configure import uopen
 
 def parse_arg(a) :
     parser = argparse.ArgumentParser(description='Generate a matrix of only vertically inherited SNPs. ', formatter_class=argparse.RawTextHelpFormatter)
@@ -27,7 +31,7 @@ def read_clonalframe(fname, nodes) :
     return rec
 
 def read_simbac(fname, nodes) :
-    node_map = {'[{0}]'.format(','.join(sorted(n, key=lambda x:int(x)))) : b for b,n in nodes.iteritems()}
+    node_map = {'[{0}]'.format(','.join(sorted(n, key=lambda x:int(x)))) : b for b,n in nodes.items()}
     node_map['[EXTERNAL]'] = 'External'
     rec = {}
     with open(fname) as fin :
@@ -41,35 +45,35 @@ def read_simbac(fname, nodes) :
             if branch not in rec :
                 rec[branch] = []
             rec[branch].append([int(s), int(e), node_map[b2], nodes[branch]])
-    return {b:sorted(r) for b, r in rec.iteritems() }
+    return {b:sorted(r) for b, r in rec.items() }
 
 
 def read_RecHMM(fname, nodes, prob) :
     rec = {}
     with open(fname) as fin :
         for line in fin :
-            if line.startswith('\tRecomb') :
+            if line.startswith('\tImportation') :
                 part = line.strip().split('\t')
-                if len(part) > 5 and float(part[5]) < prob :
+                if len(part) > 5 and float(part[6]) < prob :
                     continue
                 if part[1] not in rec :
                     rec[part[1]] = []
-                rec[part[1]].append([int(part[2]), int(part[3]), part[4], nodes[part[1]]])
+                rec[part[1]].append([part[2], int(part[3]), int(part[4]), part[5], nodes[part[1]]])
     return rec
 
 def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
     bases = {'A':0, 'C':0, 'G':0, 'T':0}
-    for base, snp in snps.iteritems() :
-        for n, c in zip(*np.unique(base.split('\t'), return_counts=True)) :
+    for base, snp in snps.items() :
+        for n, c in zip(*np.unique(base, return_counts=True)) :
             if n in  bases :
                 bases[n] += c*snp[2]
     
-    sv = {ss[0]:s.split('\t') for s, ss in snps.iteritems()}
+    sv = {ss[0]:s for s, ss in snps.items()}
     name_map = {name:id for id, name in enumerate(names)}
     sss = []
     for site in sites :
         if not len(m_weight[site[1]]) : continue
-        weight = np.mean(m_weight[site[1]].values()) 
+        weight = np.mean(list(m_weight[site[1]].values())) 
         snvs = np.array(sv[site[2]])
         snv_x = []
         p = np.zeros(snvs.shape, dtype=bool)
@@ -91,8 +95,8 @@ def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
                         bases[k] -= v*weight
                 sss.append([ '\t'.join(snv.tolist()), weight, site[:2] ])
                 
-    with gzip.open(fname, 'w') as fout :
-        fout.write('## Constant_bases: ' + ' '.join([str(int(inv[1]/names.size+0.5) if inv[1] > 0 else 0.) for inv in sorted(bases.iteritems())]) + '\n')
+    with uopen(fname, 'w') as fout :
+        fout.write('## Constant_bases: ' + ' '.join([str(int(inv[1]/names.size+0.5) if inv[1] > 0 else 0.) for inv in sorted(bases.items())]) + '\n')
         fout.write('#seq\t#site\t' + '\t'.join(names) + '\t#!W[RecFilter]\n')
         for snv, weight, site in sss :
             fout.write('{2}\t{3}\t{0}\t{1:.5f}\n'.format(snv, weight, *site))
@@ -115,18 +119,18 @@ def write_gubbins(rec_file) :
         for line in fin :
             if line.startswith('#CHROM') :
                 part = line.strip().split('\t')[9:]
-                print '## Constant_bases: {0} {0} {0} {0}\n#seq\t#site\t{1}'.format(constant, '\t'.join(part))
+                print ('## Constant_bases: {0} {0} {0} {0}\n#seq\t#site\t{1}'.format(constant, '\t'.join(part)))
             elif not line.startswith('#') :
                 part = line.strip().split('\t')
-                print '{0}\t{1}\t{2}'.format(part[0], part[1], '\t'.join(part[9:]))
+                print ('{0}\t{1}\t{2}'.format(part[0], part[1], '\t'.join(part[9:])))
 
 def RecFilter(argv) :
     args = parse_arg(argv)
     if args.gubbins :
         write_gubbins(args.rec)
         sys.exit()
-    names, sites, snps = phylo.read_matrix(args.matrix)
-    snp_list = sorted([[info[0], int(math.ceil(info[2])), line.split('\t'), info[1]] for line, info in snps.iteritems() ])
+    names, sites, snps, seqLens, missing = phylo.read_matrix(args.matrix)
+    snp_list = sorted([[info[0], int(math.ceil(info[2])), line, info[1]] for line, info in snps.items() ])
     tree = Tree(args.tree, format=1)
     
     final_tree, node_names, states = phylo.infer_ancestral(args.tree, names, snp_list, sites, infer='viterbi')
@@ -146,7 +150,7 @@ def RecFilter(argv) :
         rec_regions = read_RecHMM(args.rec, nodes, args.prob)
         
     n_base = np.sum([v[2] for v in snps.values()])
-    br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[1]-rr[0]+1 for rr in r ])+.1) for b, r in rec_regions.iteritems() }
+    br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[2]-rr[1]+1 for rr in r ])+.1) for b, r in rec_regions.items() }
     curr = ['', [], 0]
     m_weight, masks = {}, {}
     
@@ -158,15 +162,15 @@ def RecFilter(argv) :
         m_weight[m[2]][m[0]] = br_weight.get(m[0], 1.)
         for id in range(curr[2], len(curr[1])) :
             r = curr[1][id]
-            if m[2] > r[1] :
+            if m[2] > r[2] :
                 curr[2] += 1
-            elif m[2] < r[0] :
+            elif m[2] < r[1] :
                 break
             elif m[2] not in masks :
-                masks[m[2]] = [r[3]]
+                masks[m[2]] = [r[4]]
                 m_weight[m[2]].pop(m[0])
             else :
-                masks[m[2]].append(r[3])
+                masks[m[2]].append(r[4])
                 m_weight[m[2]].pop(m[0])
     write_filtered_matrix(args.prefix+'.filtered.gz', names, sites, snps, masks, m_weight)
     return
