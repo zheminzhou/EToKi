@@ -53,24 +53,35 @@ class dualBlast(object) :
         for line in fin :
             part = line.strip().split('\t')
             direction = part[4]
-            qry_sites = [int(part[2])+1, int(part[3])] if direction == '+' else [int(part[1]) - int(part[3])+1, int(part[1]) - int(part[2])]
+            qry_sites = [int(part[2])+1, int(part[3])] #if direction == '+' else [int(part[1]) - int(part[3])+1, int(part[1]) - int(part[2])]
             ref_sites = [int(part[7])+1, int(part[8])] if direction == '+' else [int(part[8]), (int(part[7])+1)]
-            tab = [part[0], part[5], float(part[9])/float(part[10]), int(part[10]), 0, 0] + qry_sites + ref_sites + [0.0, float(part[13][5:]), int(part[1]), int(part[6]), part[-1][5:].replace('D','X').replace('I', 'D').replace('X', 'I')]
+            if direction == '+' :
+                cigar = part[-1][5:]
+            else :
+                cigar = ''.join(reversed(re.findall(r'(\d+[A-Z])', part[-1][5:])))
+            tab = [part[0], part[5], float(part[9])/float(part[10]), int(part[10]), 0, 0] + qry_sites + ref_sites + [0.0, float(part[13][5:]), int(part[1]), int(part[6]), cigar.replace('D','X').replace('I', 'D').replace('X', 'I')]
             blastab.append(tab)
         return blastab
-    def parseMMSeq(self, fin, qryseq) :
+    def parseMMSeq(self, fin, qryseq, refseq) :
         blastab = []
         for line in fin :
             part = line.strip().split('\t')
             rlen = len(qryseq[part[1]])
             direction = '+' if int(part[8]) < int(part[9]) else '-'
-            ref_sites = [int(part[8]), int(part[9])+2] if direction == '+' else [(rlen-int(part[9])+1), (rlen-int(part[8])-1)]
-            tab = [part[0], part[1], float(part[2]), (int(part[3])+2 if direction == '+' else abs(int(part[3]))+4), 0, 0, 3*(int(part[6])-1)+1, 3*(int(part[7])), ] + \
-                ref_sites + [float(part[10]), float(part[11]), int(part[12])*3, rlen, ''.join([ '{0}{1}'.format(int(n)*3, t) for n,t in re.findall(r'(\d+)([A-Z])', part[14])]).replace('D','X').replace('I', 'D').replace('X', 'I')]
+            cigar = [ [int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', part[14])]
+            
+            qry_sites = [3*(int(part[6])-1)+1, 3*(int(part[7]))]
+            d = max(qry_sites[1] - len(refseq[part[0]]), 0)
+            cigar[-1][0] -= d
+            cigar = ''.join(['{0}{1}'.format(n, t) for n,t in cigar]).replace('D','X').replace('I', 'D').replace('X', 'I')
+            qry_sites[1] -= d
+            ref_sites = [int(part[8]), int(part[9])-1-d] if direction == '+' else [(rlen-int(part[9])+1), (rlen-int(part[8])+2+d)]
+            tab = [part[0], part[1], float(part[2]), (int(part[3])+2 if direction == '+' else abs(int(part[3]))+4), 0, 0, ] + qry_sites + \
+                ref_sites + [float(part[10]), float(part[11]), len(refseq[part[0]]), rlen, cigar]
             blastab.append(tab)
         return blastab
             
-    def run_comparison(self, dirPath, qry, ref, ref_aa = None) :
+    def run_comparison(self, dirPath, qry, ref) :
         tmpDir = os.path.join(dirPath, 'tmp')
         naMatch = os.path.join(dirPath, 'naMatch')
         qryNA = os.path.join(dirPath, 'qryNA')
@@ -87,13 +98,13 @@ class dualBlast(object) :
         for ite in range(9) :
             if os.path.isdir(tmpDir) :
                 shutil.rmtree(tmpDir)
-            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryNA, aaMatch, tmpDir).split(), stdout=PIPE)
+            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryNA, aaMatch, tmpDir).split(), stdout=PIPE)
             p.communicate()
             if p.returncode == 0 :
                 break
             if ite > 2 :
                 Popen('{0} extractorfs {2} {3}'.format(mmseqs, refAA, qryNA, qryCDS).split(), stdout=PIPE).communicate()
-                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryCDS, aaMatch, tmpDir).split(), stdout=PIPE)
+                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryCDS, aaMatch, tmpDir).split(), stdout=PIPE)
                 p.communicate()
                 if p.returncode == 0 :
                     break
@@ -102,34 +113,33 @@ class dualBlast(object) :
         Popen('{0} convertalis {1} {2} {3} {3}.tab --threads 8 --format-output'.format(mmseqs, refAA, qryNA, aaMatch).split() + ['query target pident alnlen mismatch gapopen qstart qend tstart tend evalue raw qlen tlen cigar'], stdout=PIPE).communicate()
         
         seq, qual = self.readFastq(qry)
+        refs = self.readFasta(ref)        
         blastab = self.parseMinimap(open(naMatch+'.tab'))
-        blastab.extend(self.parseMMSeq(open(aaMatch+'.tab'), seq))
-        self.fixEnd(blastab, 6, 9)
+        blastab.extend(self.parseMMSeq(open(aaMatch+'.tab'), seq, refs))
+        self.fixEnd(blastab, 9, 9)
         return blastab
-    def fixEnd(self, blastab, se, pe) :
+    def fixEnd(self, blastab, se, ee) :
         for p in blastab :
             e1, e2 = p[6] - 1, p[12] - p[7]
-            if min(e1, e2) <= 0 or max(e1, e2) > se or e1 + e2 > pe :
-                continue
             cigar = [ [int(n), t] for n,t in re.findall(r'(\d+)([A-Z])', p[14])]
             if p[9] > p[8] :
-                while p[6] > 1 and p[8] > 1 :
-                    p[6] -= 1
-                    p[8] -= 1
-                    cigar[0][0] += 1
-                while p[7] < p[12] and p[9] < p[13] :
-                    p[7] += 1
-                    p[9] += 1
-                    cigar[-1][0] += 1
+                if e1 <= se :
+                    while p[6] > 1 and p[8] > 1 :
+                        p[6], p[8] = p[6]-1, p[8]-1
+                        cigar[0][0] += 1
+                if e2 <= ee :
+                    while p[7] < p[12] and p[9] < p[13] :
+                        p[7], p[9] = p[7]+1, p[9]+1
+                        cigar[-1][0] += 1
             else :
-                while p[6] > 1 and p[8] < p[13] :
-                    p[6] -= 1
-                    p[8] += 1
-                    cigar[0][0] += 1
-                while p[7] < p[12] and p[9] > 1 :
-                    p[7] += 1
-                    p[9] -= 1
-                    cigar[-1][0] += 1
+                if e1 <= se :
+                    while p[6] > 1 and p[8] < p[13] :
+                        p[6], p[8] = p[6]-1, p[8]+1
+                        cigar[0][0] += 1
+                if e2 <= ee :
+                    while p[7] < p[12] and p[9] > 1 :
+                        p[7], p[9] = p[7]+1, p[9]-1
+                        cigar[-1][0] += 1
             p[14] = ''.join( '{0}{1}'.format(n, t) for n, t in cigar )
 
 class blastParser(object) :
@@ -219,13 +229,17 @@ class blastParser(object) :
         for part in blasttab :
             if part[8] < 0 :
                 part[8], part[9] = -part[8], -part[9]
+            x = ['{0}D'.format(part[6]-1), part[-1]] if part[6] > 1 else [part[-1]]
+            if part[7] < part[12] :
+                x.append('{0}D'.format(part[12]-part[7]))
+            if len(x) : part[-1] = ''.join(x)
         return blasttab
     def parse_blast(self, hits, parameters) :
         for part in hits:
             allele = part[0].rsplit('_', 1)
             r_start, r_end = 1, part[12]
             direct = 1 if part[8] < part[9] else -1
-            tailing = min(part[6]-r_start, part[7] - r_end)
+            tailing = min(r_start - part[6], part[7] - r_end)
 
             q_start, q_end = part[8], part[9]
 
@@ -339,7 +353,7 @@ class blastParser(object) :
         try:
             s = max(1, min(start, end))
             e = min(len(qual[header]), max(start, end))
-            return ord(min(qual[header][(s-1):e]))
+            return ord(min(qual[header][(s-1):e])) - 33
         except :
             return 0
 
@@ -369,7 +383,7 @@ class blastParser(object) :
         regions.sort(key=lambda x:x['identity'], reverse=True)
         regions.sort(key=lambda x:min(x['flanking'] + [0]), reverse=True)
         for region in regions:
-            if argument.get('ORF', False) and region['CIGAR'] != 'intergenic' :
+            if min(region['flanking']) >= 0 and argument.get('ORF', False) and region['CIGAR'] != 'intergenic' :
                 flag = self.lookForORF(qrySeq, region['coordinates'])
                 region['accepted'] = region['accepted'] | flag
             region['seq'] = self.get_seq(qrySeq, *region['coordinates'])
@@ -519,7 +533,7 @@ def nomenclature(genome, refAllele, parameters) :
         #logger('Identify homologous groups. {0} groups'.format(len([1 for lc in loci if lc != '__non_specific__'])))
         regions = blasttab_parser.inter_loci_overlap(loci, parameters)
         #logger('Resolve potential paralogs. {0} regions'.format(len(regions)))
-        regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[30,600]))
+        regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[0,0]))
     
         # submission
         qrySeq, qryQual = dualBlast().readFastq(qry)
@@ -528,7 +542,7 @@ def nomenclature(genome, refAllele, parameters) :
         #results = blasttab_parser.typing(alleles, parameters, dbname, scheme, submission=submission)
     finally:
         shutil.rmtree(dirPath)
-    allele_seq = '\n'.join([ '>{0} {2} CIGAR={6} accepted={3} reference={4} identity={5} coordinates={7}\n{1}'.format(locus, allele['seq'], allele['value_md5'], allele['accepted'], allele['reference'], allele['identity'], allele['CIGAR'], '{0}:{1}..{2}:{3}'.format(*allele['coordinates']), allele['status'], allele['identity']) for locus, allele in sorted(alleles.items()) ])
+    allele_seq = '\n'.join([ '>{0} value_md5={2} CIGAR={6} accepted={3} reference={4} identity={5} coordinates={7}\n{1}'.format(locus, allele['seq'], allele['value_md5'], allele['accepted'], allele['reference'], allele['identity'], allele['CIGAR'], '{0}:{1}..{2}:{3}'.format(*allele['coordinates']), allele['status'], allele['identity']) for locus, allele in sorted(alleles.items()) ])
     return allele_seq
 
 

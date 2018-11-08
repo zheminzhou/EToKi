@@ -5,101 +5,47 @@ import subprocess, tempfile, shutil, time
 mmseqs = externals['mmseqs']
 minimap2 = externals['minimap2']
 
-def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, coverage) :
+def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, coverage, paralog, orderedLoci) :
     p = subprocess.Popen('{0} -ct8 -k13 -w5 -A2 -B4 -O8,16 -E2,1 -r50 -p.2 -N500 -f2000,10000 -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(minimap2, sourceFna, targetFna).split(), stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-    tooClose = {}
-    goodCandidates = {}
+    tooClose, goodCandidates, crossLoci = {}, {}, {}
     for line in p.stdout :
-
         part = line.strip().split('\t')
-        l, s, e, i = [float(p) for p in part[6:10]]
-        iden, cov = i/(e-s), (e-s)/l
-        if cov > coverage :
-            if iden >= max_iden :
-                tooClose[part[0]] = 1
-            elif iden >= min_iden :
-                goodCandidates[part[0]] = 1
+        q, r = part[0], part[5]
+        qLoc, rLoc = q.rsplit('_', 1)[0], r.rsplit('_', 1)[0]
+        if q == r :
+            goodCandidates[r] = 1.
+            continue
+        elif rLoc == qLoc :
+            if part[4] == '-' :
+                continue
+            tl, ts, te = [int(p) for p in part[1:4]]
+            rl, rs, re, ri = [int(p) for p in part[6:10]]
+            if ts != rs or tl-te != rl - re :
+                continue
+            iden, cov = float(ri)/(re-rs), float(re-rs)/rl
+            if cov > coverage :
+                if iden >= max_iden :
+                    tooClose[part[0]] = 1
+                elif iden >= min_iden :
+                    goodCandidates[part[0]] = max(goodCandidates.get(part[0], 0), iden)
+        elif orderedLoci[qLoc] > orderedLoci[rLoc] :
+            rl, rs, re, ri = [int(p) for p in part[6:10]]
+            iden, cov = float(ri)/(re-rs), float(re-rs)/rl
+            if cov > coverage and iden >= min_iden and crossLoci.get(part[0], 0) < iden :
+                crossLoci[part[0]] = iden
     with open(targetFna) as fin, open(targetFiltFna+'.fas', 'w') as fout :
         writable = False
         for line in fin :
             if line.startswith('>') :
                 name = line[1:].strip().split()[0]
-                writable = False if name in tooClose else True
+                writable = False if (name in tooClose or crossLoci.get(name, 0) > 1. - paralog) else True
             if writable :
                 fout.write(line)
-    return targetFiltFna, goodCandidates
+    return targetFiltFna, goodCandidates, crossLoci
 
-def selfReference(targets, max_iden, coverage) :
-    dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
-    try:
-        tmpDir = os.path.join(dirPath, 'tmp')
-        targetFna = os.path.join(dirPath, 'targetFna')
-        targetClsFna = os.path.join(dirPath, 'targetClsFna')
-        targetClsFaa = os.path.join(dirPath, 'targetClsFaa')
-        targetResFaa = os.path.join(dirPath, 'targetResFaa')
-        with open(targetFna+'.fas', 'w') as fout :
-            fout.write('\n'.join(['>{0}\n{1}'.format(*t) for t in targets]))
-        subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetFna).split(), stdout = subprocess.PIPE).communicate()
-        for ite in range(9) :
-            if os.path.isdir(tmpDir) :
-                shutil.rmtree(tmpDir)
-            p = subprocess.Popen('{0} cluster {1} {2} {3} -c {5} --min-seq-id {4} -e 0.01 --threads 8'.format(mmseqs, targetFna, targetClsFna, tmpDir, max_iden, coverage).split(), stdout = subprocess.PIPE)
-            p.communicate()
-            if p.returncode == 0 :
-                break
-            time.sleep(1)
-        
-        subprocess.Popen('{0} createtsv {1} {2} {3} {3}.tab --threads 8'.format(mmseqs, targetFna, targetFna, targetClsFna).split(), stdout = subprocess.PIPE).communicate()
-        goodCandidates = {}
-        with open(targetClsFna + '.tab') as fin :
-            for line in fin :
-                goodCandidates[line.split('\t', 1)[0]] = 1
-
-        with open(targetFna+'.fas') as fin, open(targetClsFna+'.fas', 'w') as fout :
-            writable = False
-            for line in fin :
-                if line.startswith('>') :
-                    name = line[1:].strip().split()[0]
-                    writable = True if name in goodCandidates else False
-                if writable :
-                    fout.write(line)
-        subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetClsFna).split(), stdout = subprocess.PIPE).communicate()
-        subprocess.Popen('{0} translatenucs {1} {2} --threads 8'.format(mmseqs, targetClsFna, targetClsFaa).split(), stdout = subprocess.PIPE).communicate()
-        for ite in range(9) :
-            if os.path.isdir(tmpDir) :
-                shutil.rmtree(tmpDir)
-            p = subprocess.Popen('{0} cluster {1} {2} {3} -c {5} --min-seq-id {4} -e 0.01 --threads 8'.format(mmseqs, targetClsFaa, targetResFaa, tmpDir, max_iden, coverage).split(), stdout = subprocess.PIPE)
-            p.communicate()
-            if p.returncode == 0 :
-                break
-            time.sleep(1)
-        
-        subprocess.Popen('{0} createtsv {1} {2} {3} {3}.tab --threads 8'.format(mmseqs, targetClsFaa, targetClsFaa, targetResFaa).split(), stdout = subprocess.PIPE).communicate()
-        goodCandidates = {}
-        with open(targetResFaa + '.tab') as fin :
-            for line in fin :
-                goodCandidates[line.split('\t', 1)[0]] = 1
-                
-        refsets = []
-        with open(targetClsFna+'.fas') as fin, open(targetResFaa+'.fas', 'w') as fout :
-            writable = False
-            for line in fin :
-                if line.startswith('>') :
-                    name = line[1:].strip().split()[0]
-                    writable = True if name in goodCandidates else False
-                if writable :
-                    refsets.append(line.strip())
-    except :
-        pass
-    finally:
-        shutil.rmtree(dirPath)
-        return '\n'.join(refsets)
-    
-def buildReference(targets, sources=None, max_iden=0.95,  min_iden=0.5, coverage=0.9) :
-    if sources is None :
-        return selfReference(targets, max_iden, coverage)
-    logger('Running {0}\n'.format(sources[0][0]))
-    refsets = ['>{0}\n{1}'.format(*s) for s in sources]
+def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1) :
+    orderedLoci = { t['fieldname']:i for i, t in reversed(list(enumerate(sources))) }
+    refsets = []
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
     try:
         tmpDir = os.path.join(dirPath, 'tmp')
@@ -113,10 +59,10 @@ def buildReference(targets, sources=None, max_iden=0.95,  min_iden=0.5, coverage
         alnFaa = os.path.join(dirPath, 'alnFaa')
         
         with open(sourceFna+'.fas', 'w') as fout :
-            fout.write('\n'.join(['>{0}\n{1}'.format(*s) for s in sources]))
+            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**s) for s in sources]))
         with open(targetFna+'.fas', 'w') as fout :
-            fout.write('\n'.join(['>{0}\n{1}'.format(*t) for t in targets]))
-        targetFiltFna, goodCandidates = minimapFilter(sourceFna+'.fas', targetFna+'.fas', targetFiltFna, max_iden, min_iden, coverage)
+            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**t) for t in targets]))
+        targetFiltFna, goodCandidates, crossSites = minimapFilter(sourceFna+'.fas', targetFna+'.fas', targetFiltFna, max_iden, min_iden, coverage, paralog, orderedLoci)
         subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, sourceFna).split(), stdout = subprocess.PIPE).communicate()
         subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetFiltFna).split(), stdout = subprocess.PIPE).communicate()
         subprocess.Popen('{0} translatenucs {1} {2}'.format(mmseqs, sourceFna, sourceFaa).split(), stdout = subprocess.PIPE).communicate()
@@ -133,20 +79,32 @@ def buildReference(targets, sources=None, max_iden=0.95,  min_iden=0.5, coverage
         
         with open(alnFaa + '.tab') as fin :
             for line in fin :
-                goodCandidates[line.split('\t', 1)[0]] = 1
-        with open(targetFiltFna+'.fas') as fin, open(targetClsFna+'.fas', 'w') as fout :
+                part = line.strip().split('\t')
+                qLoc, rLoc = part[0].rsplit('_', 1)[0], part[1].rsplit('_', 1)[0]
+                if qLoc == rLoc:
+                    if int(part[8]) == int(part[6]) and int(part[12]) - int(part[7]) == int(part[13]) - int(part[9]) :
+                        goodCandidates[part[0]] = max(goodCandidates.get(part[0], 0), float(part[2]))
+                elif orderedLoci[qLoc] > orderedLoci[rLoc] and crossSites.get(part[0], 0) < float(part[2]) :
+                    crossSites[part[0]] = float(part[2])
+        for s in sources :
+            key = '{0}_{1}'.format(s['fieldname'], s['value_id'])
+            if crossSites.get(key, 0) > max_iden :
+                orderedLoci.pop(s['fieldname'], None)
+                print key
+        with open(targetFna+'.fas') as fin, open(targetClsFna+'.fas', 'w') as fout :
             writable = False
             for line in fin :
                 if line.startswith('>') :
                     name = line[1:].strip().split()[0]
-                    writable = True if name in goodCandidates else False
+                    locus = name.rsplit('_', 1)[0]
+                    writable = True if locus in orderedLoci and goodCandidates.get(name, 0) - crossSites.get(name, 0) > 1-paralog else False
                 if writable :
                     fout.write(line)
         subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetClsFna).split(), stdout = subprocess.PIPE).communicate()
         for ite in range(9) :
             if os.path.isdir(tmpDir) :
                 shutil.rmtree(tmpDir)            
-            p = subprocess.Popen('{0} cluster {1} {2} {3} -c {5} --min-seq-id {4} --threads {t}'.format(mmseqs, targetClsFna, targetResFna, tmpDir, max_iden, coverage, t=9-4*int(ite/3)).split(), stdout = subprocess.PIPE)
+            p = subprocess.Popen('{0} cluster {1} {2} {3} -c {5} --min-seq-id {4} --threads {t}'.format(mmseqs, targetClsFna, targetResFna, tmpDir, max_iden, max_iden, t=9-4*int(ite/3)).split(), stdout = subprocess.PIPE)
             p.communicate()
             if p.returncode == 0 :
                 break
@@ -188,40 +146,33 @@ def readFasta(fastaText) :
     return sequence
 
 
-def MLSTdb(refAllele, alleleFasta, refstrain, max_iden, min_iden, coverage) :
+def MLSTdb(refset, alleleFasta, refstrain, max_iden=0.95, min_iden=0.5, coverage=0.9) :
     with open(alleleFasta) as fin :
         alleles = readFasta(fin)
-    loci = {}
-    for allele in alleles :
-        locus = allele['fieldname']
-        if locus not in loci :
-            loci[locus] = [('{0}_{1}'.format(locus, allele['value_id']), allele['value'], )]
-        else :
-            loci[locus].append(('{0}_{1}'.format(locus, allele['value_id']), allele['value'], ))
-    references = {}
     if refstrain is not None :
         with open(refstrain) as fin :
-            alleles = readFasta(fin)
+            references = readFasta(fin)
+    else :
+        loci, references = {}, []
         for allele in alleles :
-            locus = allele['fieldname']
-            if locus not in references :
-                references[locus] = [('{0}_{1}'.format(locus, allele['value_id']), allele['value'], )]
-            else :
-                references[locus].append(('{0}_{1}'.format(locus, allele['value_id']), allele['value'], ))
-    with open(refAllele, 'w') as fout :
-        for locus, alleles in loci.items() :
-            refAlleles = buildReference(alleles, references.get(locus, None), max_iden, min_iden, coverage)
-            fout.write(refAlleles + '\n')
+            if allele['fieldname'] not in loci :
+                loci[allele['fieldname']] = 1
+                references.append(allele)
+    with open(refset, 'w') as fout :
+        refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage)
+        fout.write(refAlleles + '\n')
+    return refAlleles
 
 def getParams() :
     import argparse
     parser = argparse.ArgumentParser(description='MLSTdb. Create reference sets of alleles for nomenclature. ')
     parser.add_argument('-i', '--input', dest='alleleFasta', help='[REQUIRED] A single file contains all known alleles in a MLST scheme. ', required=True)
-    parser.add_argument('-o', '--output', dest='refAllele',  help='[REQUIRED] Output - A single file used for MLSType. ', required=True)
+    parser.add_argument('-o', '--output', dest='refset',     help='[REQUIRED] Output - A single file used for MLSType. ', required=True)
     parser.add_argument('-r', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
     parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
-    parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.9 ] Proportion of aligned regions between alleles. ', type=float, default=0.9)
+    parser.add_argument('-d', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.6)
+    parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.9 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
     
     return parser.parse_args().__dict__
     
