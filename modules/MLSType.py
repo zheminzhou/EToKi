@@ -124,22 +124,18 @@ class dualBlast(object) :
             cigar = [ [int(n), t] for n,t in re.findall(r'(\d+)([A-Z])', p[14])]
             if p[9] > p[8] :
                 if e1 <= se :
-                    while p[6] > 1 and p[8] > 1 :
-                        p[6], p[8] = p[6]-1, p[8]-1
-                        cigar[0][0] += 1
+                    d = min(p[6]-1, p[8]-1)
+                    p[6], p[8], cigar[0][0] = p[6]-d, p[8]-d, cigar[0][0]+d
                 if e2 <= ee :
-                    while p[7] < p[12] and p[9] < p[13] :
-                        p[7], p[9] = p[7]+1, p[9]+1
-                        cigar[-1][0] += 1
+                    d = min(p[12]-p[7], p[13]-p[9])
+                    p[7], p[9], cigar[-1][0] = p[7]+d, p[9]+d, cigar[-1][0]+d
             else :
                 if e1 <= se :
-                    while p[6] > 1 and p[8] < p[13] :
-                        p[6], p[8] = p[6]-1, p[8]+1
-                        cigar[0][0] += 1
+                    d = min(p[6]-1, p[13]-p[8])
+                    p[6], p[8], cigar[0][0] = p[6]-d, p[8]+d, cigar[0][0]+d
                 if e2 <= ee :
-                    while p[7] < p[12] and p[9] > 1 :
-                        p[7], p[9] = p[7]+1, p[9]-1
-                        cigar[-1][0] += 1
+                    d = min(p[12]-p[7], p[9]-1)
+                    p[7], p[9], cigar[-1][0] = p[7]+d, p[9]-d, cigar[-1][0]+d
             p[14] = ''.join( '{0}{1}'.format(n, t) for n, t in cigar )
 
 class blastParser(object) :
@@ -357,23 +353,26 @@ class blastParser(object) :
         except :
             return 0
 
-    def lookForORF(self, seq, coordinates) :
+    def lookForORF(self, seq, rec) :
+        coordinates, edges = rec['coordinates'], rec['flanking'][:]
         seq = self.get_seq(seq, *coordinates)
-        if len(seq) % 3 == 0 :
+        if (len(seq) - sum(edges)) % 3 == 0 :
             startCodon, stopCodon = 0, 0
-            for s in xrange(0, 18, 3) :
+            for s in xrange(edges[0]%3, 30, 3) :
                 c = seq[s:s+3]
                 if c in ('ATG', 'TTG', 'GTG') :
-                    startCodon = 1
+                    startCodon, edges[0] = 1, 0
                     new_s = coordinates[1] + s if coordinates[3] == '+' else coordinates[1] - s
-            for e in xrange(0, 18, 3) :
+                    break
+            for e in xrange(edges[1]%3, 30, 3) :
                 c = seq[-e-3:-e] if e > 0 else seq[-3:]
                 if c in ('TAG', 'TAA', 'TGA') :
-                    stopCodon = 1
+                    stopCodon, edges[1] = 1, 0
                     new_e = coordinates[2] - e if coordinates[3] == '+' else coordinates[2] + e
-            if abs(e-s) + 1 >= 0.5 * (abs(coordinates[2]-coordinates[1])+1) :
+                    break
+            if startCodon and stopCodon and abs(e-s) + 1 >= 0.6 * (abs(coordinates[2]-coordinates[1])+1 - sum(rec['flanking'])) :
                 coordinates[1:3] = (s, e)
-            if startCodon and stopCodon :
+                rec['flanking'] = edges
                 return 0
         return 6
 
@@ -383,8 +382,8 @@ class blastParser(object) :
         regions.sort(key=lambda x:x['identity'], reverse=True)
         regions.sort(key=lambda x:min(x['flanking'] + [0]), reverse=True)
         for region in regions:
-            if min(region['flanking']) >= 0 and argument.get('ORF', False) and region['CIGAR'] != 'intergenic' :
-                flag = self.lookForORF(qrySeq, region['coordinates'])
+            if sum(region['flanking']) >= -30 and argument.get('ORF', False) and region['CIGAR'] != 'intergenic' :
+                flag = self.lookForORF(qrySeq, region)
                 region['accepted'] = region['accepted'] | flag
             region['seq'] = self.get_seq(qrySeq, *region['coordinates'])
             region['value_md5'] = get_md5(region['seq'])
@@ -528,18 +527,13 @@ def nomenclature(genome, refAllele, parameters) :
         # filter
         blasttab_parser = blastParser()
         blasttab = blasttab_parser.linear_merge(blasttab, **parameters)
-        #logger('Merge closely located hits. {0} hits'.format(len(blasttab)))
         loci = blasttab_parser.parse_blast(blasttab, parameters)
-        #logger('Identify homologous groups. {0} groups'.format(len([1 for lc in loci if lc != '__non_specific__'])))
         regions = blasttab_parser.inter_loci_overlap(loci, parameters)
-        #logger('Resolve potential paralogs. {0} regions'.format(len(regions)))
-        regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[0,0]))
+        #regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[30,600]))
     
         # submission
         qrySeq, qryQual = dualBlast().readFastq(qry)
         alleles = blasttab_parser.form_alleles(regions, qrySeq, qryQual, parameters['unique_key'], not parameters['query_only'], parameters)
-        #logger('Generate allelic sequences. {0} remains'.format(len(alleles)))
-        #results = blasttab_parser.typing(alleles, parameters, dbname, scheme, submission=submission)
     finally:
         shutil.rmtree(dirPath)
     allele_seq = '\n'.join([ '>{0} value_md5={2} CIGAR={6} accepted={3} reference={4} identity={5} coordinates={7}\n{1}'.format(locus, allele['seq'], allele['value_md5'], allele['accepted'], allele['reference'], allele['identity'], allele['CIGAR'], '{0}:{1}..{2}:{3}'.format(*allele['coordinates']), allele['status'], allele['identity']) for locus, allele in sorted(alleles.items()) ])
