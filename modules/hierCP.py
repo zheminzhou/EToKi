@@ -71,7 +71,7 @@ work out specialised single linkage clustering result of all the profiles in the
 
     return parser.parse_args(args)    
 
-def hierCC(args) :
+def hierCP(args) :
     params = get_args(args)
     ot = time.time()
     profile_file, cluster_file, old_cluster = params.profile, params.output+'.npy', params.incremental
@@ -142,4 +142,4 @@ def hierCC(args) :
 
 mat, n_loci = None, None
 if __name__ == '__main__' :
-    hierCC(sys.argv[1:])
+    hierCP(sys.argv[1:])
