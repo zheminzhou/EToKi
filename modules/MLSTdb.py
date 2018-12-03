@@ -1,8 +1,8 @@
 import os, sys, cStringIO as StringIO
 try :
-    from configure import externals, logger
+    from configure import externals, logger, uopen
 except :
-    from .configure import externals, logger
+    from .configure import externals, logger, uopen
 import subprocess, tempfile, shutil, time
 
 mmseqs = externals['mmseqs']
@@ -164,12 +164,12 @@ def MLSTdb(args) :
     params = getParams(args)
     refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd=params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
     if os.path.isfile(alleleFasta) :
-        alleles = readFasta(open(alleleFasta))
+        alleles = readFasta(uopen(alleleFasta))
     else :
         alleles = readFasta(StringIO.StringIO(alleleFasta))
     if refstrain :
         if os.path.isfile(refstrain) :
-            references = readFasta(open(refstrain))
+            references = readFasta(uopen(refstrain))
         else :
             references = readFasta(StringIO.StringIO(refstrain))
     else :
