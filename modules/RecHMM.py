@@ -1,4 +1,4 @@
-import numpy as np, pandas as pd, sys, os, copy, argparse, re
+import numpy as np, pandas as pd, sys, os, copy, argparse, re, hdbscan
 from numba import jit
 from time import time
 import functools, datetime

@@ -4,8 +4,8 @@
 # Author: Zhemin Zhou
 # Lisence: GPLv3
 #
-# New assignment: hierCC.py <allelic_profile> <memmap_dump> > <text_output>
-# Incremental assignment: hierBG.py <allelic_profile> <memmap_dump> <old_dump> > <text_output>
+# New assignment: hierCC.py -p <allelic_profile> -o <output_prefix>
+# Incremental assignment: hierCC.py -p <allelic_profile> -o <output_prefix> -i <old_cluster_npy>
 # Input format:
 # ST_id gene1 gene2
 # 1 1 1
@@ -130,14 +130,14 @@ def hierCC(args) :
             for r in res[np.argsort(res.T[0])] :
                 fout.write('\t'.join([str(rr) for rr in r])+'\n')
     else :
-        deltas = map(int, params.delta.split(','))
+        deltas = map(int, params.delta.split(','))  
         with uopen(params.output+'.hierCC.gz', 'w') as fout :
             fout.write('#ST_id\t{0}\n'.format('\t'.join(['d'+str(id) for id in deltas])))
             for r in res[np.argsort(res.T[0])] :
                 fout.write('\t'.join([str(r[id+1]) for id in deltas])+'\n')
     del res
     sys.stderr.write('NUMPY clustering result (for incremental hierCC): {0}.npy\n'.format(params.output))
-    sys.stderr.write('TEXT clustering result (for visual inspection): {0}.hierCC.gz\n'.format(params.output))
+    sys.stderr.write('TEXT  clustering result (for visual inspection): {0}.hierCC.gz\n'.format(params.output))
 
 
 mat, n_loci = None, None
