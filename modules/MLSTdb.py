@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, cStringIO as StringIO
 try :
     from configure import externals, logger
 except :
@@ -8,7 +8,7 @@ import subprocess, tempfile, shutil, time
 mmseqs = externals['mmseqs']
 minimap2 = externals['minimap2']
 
-def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, coverage, paralog, orderedLoci) :
+def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, coverage, paralog, relaxEnd, orderedLoci) :
     p = subprocess.Popen('{0} -ct8 -k13 -w5 -A2 -B4 -O8,16 -E2,1 -r50 -p.2 -N500 -f2000,10000 -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(minimap2, sourceFna, targetFna).split(), stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines=True)
     tooClose, goodCandidates, crossLoci = {}, {}, {}
     for line in p.stdout :
@@ -23,7 +23,7 @@ def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, cover
                 continue
             tl, ts, te = [int(p) for p in part[1:4]]
             rl, rs, re, ri = [int(p) for p in part[6:10]]
-            if ts != rs or tl-te != rl - re :
+            if relaxEnd or (ts != rs or tl-te != rl - re) :
                 continue
             iden, cov = float(ri)/(re-rs), float(re-rs)/rl
             if cov > coverage :
@@ -46,7 +46,7 @@ def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, cover
                 fout.write(line)
     return targetFiltFna, goodCandidates, crossLoci
 
-def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1) :
+def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1, relaxEnd=False) :
     orderedLoci = { t['fieldname']:i for i, t in reversed(list(enumerate(sources))) }
     refsets = []
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
@@ -65,7 +65,7 @@ def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, 
             fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**s) for s in sources]))
         with open(targetFna+'.fas', 'w') as fout :
             fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**t) for t in targets]))
-        targetFiltFna, goodCandidates, crossSites = minimapFilter(sourceFna+'.fas', targetFna+'.fas', targetFiltFna, max_iden, min_iden, coverage, paralog, orderedLoci)
+        targetFiltFna, goodCandidates, crossSites = minimapFilter(sourceFna+'.fas', targetFna+'.fas', targetFiltFna, max_iden, min_iden, coverage, paralog, relaxEnd, orderedLoci)
         logger('identifed {0} good exemplar alleles after nucleic search'.format(len(goodCandidates)))
         
         subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, sourceFna).split(), stdout = subprocess.PIPE).communicate()
@@ -87,7 +87,7 @@ def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, 
                 part = line.strip().split('\t')
                 qLoc, rLoc = part[0].rsplit('_', 1)[0], part[1].rsplit('_', 1)[0]
                 if qLoc == rLoc:
-                    if int(part[8]) == int(part[6]) and int(part[12]) - int(part[7]) == int(part[13]) - int(part[9]) :
+                    if relaxEnd or (int(part[8]) == int(part[6]) and int(part[12]) - int(part[7]) == int(part[13]) - int(part[9])) :
                         goodCandidates[part[0]] = max(goodCandidates.get(part[0], 0), float(part[2]))
                 elif orderedLoci[qLoc] > orderedLoci[rLoc] and crossSites.get(part[0], 0) < float(part[2]) :
                     crossSites[part[0]] = float(part[2])
@@ -162,35 +162,43 @@ def readFasta(fastaText) :
 
 def MLSTdb(args) :
     params = getParams(args)
-    refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog=params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog']
-    with open(alleleFasta) as fin :
-        alleles = readFasta(fin)
-    if refstrain is not None :
-        with open(refstrain) as fin :
-            references = readFasta(fin)
+    refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd=params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
+    if os.path.isfile(alleleFasta) :
+        alleles = readFasta(open(alleleFasta))
+    else :
+        alleles = readFasta(StringIO.StringIO(alleleFasta))
+    if refstrain :
+        if os.path.isfile(refstrain) :
+            references = readFasta(open(refstrain))
+        else :
+            references = readFasta(StringIO.StringIO(refstrain))
     else :
         loci, references = {}, []
         for allele in alleles :
             if allele['fieldname'] not in loci :
                 loci[allele['fieldname']] = 1
                 references.append(allele)
-    with open(refset, 'w') as fout :
-        refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog)
-        fout.write(refAlleles + '\n')
-    return refAlleles
+    
+    refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
+    if refset :
+        with open(refset, 'w') as fout :
+            fout.write(refAlleles + '\n')
+    else :
+        return refAlleles
 
 def getParams(args) :
     import argparse
     parser = argparse.ArgumentParser(description='MLSTdb. Create reference sets of alleles for nomenclature. ')
     parser.add_argument('-i', '--input', dest='alleleFasta', help='[REQUIRED] A single file contains all known alleles in a MLST scheme. ', required=True)
-    parser.add_argument('-o', '--output', dest='refset',     help='[REQUIRED] Output - A single file used for MLSType. ', required=True)
+    parser.add_argument('-o', '--output', dest='refset',     help='[DEFAULT: to screen] Output - A single file used for MLSType. ', default=None)
     parser.add_argument('-r', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
     parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
     parser.add_argument('-d', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.1)
     parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.7 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
-    
+    parser.add_argument('-e', '--relaxEnd',                  help='[DEFAULT: False ] Allow changed ends (for pubmlst). ', action='store_true', default=False)
+
     return parser.parse_args(args).__dict__
     
 if __name__ == '__main__' :
-    MLSTdb(sys.argv[1:])
+    sys.stdout.write(MLSTdb(sys.argv[1:])+'\n')
