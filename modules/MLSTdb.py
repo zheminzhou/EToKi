@@ -167,6 +167,8 @@ def MLSTdb(args) :
         alleles = readFasta(uopen(alleleFasta))
     else :
         alleles = readFasta(StringIO.StringIO(alleleFasta))
+    alleles = [allele for allele in alleles \
+                   if allele['value_id'] and allele['value_id'] > 0]
     if refstrain :
         if os.path.isfile(refstrain) :
             references = readFasta(uopen(refstrain))

@@ -139,7 +139,7 @@ def configure(args) :
             logger('Found {0}'.format(fn[0]))
             externals[param] = fn[0]
         elif not os.path.exists(externals.get(param, '')) :
-            fn = search_file(valu/home/zhemin/CRobot/source/pilon-1.22.jare)
+            fn = search_file(value)
             if not len(fn) :
                 logger('{0} is not found. Be aware that some functions may not able to run.'.format(param))
             else :
