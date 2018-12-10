@@ -183,7 +183,10 @@ class mainprocess(object) :
         spades_run.communicate()
         if spades_run.returncode != 0 :
             sys.exit(20123)
-        shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
+        try :
+            shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
+        except :
+            shutil.copyfile( '{outdir}/contigs.fasta'.format(outdir=outdir), output_file )
         logger('SPAdes scaffolds in {0}'.format(output_file))
         return output_file
     
