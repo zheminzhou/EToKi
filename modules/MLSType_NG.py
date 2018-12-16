@@ -7,49 +7,14 @@ try:
 except :    
     from .configure import externals, rc, uopen
 
-ublast = externals['ublast']
-formatdb = externals['formatdb']
-blastn = externals['blastn']
+mmseqs = externals['mmseqs']
+minimap2 = externals['minimap2']
 
 def get_md5(value) :
     m = md5.new()
     m.update(str(value))
     return str(uuid.UUID(m.hexdigest()))
 
-def transeq(seq, frames=[1,2,3,4,5,6]) :
-    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF '))
-    if isinstance(seq, dict) :
-        names, seqs = [], []
-        for n,s in seq.items() :
-            names.append(n)
-            seqs.append( 'Y' * ((3-len(s)%3)%3) + re.sub(r'[^ACGT]', 'X', s.upper()) + 'Z' * ((3-len(s)%3)%3) )
-    else :
-        names, seqs = [n for n,s in seq], [re.sub(r'[^ACGT]', 'X', s.upper()) + 'X' * ((3-len(s)%3)%3) for n, s in seq]
-    trans_seq = [[n, []] for n in names]
-    mseqs = np.unique(list('   '.join(seqs)) + [' ', 'A', 'C', 'G', 'T', 'X', 'Y', 'Z'], return_inverse=True)[1][:-8]
-    seqs = mseqs[mseqs != 6]
-    rseqs = np.flip(5-mseqs[mseqs != 7], 0)
-    seqs[seqs == 0], seqs[seqs >= 5] = -100000, -100
-    rseqs[rseqs <= 0], rseqs[rseqs == 5] = -100, -100000
-    seqs -= 1; rseqs -= 1
-    for frame in frames :
-        if frame <= 3 :
-            codons = np.concatenate([seqs[frame-1:], np.array([-100]*(frame-1), dtype=int)]).reshape(-1, 3)
-        else :
-            codons = np.concatenate([rseqs[frame-4:], np.array([-100]*(frame-4), dtype=int)]).reshape(-1, 3)
-        codons[:, 0] <<= 4
-        codons[:, 1] <<= 2
-        codons = np.sum(codons, 1)
-        codons[codons < -1000000] = 64
-        codons[codons < 0] = 50
-        tseq = ''.join(gtable[codons]).split(' ')
-        if frame <= 3 :
-            for ts, tt in zip(trans_seq, tseq) :
-                ts[1].append(tt)
-        else :
-            for ts, tt in zip(trans_seq, tseq[::-1]) :
-                ts[1].append(tt)
-    return dict(trans_seq) if isinstance(seq, dict) else trans_seq
 
 class dualBlast(object) :
     def readFasta(self, fasta) :
@@ -87,165 +52,112 @@ class dualBlast(object) :
             qual[s] = ''.join(qual[s])
         return sequence, qual
     
-    def getCIGAR(self, ref, qry) :
-        if ref.find('-') < 0 and qry.find('-') < 0 :
-            cigar = [[len(ref), 'M']] 
-        else :
-            tag = np.array(['M', 'D', 'I'])
-            cigar = np.concatenate([[-1], (np.array(list(ref)) == '-')*2 + (np.array(list(qry)) == '-'), [-1]])
-            pos = np.where(np.diff(cigar) != 0)[0]
-            cigar = [ list(v) for v in zip(np.diff(pos), tag[cigar[pos[:-1]+1]])]
-        return cigar
-    
-    def parseBlast(self, fin, min_iden, min_len) :
+    def parseMinimap(self, fin) :
         blastab = []
         for line in fin :
             part = line.strip().split('\t')
-            part[3:10] = list(map(int, part[3:10]))
-            part[2] = float(part[2])/100.
-            if part[2] < min_iden or part[3] < min_len :
-                continue
-            part[12:14] = list(map(int, part[12:14]))
-            part[11] = float(part[11])
-            part[14] = self.getCIGAR(part[14], part[15])
-            blastab.append(part[:15])
-        return blastab
-    def parseUBlast(self, fin, qryseq, refseq, min_iden, min_len) :
-        blastab = []
-        for line in fin :
-            part = line.strip().split('\t')
-            part[3:10] = list(map(int, part[3:10]))
-            part[2] = float(part[2])/100.
-            part[3:5] = part[3]*3, part[4]*3
-            if part[2] < min_iden or part[3] < min_len :
-                continue            
-            
-            part[0], rf = part[0].rsplit(':', 1)
-            part[1], qf = part[1].rsplit(':', 1)
-            part[11], part[12], part[13] = float(part[11]), len(refseq[part[0]]), len(qryseq[part[1]])
-            rf, qf = int(rf), int(qf)
-            part[6], part[7] = part[6]*3+rf-3, part[7]*3+rf-1
-            part[14] = [[3*v[0], v[1]] for v in self.getCIGAR(part[14], part[15])]
-
-            if qf <= 3 :
-                part[8], part[9] = part[8]*3+qf-3, part[9]*3+qf-1
-                d = max(part[7] - part[12], part[9]-part[13])
-                if d > 0 :
-                    part[7], part[9], part[14][-1][0] = part[7]-d, part[9]-d, part[14][-1][0]-d
+            direction = part[4]
+            qry_sites = [int(part[2])+1, int(part[3])] #if direction == '+' else [int(part[1]) - int(part[3])+1, int(part[1]) - int(part[2])]
+            ref_sites = [int(part[7])+1, int(part[8])] if direction == '+' else [int(part[8]), (int(part[7])+1)]
+            if direction == '+' :
+                cigar = part[-1][5:]
             else :
-                part[8], part[9] = part[13]-(part[8]*3+qf-3-3)+1, part[13]-(part[9]*3+qf-3-1)+1
-                d = max(part[7] - part[12], 1 - part[9])
-                if d > 0 :
-                    part[7], part[9], part[14][-1][0] = part[7]-d, part[9]+d, part[14][-1][0]-d
+                cigar = ''.join(reversed(re.findall(r'(\d+[A-Z])', part[-1][5:])))
+            tab = [part[0], part[5], float(part[9])/float(part[10]), int(part[10]), 0, 0] + qry_sites + ref_sites + [0.0, float(part[13][5:]), int(part[1]), int(part[6]), cigar.replace('D','X').replace('I', 'D').replace('X', 'I')]
+            blastab.append(tab)
+        return blastab
+    def parseMMSeq(self, fin, qryseq, refseq) :
+        blastab = []
+        for line in fin :
+            part = line.strip().split('\t')
+            rlen = len(qryseq[part[1]])
+            direction = '+' if int(part[8]) < int(part[9]) else '-'
+            cigar = [ [int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', part[14])]
             
-            blastab.append(part[:15])
+            qry_sites = [3*(int(part[6])-1)+1, 3*(int(part[7]))]
+            d = max(qry_sites[1] - len(refseq[part[0]]), 0)
+            cigar[-1][0] -= d
+            cigar = ''.join(['{0}{1}'.format(n, t) for n,t in cigar]).replace('D','X').replace('I', 'D').replace('X', 'I')
+            qry_sites[1] -= d
+            ref_sites = [int(part[8]), int(part[9])-1-d] if direction == '+' else [(rlen-int(part[9])+1), (rlen-int(part[8])+2+d)]
+            tab = [part[0], part[1], float(part[2]), (int(part[3])+2 if direction == '+' else abs(int(part[3]))+4), 0, 0, ] + qry_sites + \
+                ref_sites + [float(part[10]), float(part[11]), len(refseq[part[0]]), rlen, cigar]
+            blastab.append(tab)
         return blastab
-    
-    def run_comparison(self, dirPath, qry, ref, min_iden, min_len, n_thread=6) :
-        qryNA = os.path.join(dirPath, 'qryNA')
-        qryAA = os.path.join(dirPath, 'qryAA')
-        refAA = os.path.join(dirPath, 'refAA')
+            
+    def run_comparison(self, dirPath, qry, ref) :
+        tmpDir = os.path.join(dirPath, 'tmp')
         naMatch = os.path.join(dirPath, 'naMatch')
+        qryNA = os.path.join(dirPath, 'qryNA')
+        qryCDS = os.path.join(dirPath, 'qryCDS')
+        refNA = os.path.join(dirPath, 'refNA')
+        refAA = os.path.join(dirPath, 'refAA')
         aaMatch = os.path.join(dirPath, 'aaMatch')
+        with open(naMatch+'.tab', 'w') as fout :
+            p = Popen('{0} -ct8 -k13 -w5 -A2 -B4 -O8,16 -E2,1 -r50 -p.01 -N500 -f2000,10000 --end-bonus 5 -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(minimap2, qry, ref).split(), stdout=fout, stderr=PIPE)
+            p.communicate()
+        Popen('{0} createdb {1} {2} --dont-split-seq-by-len'.format(mmseqs, qry, qryNA).split(), stdout=PIPE).communicate()
+        Popen('{0} createdb {1} {2} --dont-split-seq-by-len'.format(mmseqs, ref, refNA).split(), stdout=PIPE).communicate()
+        Popen('{0} translatenucs {1} {2}'.format(mmseqs, refNA, refAA).split(), stdout=PIPE).communicate()
+        for ite in range(9) :
+            if os.path.isdir(tmpDir) :
+                shutil.rmtree(tmpDir)
+            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryNA, aaMatch, tmpDir).split(), stdout=PIPE)
+            p.communicate()
+            if p.returncode == 0 :
+                break
+            if ite > 2 :
+                Popen('{0} extractorfs {2} {3}'.format(mmseqs, refAA, qryNA, qryCDS).split(), stdout=PIPE).communicate()
+                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads 8 --min-seq-id 0.5 -e 10'.format(mmseqs, refAA, qryCDS, aaMatch, tmpDir).split(), stdout=PIPE)
+                p.communicate()
+                if p.returncode == 0 :
+                    break
+            import time
+            time.sleep(1)
+        Popen('{0} convertalis {1} {2} {3} {3}.tab --threads 8 --format-output'.format(mmseqs, refAA, qryNA, aaMatch).split() + ['query target pident alnlen mismatch gapopen qstart qend tstart tend evalue raw qlen tlen cigar'], stdout=PIPE).communicate()
         
-        refSeq = self.readFasta(ref)
-        qrySeq, qual = self.readFastq(qry)
-        with open(qryNA, 'w') as fout :
-            for n,s in qrySeq.items() :
-                fout.write('>{0}\n{1}\n'.format(n, s))
-        
-        Popen('{formatdb} -dbtype nucl -in {qry}'.format(formatdb=formatdb, qry=qryNA).split(), stderr=PIPE, stdout=PIPE).communicate()
-
-        refs = [ [os.path.join(dirPath, 'ref.{0}'.format(id)), os.path.join(dirPath, 'ref.{0}.out'.format(id)), []] for id in range(n_thread)]
-        
-        refSeq2 = sorted(list(refSeq.items()), key=lambda s:-len(s[1]))
-        for id, (r, o, p) in enumerate(refs) :
-            with open(r, 'w') as fout :
-                for n, s in refSeq2[id::n_thread] :
-                    fout.write('>{0}\n{1}\n'.format(n, s))
-            blast_cmd = '{blastn} -db {qry} -query {ref} -out {out} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -task blastn -evalue 1e-3 -dbsize 5000000 -reward 2 -penalty -2 -gapopen 6 -gapextend 2'.format(
-                blastn=blastn, qry=qryNA, ref=r, out=o)
-            p.append(Popen(blast_cmd, stdout=PIPE, shell=True))
-        
-        refAASeq = transeq(refSeq, frames=[1,2,3])
-        with open(refAA, 'w') as fout :
-            for n, ss in refAASeq.items() :
-                for id, s in enumerate(ss) :
-                    if len(s[:-1].split('X')) < 2 :
-                        fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
-        qryAASeq = transeq(qrySeq)
-        with open(qryAA, 'w') as fout :
-            for n, ss in qryAASeq.items() :
-                for id, s in enumerate(ss) :
-                    fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
-        with open(naMatch, 'w') as fout :
-            for r, o, p in refs :
-                p[0].communicate()
-                fout.write(open(o).read())
-                os.unlink(o)
-        ublast_cmd = '{ublast} -threads {n_thread} -db {qryAA} -ublast {refAA} -evalue 1e-3 -accel 0.9 -maxhits 6 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-            ublast=ublast, qryAA=qryAA, refAA=refAA, aaMatch=aaMatch, n_thread=n_thread)
-        pp = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE)
-        pp.communicate()
-        
-        blastab = self.parseBlast(open(naMatch), min_iden, min_len)
-        blastab.extend(self.parseUBlast(open(aaMatch), qrySeq, refSeq, min_iden, min_len))
-        self.fixEnd(blastab, 6, 9)
+        seq, qual = self.readFastq(qry)
+        refs = self.readFasta(ref)        
+        blastab = self.parseMinimap(open(naMatch+'.tab'))
+        blastab.extend(self.parseMMSeq(open(aaMatch+'.tab'), seq, refs))
+        self.fixEnd(blastab, 9, 9)
         return blastab
-    
     def fixEnd(self, blastab, se, ee) :
         for p in blastab :
             e1, e2 = p[6] - 1, p[12] - p[7]
-            cigar = p[14]
+            cigar = [ [int(n), t] for n,t in re.findall(r'(\d+)([A-Z])', p[14])]
             if p[9] > p[8] :
-                if 0 < e1 <= se :
+                if e1 <= se :
                     d = min(p[6]-1, p[8]-1)
                     p[6], p[8], cigar[0][0] = p[6]-d, p[8]-d, cigar[0][0]+d
-                if 0 < e2 <= ee :
+                if e2 <= ee :
                     d = min(p[12]-p[7], p[13]-p[9])
                     p[7], p[9], cigar[-1][0] = p[7]+d, p[9]+d, cigar[-1][0]+d
             else :
-                if 0 < e1 <= se :
+                if e1 <= se :
                     d = min(p[6]-1, p[13]-p[8])
                     p[6], p[8], cigar[0][0] = p[6]-d, p[8]+d, cigar[0][0]+d
-                if 0 < e2 <= ee :
+                if e2 <= ee :
                     d = min(p[12]-p[7], p[9]-1)
                     p[7], p[9], cigar[-1][0] = p[7]+d, p[9]-d, cigar[-1][0]+d
             p[14] = ''.join( '{0}{1}'.format(n, t) for n, t in cigar )
 
 class blastParser(object) :
-    def linear_merge(self, blasttab, min_iden, min_frag_prop, min_frag_len, max_dist=300, diag_diff=1.5, max_diff=200, **params) :
+    def linear_merge(self, blasttab, min_iden, min_frag_prop, min_frag_len, max_dist=300, diag_diff=12, max_diff=200, **params) :
         for part in blasttab :
             if part[8] > part[9] :
                 part[8], part[9] = -part[8], -part[9]
 
-        blasttab.sort(key=itemgetter(0,1,6,8,-11))
-        nB = len(blasttab)
-        for id, p1 in enumerate(blasttab) :
-            if p1[0] == '' : continue
-            for jd in xrange(id+1, nB) :
-                p2 = blasttab[jd]
-                if p2[0] == '' : continue
-                if (p1[0], p1[1]) != (p2[0], p2[1]) or p2[6] - p1[6] > 4 :
-                    break
-                d = abs(p1[6]-p2[6]) + abs(p1[7]-p2[7]) + abs(p1[8]-p2[8]) + abs(p1[9]-p2[9])
-                if d <= 5 :
-                    if p1[2] >= p2[2] :
-                        p2[0] = ''
-                    else :
-                        p1[0] = ''
-                        break
-        blasttab = [p for p in blasttab if p[0] != '']
-        
-        nB = len(blasttab)
+        blasttab.sort(key=itemgetter(0,1,6,8))
+
         syntenies = []
         for id, p1 in enumerate(blasttab) :
-            for jd in xrange(id+1, nB)  :
+            for jd in xrange(id+1, len(blasttab))  :
                 p2 = blasttab[jd]
 
                 if p1[0] != p2[0] or p1[1] != p2[1] or p2[6] - p1[7] > max_dist :
                     break
-                elif p1[8] < 0 < p2[8] or p2[8] < p1[8] + 15 or p2[9] < p1[9] + 15 or p2[7]<p1[7]+15 or p2[6] < p1[6]+15 or p2[8] - p1[9] > max_dist :
+                elif (p1[8] < 0 and p2[8] > 0) or p2[8] < p1[8] + 15 or p2[9] < p1[9] + 15 or p2[7]<p1[7]+15 or p2[6] < p1[6]+15 or p2[8] - p1[9] > max_dist :
                     continue
                 m, n = p2[7] - p1[6] + 1, p2[9] - p1[8] + 1
                 if m < min_frag_len or m < min_frag_prop*p1[12] or max(m, n) - min(m, n) > max_diff or max(m,n) > diag_diff * min(m, n) :
@@ -332,7 +244,7 @@ class blastParser(object) :
             q_start, q_end = part[8], part[9]
 
             ## ignore the hit if it is too small
-            if direct*(q_end - q_start) + 1 < parameters['min_frag_prop'] * (r_end - r_start + 1) or direct*(q_end - q_start)+1 < parameters['min_frag_len'] :
+            if direct*(q_end - q_start) + 1 < parameters['min_frag_prop'] * (r_end - r_start + 1) :
                 part[0] = ''
             else :
                 part.extend([r_start, r_end, q_start, q_end, float(part[11]), allele[0], allele[1], tailing])
@@ -400,14 +312,20 @@ class blastParser(object) :
                 if regi[2] != regj[2] or regj[3] > regi[4] :
                     break
                 overlap = min(regi[4], regj[4]) - regj[3] + 1
-                if (regi[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regi[4]-regi[3]+1)) or \
-                   (regj[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regj[4]-regj[3]+1)) :
+                if regi[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regi[4]-regi[3]+1) :
                     delta = regi[1] - regj[1]
                     if delta > 0.05 :
                         todel.append(jd)
                     elif delta <= -0.05 :
                         deleted = 1
                         break
+                if regj[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regj[4]-regj[3]+1) :
+                    delta = regj[1] - regi[1]
+                    if delta >= 0.05 :
+                        deleted = 1
+                        break
+                    elif delta <= -0.05 :
+                        todel.append(jd)
             if deleted == 0 :
                 for jd in todel:
                     regions[jd][0] = ''
@@ -609,7 +527,7 @@ def nomenclature(genome, refAllele, parameters) :
             fout.write(genome)
         with open(ref, 'w') as fout :
             fout.write(refAllele)
-        blasttab = dualBlast().run_comparison(dirPath, qry, ref, parameters['min_iden']-0.1, parameters['min_frag_len']-10)
+        blasttab = dualBlast().run_comparison(dirPath, qry, ref)
     
         # filter
         blasttab_parser = blastParser()
@@ -628,12 +546,11 @@ def nomenclature(genome, refAllele, parameters) :
 
 
 parameters = {}
-def MLSType(args) :
-    parameters = getParams(args)
+def MLSType(**parameters) :
     return nomenclature(open(parameters['genome']).read(), open(parameters['refAllele']).read(), parameters)
 
 
-def getParams(args) :
+def getParams() :
     import argparse
     parser = argparse.ArgumentParser(description='MLSTdb. Create reference sets of alleles for nomenclature. ')
     parser.add_argument('-i', '--genome',     help='[REQUIRED] Input - filename for genomic assembly. ', required=True)
@@ -652,12 +569,12 @@ def getParams(args) :
     parser.add_argument('--max_dist',  help='[DEFAULT: 300 ] Synteny block: Ignore if two alignments seperate by at least this value. ', type=float, default=300)
     parser.add_argument('--diag_diff',  help='[DEFAULT: 1.2 ] Synteny block: Ignore if the lengths of the resulted block differ by X fold between qry and ref. ', type=float, default=1.2)
     parser.add_argument('--max_diff',  help='[DEFAULT: 200 ] Synteny block: Ignore if the lengths of the resulted block differ by this value between qry and ref. ', type=float, default=200)
-    args = parser.parse_args(args).__dict__
+    args = parser.parse_args().__dict__
     args['intergenic'] = [float(d) for d in args['intergenic'].split(',')]
     
     return args
     
 
 if __name__ == '__main__' :
-    alleles, profile = MLSType(sys.argv[1:])
+    alleles, profile = MLSType(**getParams())
     print alleles

@@ -1,4 +1,52 @@
 import os, sys, subprocess, numpy as np, argparse, glob, gzip, io, re
+if sys.version_info[0] < 3:
+    xrange = xrange
+    asc2int = np.uint8
+else :
+    xrange = range
+    asc2int = np.uint32
+    
+# * is designated as U; index is : (ord(r)-65)*32 + ord(q)-65
+blosum62 = np.array([  4., -2.,  0., -2., -1., -2.,  0., -2., -1.,  0., -1., -1., -1., -2.,  0., -1., -1., -1.,  1.,  0., -4.,  0.,
+                       -3.,  0., -2., -1.,  0.,  0.,  0.,  0.,  0.,  0., -2., 4., -3.,  4.,  1., -3., -1.,  0., -3.,  0.,  0., -4.,
+                       -3.,  3.,  0., -2.,  0., -1.,  0., -1., -4., -3., -4., -1., -3.,  1.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -3.,
+                       9., -3., -4., -2., -3., -3., -1.,  0., -3., -1., -1., -3.,  0., -3., -3., -3., -1., -1., -4., -1., -2., -2.,
+                       -2., -3.,  0.,  0.,  0.,  0.,  0.,  0., -2.,  4., -3., 6.,  2., -3., -1., -1., -3.,  0., -1., -4., -3.,  1.,
+                       0., -1.,  0., -2.,  0., -1., -4., -3., -4., -1., -3., 1.,  0.,  0.,  0.,  0.,  0.,  0., -1.,  1., -4.,  2.,
+                       5., -3., -2.,  0., -3.,  0.,  1., -3., -2.,  0.,  0., -1.,  2.,  0.,  0., -1., -4., -2., -3., -1., -2.,  4.,
+                       0.,  0.,  0.,  0.,  0.,  0., -2., -3., -2., -3., -3., 6., -3., -1.,  0.,  0., -3.,  0.,  0., -3.,  0., -4.,
+                       -3., -3., -2., -2., -4., -1.,  1., -1.,  3., -3.,  0., 0.,  0.,  0.,  0.,  0.,  0., -1., -3., -1., -2., -3.,
+                       6., -2., -4.,  0., -2., -4., -3.,  0.,  0., -2., -2., -2.,  0., -2., -4., -3., -2., -1., -3., -2.,  0.,  0.,
+                       0.,  0.,  0.,  0., -2.,  0., -3., -1.,  0., -1., -2., 8., -3.,  0., -1., -3., -2.,  1.,  0., -2.,  0.,  0.,
+                       -1., -2., -4., -3., -2., -1.,  2.,  0.,  0.,  0.,  0., 0.,  0.,  0., -1., -3., -1., -3., -3.,  0., -4., -3.,
+                       4.,  0., -3.,  2.,  1., -3.,  0., -3., -3., -3., -2., -1., -4.,  3., -3., -1., -1., -3.,  0.,  0.,  0.,  0.,
+                       0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,
+                       0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., 0., -1.,  0., -3., -1.,  1., -3., -2., -1., -3.,  0.,
+                       5., -2., -1.,  0.,  0., -1.,  1.,  2.,  0., -1., -4., -2., -3., -1., -2.,  1.,  0.,  0.,  0.,  0.,  0.,  0.,
+                       -1., -4., -1., -4., -3.,  0., -4., -3.,  2.,  0., -2., 4.,  2., -3.,  0., -3., -2., -2., -2., -1., -4.,  1.,
+                       -2., -1., -1., -3.,  0.,  0.,  0.,  0.,  0.,  0., -1., -3., -1., -3., -2.,  0., -3., -2.,  1.,  0., -1.,  2.,
+                       5., -2.,  0., -2.,  0., -1., -1., -1., -4.,  1., -1., -1., -1., -1.,  0.,  0.,  0.,  0.,  0.,  0., -2.,  3.,
+                       -3.,  1.,  0., -3.,  0.,  1., -3.,  0.,  0., -3., -2., 6.,  0., -2.,  0.,  0.,  1.,  0., -4., -3., -4., -1.,
+                       -2.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,
+                       0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., 0.,  0.,  0.,  0.,  0.,  0.,  0., -1., -2., -3., -1.,
+                       -1., -4., -2., -2., -3.,  0., -1., -3., -2., -2.,  0., 7., -1., -2., -1., -1., -4., -2., -4., -2., -3., -1.,
+                       0.,  0.,  0.,  0.,  0.,  0., -1.,  0., -3.,  0.,  2., -3., -2.,  0., -3.,  0.,  1., -2.,  0.,  0.,  0., -1.,
+                       5.,  1.,  0., -1., -4., -2., -2., -1., -1.,  3.,  0., 0.,  0.,  0.,  0.,  0., -1., -1., -3., -2.,  0., -3.,
+                       -2.,  0., -3.,  0.,  2., -2., -1.,  0.,  0., -2.,  1., 5., -1., -1., -4., -3., -3., -1., -2.,  0.,  0.,  0.,
+                       0.,  0.,  0.,  0.,  1.,  0., -1.,  0.,  0., -2.,  0., -1., -2.,  0.,  0., -2., -1.,  1.,  0., -1.,  0., -1.,
+                       4.,  1., -4., -2., -3.,  0., -2.,  0.,  0.,  0.,  0., 0.,  0.,  0.,  0., -1., -1., -1., -1., -2., -2., -2.,
+                       -1.,  0., -1., -1., -1.,  0.,  0., -1., -1., -1.,  1., 5., -4.,  0., -2.,  0., -2., -1.,  0.,  0.,  0.,  0.,
+                       0.,  0., -4., -4., -4., -4., -4., -4., -4., -4., -4., 0., -4., -4., -4., -4.,  0., -4., -4., -4., -4., -4.,
+                       1., -4., -4., -4., -4., -4.,  0.,  0.,  0.,  0.,  0., 0.,  0., -3., -1., -3., -2., -1., -3., -3.,  3.,  0.,
+                       -2.,  1.,  1., -3.,  0., -2., -2., -3., -2.,  0., -4., 4., -3., -1., -1., -2.,  0.,  0.,  0.,  0.,  0.,  0.,
+                       -3., -4., -2., -4., -3.,  1., -2., -2., -3.,  0., -3., -2., -1., -4.,  0., -4., -2., -3., -3., -2., -4., -3.,
+                       11., -2.,  2., -3.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1., -2., -1., -1., -1., -1., -1., -1.,  0., -1., -1.,
+                       -1., -1.,  0., -2., -1., -1.,  0.,  0., -4., -1., -2., -1., -1., -1.,  0.,  0.,  0.,  0.,  0.,  0., -2., -3.,
+                       -2., -3., -2.,  3., -3.,  2., -1.,  0., -2., -1., -1., -2.,  0., -3., -1., -2., -2., -2., -4., -1.,  2., -1.,
+                       7., -2.,  0.,  0.,  0.,  0.,  0.,  0., -1.,  1., -3., 1.,  4., -3., -2.,  0., -3.,  0.,  1., -3., -1.,  0.,
+                       0., -1.,  3.,  0.,  0., -1., -4., -2., -3., -1., -2., 4.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,
+                       0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.])
+
 
 class uopen(object) :
     def __init__(self, fname, label='r') :
@@ -20,78 +68,93 @@ class uopen(object) :
         return 
 
 
-def readFastq(filename, tryFasta=True) :
-    with uopen(filename) as fin :
-        header = fin.readline()
-    if not header.startswith('@') :
-        if tryFasta :
-            return readFasta(filename, 10)
-        else :
-            raise ValueError('format error')
-    seq = {}
-    with uopen(filename) as fin :
-        for id, line in enumerate(fin) :
-            if id % 4 == 0 :
+
+def readFasta(fasta) :
+    sequence = {}
+    with open(fasta) as fin :
+        for line in fin :
+            if line.startswith('>') :
                 name = line[1:].strip().split()[0]
-                seq[name] = [None, None]
-            elif id % 4 == 1 :
-                seq[name][0] = line.strip()
-            elif id % 4 == 3 :
-                seq[name][1] = line.strip()
-    return seq
+                sequence[name] = []
+            elif len(line) > 0 and not line.startswith('#') :
+                sequence[name].extend(line.strip().split())
+    for s in sequence :
+        sequence[s] = (''.join(sequence[s])).upper()
+    return sequence
 
-def readFasta(filename, qual=None) :
-    seq = {}
-    with uopen(filename) as fin :
-        for line in fin:
-            if line[0] == '>' :
+def readFastq(fastq) :
+    sequence, qual = {}, {}
+    with open(fastq) as fin :
+        line = fin.readline()
+        if not line.startswith('@') :
+            sequence = readFasta(fastq)
+            return sequence, None
+    with open(fastq) as fin :
+        for lineId, line in enumerate(fin) :
+            if lineId % 4 == 0 :
                 name = line[1:].strip().split()[0]
-                seq[name] = []
-            else :
-                seq[name].append( line.strip() )
-
-    if qual == None :
-        for n in seq:
-            seq[n] = ''.join( seq[n] ).upper()
-    else :
-        for n in seq:
-            seq[n] = [re.sub(r'[^ACGT]','N', ''.join(seq[n]).upper()), []]
-            seq[n][1] = np.array([chr(33+qual)] * len(seq[n][0]))
-            if qual > 0 :
-                seq[n][1][np.array(list(seq[n][0])) == 'N'] = '!'
-            seq[n][1] = ''.join(seq[n][1])
-    return seq
-
+                sequence[name] = []
+                qual[name] = []
+            elif lineId % 4 == 1 :
+                sequence[name].extend(line.strip().split())
+            elif lineId % 4 == 3 :
+                qual[name].extend(line.strip().split())
+    for s in sequence :
+        sequence[s] = (''.join(sequence[s])).upper()
+        qual[s] = ''.join(qual[s])
+    return sequence, qual
 
 complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
 def rc(seq) :
     return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
 
-def transeq(seq, frame=1, transl_table=11) :
-    gtable = {"TTT":"F", "TTC":"F", "TTA":"L", "TTG":"L",    "TCT":"S", "TCC":"S", "TCA":"S", "TCG":"S",
-              "TAT":"Y", "TAC":"Y", "TAA":"X", "TAG":"X",    "TGT":"C", "TGC":"C", "TGA":"X", "TGG":"W",
-              "CTT":"L", "CTC":"L", "CTA":"L", "CTG":"L",    "CCT":"P", "CCC":"P", "CCA":"P", "CCG":"P",
-              "CAT":"H", "CAC":"H", "CAA":"Q", "CAG":"Q",    "CGT":"R", "CGC":"R", "CGA":"R", "CGG":"R",
-              "ATT":"I", "ATC":"I", "ATA":"I", "ATG":"M",    "ACT":"T", "ACC":"T", "ACA":"T", "ACG":"T",
-              "AAT":"N", "AAC":"N", "AAA":"K", "AAG":"K",    "AGT":"S", "AGC":"S", "AGA":"R", "AGG":"R",
-              "GTT":"V", "GTC":"V", "GTA":"V", "GTG":"V",    "GCT":"A", "GCC":"A", "GCA":"A", "GCG":"A",
-              "GAT":"D", "GAC":"D", "GAA":"E", "GAG":"E",    "GGT":"G", "GGC":"G", "GGA":"G", "GGG":"G"}
 
-    if transl_table == 'starts' :
-        gtable.update({'GTG':'M', 'TTG':'M'})
+conv = np.empty(255, dtype=int)
+conv.fill(-100)
+conv[(np.array([' ', '-', 'A', 'C', 'G', 'T', 'Y', 'Z']).view(asc2int),)] = (-100000000, -100000, 0, 1, 2, 3, -101, -102)
+def transeq(seq, frame=7) :
     frames = {'F': [1,2,3],
               'R': [4,5,6],
-              '7': [1,2,3,4,5,6]}.get( str(frame).upper(), [int(frame)] )
-    trans_seq = {}
-    for n in seq :
-        s = seq[n]
-        for frame in frames :
-            trans_name = '{0}_{1}'.format(n, frame)
-            if frame <= 3 :
-                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(s[(frame-1):])]*3))])
+              '7': [1,2,3,4,5,6]}.get( str(frame).upper() , [frame])
+    
+    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF -'))
+    if isinstance(seq, dict) :
+        names, seqs = [], []
+        for n,s in seq.items() :
+            names.append(n)
+            seqs.append( 'Y' * ((3-len(s)%3)%3) + s.upper() + 'Z' * ((3-len(s)%3)%3) )
+    else :
+        names, seqs = [n for n,s in seq], ['Y' * ((3-len(s)%3)%3) + s.upper() + 'Z' * ((3-len(s)%3)%3) for n, s in seq]
+    trans_seq = [[n, []] for n in names]
+    mseqs = conv[(np.array(list('   '.join(seqs))).view(asc2int), )]
+    seqs = mseqs[mseqs != -101]
+    if max(frames) > 3 :
+        rseqs = np.flip(mseqs[mseqs != -102], 0)
+        rseqs[rseqs>=0] = 3 - rseqs[rseqs>=0]
+    for frame in frames :
+        frame = int(frame)
+        if frame <= 3 :
+            if frame == 3 and seqs[-1] == -102 :
+                codons = seqs[2:-1].reshape(-1, 3)
             else :
-                trans_seq[trans_name] = ''.join([gtable.get(c, 'X') for c in map(''.join, zip(*[iter(rc(s)[(frame-4):])]*3))])
-    return trans_seq
+                codons = np.concatenate([seqs[frame-1:], np.array([-100]*(frame-1), dtype=int)]).reshape(-1, 3)
+        else :
+            if frame == 6 and rseqs[-1] == -101 :
+                codons = rseqs[2:-1].reshape(-1, 3)
+            else :
+                codons = np.concatenate([rseqs[frame-4:], np.array([-100]*(frame-4), dtype=int)]).reshape(-1, 3)
+        codon2 = np.sum(codons << [4, 2, 0], 1)
+        codon2[codon2 < 0] = 50
+        codon2[np.any(codons == -100000, 1)] = 65
+        codon2[codons.T[0] == -100000000] = 64
+        tseq = ''.join(gtable[codon2]).split(' ')
+        if frame <= 3 :
+            for ts, tt in zip(trans_seq, tseq) :
+                ts[1].append(tt)
+        else :
+            for ts, tt in zip(trans_seq, tseq[::-1]) :
+                ts[1].append(tt)
+    return dict(trans_seq) if isinstance(seq, dict) else trans_seq
 
 
 def logger(log) :
@@ -118,9 +181,7 @@ def configure(args) :
         pilon='pilon*', 
         kraken_program='kraken', 
         kraken_report='kraken-report', 
-        #vsearch='vsearch', 
         mmseqs='mmseqs', 
-        mcl='mcl',
         fasttree='?fast?ree*',
         rapidnj='rapidnj',
         ublast='usearch*',
@@ -179,7 +240,6 @@ The path to two databases for Kraken and Illumina adapters are required for the 
     parser.add_argument('--kraken-report', dest='kraken_report')
     # EnOrth executables
     parser.add_argument('--mmseqs')
-    parser.add_argument('--mcl')
     parser.add_argument('--fasttree')
     # EnSign executables
     parser.add_argument('--usearch', dest='ublast')
