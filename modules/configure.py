@@ -1,4 +1,5 @@
 import os, sys, subprocess, numpy as np, argparse, glob, gzip, io, re
+from datetime import datetime
 if sys.version_info[0] < 3:
     xrange = xrange
     asc2int = np.uint8
@@ -71,7 +72,7 @@ class uopen(object) :
 
 def readFasta(fasta) :
     sequence = {}
-    with open(fasta) as fin :
+    with uopen(fasta) as fin :
         for line in fin :
             if line.startswith('>') :
                 name = line[1:].strip().split()[0]
@@ -84,12 +85,12 @@ def readFasta(fasta) :
 
 def readFastq(fastq) :
     sequence, qual = {}, {}
-    with open(fastq) as fin :
+    with uopen(fastq) as fin :
         line = fin.readline()
         if not line.startswith('@') :
             sequence = readFasta(fastq)
             return sequence, None
-    with open(fastq) as fin :
+    with uopen(fastq) as fin :
         for lineId, line in enumerate(fin) :
             if lineId % 4 == 0 :
                 name = line[1:].strip().split()[0]
@@ -111,55 +112,38 @@ def rc(seq) :
 
 conv = np.empty(255, dtype=int)
 conv.fill(-100)
-conv[(np.array([' ', '-', 'A', 'C', 'G', 'T', 'Y', 'Z']).view(asc2int),)] = (-100000000, -100000, 0, 1, 2, 3, -101, -102)
+conv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
 def transeq(seq, frame=7) :
     frames = {'F': [1,2,3],
               'R': [4,5,6],
               '7': [1,2,3,4,5,6]}.get( str(frame).upper() , [frame])
     
-    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF -'))
-    if isinstance(seq, dict) :
-        names, seqs = [], []
-        for n,s in seq.items() :
-            names.append(n)
-            seqs.append( 'Y' * ((3-len(s)%3)%3) + s.upper() + 'Z' * ((3-len(s)%3)%3) )
-    else :
-        names, seqs = [n for n,s in seq], ['Y' * ((3-len(s)%3)%3) + s.upper() + 'Z' * ((3-len(s)%3)%3) for n, s in seq]
-    trans_seq = [[n, []] for n in names]
-    mseqs = conv[(np.array(list('   '.join(seqs))).view(asc2int), )]
-    seqs = mseqs[mseqs != -101]
-    if max(frames) > 3 :
-        rseqs = np.flip(mseqs[mseqs != -102], 0)
-        rseqs[rseqs>=0] = 3 - rseqs[rseqs>=0]
-    for frame in frames :
-        frame = int(frame)
-        if frame <= 3 :
-            if frame == 3 and seqs[-1] == -102 :
-                codons = seqs[2:-1].reshape(-1, 3)
-            else :
-                codons = np.concatenate([seqs[frame-1:], np.array([-100]*(frame-1), dtype=int)]).reshape(-1, 3)
-        else :
-            if frame == 6 and rseqs[-1] == -101 :
-                codons = rseqs[2:-1].reshape(-1, 3)
-            else :
-                codons = np.concatenate([rseqs[frame-4:], np.array([-100]*(frame-4), dtype=int)]).reshape(-1, 3)
-        codon2 = np.sum(codons << [4, 2, 0], 1)
-        codon2[codon2 < 0] = 50
-        codon2[np.any(codons == -100000, 1)] = 65
-        codon2[codons.T[0] == -100000000] = 64
-        tseq = ''.join(gtable[codon2]).split(' ')
-        if frame <= 3 :
-            for ts, tt in zip(trans_seq, tseq) :
-                ts[1].append(tt)
-        else :
-            for ts, tt in zip(trans_seq, tseq[::-1]) :
-                ts[1].append(tt)
+    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF-'))
+    seqs = seq.items() if isinstance(seq, dict) else seq
+    nFrame = (max(frames) > 3)
+    trans_seq = []
+    for n,s in seqs :
+        s = conv[np.array(list(s.upper())).view(asc2int)]
+        if nFrame :
+            rs = (3 - s)[::-1]
+            rs[rs >= 100] *= -1            
+        sf = s.size % 3
+        tseq = []
+        for f in frames :
+            codons = s[f-1:] if f <= 3 else rs[f-4:]
+            if codons.size % 3 :
+                codons = np.concatenate([codons, [-100]*(3 - codons.size % 3)])
+            codons = codons.reshape(-1, 3)
+            codon2 = np.sum(codons << [4, 2, 0], 1)
+            codon2[codon2 < -50000] = 64
+            codon2[codon2 < 0] = 50
+            tseq.append(''.join(gtable[codon2].tolist()))
+        trans_seq.append([n, tseq])
     return dict(trans_seq) if isinstance(seq, dict) else trans_seq
 
 
-def logger(log) :
-    from datetime import datetime
-    sys.stderr.write('{0}\t{1}\n'.format(str(datetime.now()), log))
+def logger(log, pipe=sys.stderr) :
+    pipe.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
 search_file = lambda x: [os.path.abspath(x)] if os.path.exists(x) else [os.path.abspath(fname) for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
 def configure(args) :
@@ -213,7 +197,7 @@ def configure(args) :
 def prepare_externals() :
     externals['gatk']  = 'java -Xmx30g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx30g -jar ' + externals.get('pilon', '')
-    externals['enbler_filter'] = 'python ' + externals.get('enbler_filter', '')
+    externals['enbler_filter'] = sys.executable + ' ' + externals.get('enbler_filter', '')
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''Configure external dependencies for EToKi (Enterobase Tool Kit).

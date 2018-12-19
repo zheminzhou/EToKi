@@ -5,7 +5,7 @@ def etoki():
     try:
         exec('from modules.{0} import {0}'.format(sys.argv[1]))
         sys.argv[0] = ' '.join(sys.argv[:2])
-    except Exception as e:
+    except :
         print('''
 Program: EToKi (Enterobase Tool Kit)
 

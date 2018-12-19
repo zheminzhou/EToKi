@@ -1,15 +1,11 @@
-import os, io, sys, re, shutil, numpy as np
+import os, io, sys, re, shutil, numpy as np, pandas as pd
 from glob import glob
-from subprocess import Popen, PIPE, STDOUT
 from time import sleep
+from subprocess import Popen, PIPE, STDOUT
 try:
-    from .configure import externals, logger, readFasta
+    from .configure import externals, logger, readFasta, xrange
 except :
-    from configure import externals, logger, readFasta
-try:
-    xrange(3)
-except :
-    xrange = range
+    from configure import externals, logger, readFasta, xrange
 
 # mainprocess
 class mainprocess(object) :
@@ -21,6 +17,8 @@ class mainprocess(object) :
                 result = self.do_spades(reads)
             else :
                 result = self.do_megahit(reads)
+        if parameters['outgroup'] or parameters['excluded'] :
+            parameters['excluded'] = self.identify_outgroups(result, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
         if not parameters['noPolish'] :
             result = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
         if not parameters['noQuality'] :
@@ -38,12 +36,27 @@ class mainprocess(object) :
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
         logger('Estimated read length: {0}'.format(read_len))
         return read_len
-    def __run_minimap(self, reference, reads) :
+    
+    def __markDuplicates(self, ori_bam, tgt_bam) :
+        try:
+            x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
+                output=tgt_bam, input=ori_bam, \
+                **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
+            x.communicate()
+            assert x.returncode == 0
+            os.unlink(ori_bam)
+            output = tgt_bam
+        except :
+            output = ori_bam
+        Popen('{samtools} index {output}'.format(output=output, **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
+        return output
+    
+    def __run_minimap(self, prefix, reference, reads, clean=True) :
         if not os.path.isfile(reference+'.mmi') or (os.path.getmtime(reference+'.mmi') < os.path.getmtime(reference)) :
             Popen('{minimap2} -k13 -w5 -d {0}.mmi {0}'.format(reference, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
         else :
             sleep(1)
-        
+    
         outputs = []
         for lib_id, lib in enumerate(reads) :
             se = [ lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
@@ -51,24 +64,20 @@ class mainprocess(object) :
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
-                    cmd = '{minimap2} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
-                            r = r, o = o1, reference =reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
-                    for line in st_run[1].split('\n') :
-                        logger(line.rstrip())
-                    try:
-                        x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
-                            lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
-                        x.communicate()
-                        assert x.returncode == 0
-                        os.unlink(o1)
-                        outputs.append(o)
-                    except :
+                    if clean :
+                        cmd = '{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                                r = r, o = o1, reference = reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
+                        for line in st_run[1].split('\n') :
+                            logger(line.rstrip())
+                        outputs.append(self.__markDuplicates(o1, o))
+                    else :
+                        cmd = '''{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                                r = r, o = o1, reference = reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
         return outputs
-    def __run_bowtie(self, reference, reads) :
+    def __run_bowtie(self, prefix, reference, reads, clean=True) :
         if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
             Popen('{bowtie2build} {reference} {reference}'.format(reference=reference, bowtie2build=parameters['bowtie2build']).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
         else :
@@ -81,25 +90,22 @@ class mainprocess(object) :
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run Bowtie2 with: {0}'.format(r))
-                    cmd= '{bowtie2} -p 8 --no-unal --mp 6,6 --np 6 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
-                        r=r, o=o1, reference=reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
-                    for line in st_run[1].split('\n') :
-                        logger(line.rstrip())
-                    try:
-                        x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
-                            lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
-                        x.communicate()
-                        assert x.returncode == 0
-                        os.unlink(o1)
-                        outputs.append(o)
-                    except :
+                    if clean :
+                        cmd= '{bowtie2} -p 8 --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} {excluded} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                            r=r, o=o1, reference=reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
+                        for line in st_run[1].split('\n') :
+                            logger(line.rstrip())
+                        outputs.append(self.__markDuplicates(o1, o))
+                    else :
+                        cmd = '''{bowtie2} -p 8 --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                                r = r, o = o1, reference = reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
+
         return outputs
 
-    def __run_bwa(self, reference, reads) :
+    def __run_bwa(self, prefix, reference, reads, clean=True) :
         if not os.path.isfile(reference + '.bwt') or (os.path.getmtime(reference + '.bwt') < os.path.getmtime(reference)) :
             Popen('{bwa} index {reference}'.format(reference=reference, bwa=parameters['bwa']).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
         else :
@@ -112,22 +118,18 @@ class mainprocess(object) :
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run bwa with: {0}'.format(r))
-                    cmd= '{bwa} mem -A 2 -B 6 -T 40 -t 8 -m 40 {reference} {r} | {enbler_filter} {max_diff} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
-                        r=r, o=o1, reference=reference, **parameters)
-                    st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
-                    for line in st_run[1].split('\n') :
-                        logger(line.rstrip())
-                    try:
-                        x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
-                            lib_id = lib_id, output=o, input=o1, \
-                            **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
-                        x.communicate()
-                        assert x.returncode == 0
-                        os.unlink(o1)
-                        outputs.append(o)
-                    except :
+                    if clean :
+                        cmd= '{bwa} mem -A 2 -B 4 -T 40 -t 8 -m 40 {reference} {r} | {enbler_filter} {max_diff} {excluded} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                            r=r, o=o1, reference=reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
+                        for line in st_run[1].split('\n') :
+                            logger(line.rstrip())
+                        outputs.append(self.__markDuplicates(o1, o))
+                    else :
+                        cmd = '''{bwa} mem -A 2 -B 4 -T 40 -t 8 -m 40 {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                                r = r, o = o1, reference = reference, **parameters)
+                        st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o1)
-                    Popen('{samtools} index {output}'.format(output=outputs[-1], **parameters).split(), stdout=PIPE, universal_newlines=True ).communicate()
         return outputs
 
 
@@ -170,7 +172,6 @@ class mainprocess(object) :
         kmer = ','.join([str(max(min(int(read_len*float(x)/200)*2+1, 127),17)) for x in parameters['kmers'].split(',')])
         read_input = []
         for lib_id, lib in enumerate(reads) :
-            rl = [0, 0]
             if len(lib) == 1 :
                 read_input.append('--s{0} {1}'.format(lib_id+1, lib[0]))
             elif len(lib) == 2 :
@@ -189,7 +190,7 @@ class mainprocess(object) :
             shutil.copyfile( '{outdir}/contigs.fasta'.format(outdir=outdir), output_file )
         logger('SPAdes scaffolds in {0}'.format(output_file))
         return output_file
-    
+
     def do_polish_with_SNPs(self, reference, snp_file) :
         sequence = readFasta(filename=reference)
         snps = { n:[] for n in sequence }
@@ -217,17 +218,71 @@ class mainprocess(object) :
                 s = ''.join(s)
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
         return '{0}.fasta'.format(prefix)
+    
+    def identify_outgroups(self, reference, ingroup='', outgroup='', excluded='') :
+        excludedReads = {}
+        ingroups, outgroups = list(set(ingroup.split(',') + [reference]) - set([''])), list(set(outgroup.split(',')) - set(['']))
+        assert np.all([os.path.isfile(fn) for fn in ingroups]), 'Some filenames in ingroup is not valid.'
+        assert np.all([os.path.isfile(fn) for fn in outgroups]), 'Some filenames in outgroup is not valid.'
         
+        inRef, outRef = '{0}.inRef'.format(parameters['prefix']), '{0}.outRef'.format(parameters['prefix'])
+        
+        if len(outgroups) :
+            Popen('cat {0} > {1}'.format(' '.join(outgroups), outRef), shell=True).communicate()
+            if parameters['mapper'] == 'minimap2' :
+                bams = self.__run_minimap(prefix, outRef, reads, clean=False )
+            elif parameters['mapper'] != 'bwa' :
+                bams = self.__run_bowtie(prefix, outRef, reads, clean=False )
+            else :
+                bams = self.__run_bwa(prefix, outRef, reads, clean=False )
+            
+            for bam in bams :
+                p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
+                for line in p.stdout :
+                    try :
+                        rname, score = line.split('\t', 1)[0] , int(re.findall('AS:i:(\d+)', line)[0])
+                        if rname not in excludedReads or score > excludedReads[rname] :
+                            excludedReads[rname] = score
+                    except :
+                        continue
+        
+            if len(ingroups) :
+                Popen('cat {0} > {1}'.format(' '.join(ingroups), inRef), shell=True).communicate()
+                if parameters['mapper'] == 'minimap2' :
+                    bams = self.__run_minimap(prefix, inRef, reads, clean=False )
+                elif parameters['mapper'] != 'bwa' :
+                    bams = self.__run_bowtie(prefix, inRef, reads, clean=False )
+                else :
+                    bams = self.__run_bwa(prefix, inRef, reads, clean=False )
+                
+                for bam in bams :
+                    p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
+                    for line in p.stdout :
+                        rname = line.split('\t', 1)[0]
+                        if rname in excludedReads:
+                            try :
+                                score = int(re.findall('AS:i:(\d+)', line)[0])
+                                if score >= excludedReads[rname] :
+                                    excludedReads.pop(rname, None)
+                            except :
+                                continue
+        
+        if os.path.isfile(excluded) :
+            excludedReads.update({ r:9999999999 for r in pd.read_csv(excluded, sep='\t').values.T[0]})
+        excludedFile = '{0}.excludedReads'.format(parameters['prefix'])
+        np.savetxt(excludedFile, list(excludedReads.items()), delimiter='\t', fmt='%s', header=[])
+        return excludedFile
+    
     def do_polish(self, reference, reads, reassemble=False, onlySNP=False) :
         if parameters.get('SNP', None) is not None :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
             if parameters['mapper'] == 'minimap2' :
-                bams = self.__run_minimap(reference, reads)
+                bams = self.__run_minimap(prefix, reference, reads )
             elif parameters['mapper'] != 'bwa' :
-                bams = self.__run_bowtie(reference, reads)
+                bams = self.__run_bowtie(prefix, reference, reads )
             else :
-                bams = self.__run_bwa(reference, reads)
+                bams = self.__run_bwa(prefix, reference, reads )
             sites = {}
             for bam in bams :
                 if bam is not None :
@@ -236,7 +291,7 @@ class mainprocess(object) :
                         part = line.strip().split()
                         if len(part) > 2 and float(part[2]) > 0 :
                             sites[part[0]] = 1
-            sequence = readFasta(filename=reference)
+            sequence = readFasta(reference)
             sequence = {n:s for n,s in sequence.items() if n in sites}
 
             with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
@@ -249,7 +304,7 @@ class mainprocess(object) :
             else :
                 pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
             
-            pilon_out = Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+            Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
             snps = []
             with open('{0}.mapping.vcf'.format(prefix)) as fin, open('{0}.mapping.changes'.format(prefix), 'w') as fout :
                 for line in fin :
@@ -278,13 +333,13 @@ class mainprocess(object) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
             return '{0}.fasta'.format(prefix)
 
-    def get_quality(self, reference, reads) :
+    def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
-            bams = self.__run_minimap(reference, reads)
+            bams = self.__run_minimap(prefix, reference, reads, )
         elif parameters['mapper'] != 'bwa' :
-            bams = self.__run_bowtie(reference, reads)
+            bams = self.__run_bowtie(prefix, reference, reads, )
         else :
-            bams = self.__run_bwa(reference, reads)
+            bams = self.__run_bwa(prefix, reference, reads, )
         
         sequence = readFasta(filename=reference, qual=0)
         for n, s in sequence.items() :
@@ -318,7 +373,6 @@ class mainprocess(object) :
             for n, s in sorted(sequence.items()) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in xrange(0, len(s[0]), 100)])))
         bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-        #pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
         pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
         Popen( pilon_cmd.split(), stdout=PIPE, universal_newlines=True ).communicate()
 
@@ -490,6 +544,7 @@ def assemble(args) :
         assembly = mainprocess().launch(reads)
     else :
         assembly = parameters['reference']
+    
     report = postprocess().launch(assembly)
     import json
     print(json.dumps(report, sort_keys=True, indent=2))
@@ -514,9 +569,13 @@ And
     parser.add_argument('-m', '--mapper', help='Aligner used for read mapping.\nDisabled if you specify a reference. \n bwa for single isolates, bowtie2 for metagenome\nDefault: minimap2 for both', default='minimap2')
     parser.add_argument('-d', '--max_diff', help='Maximum proportion of mismatches in mapping. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
     parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this will disable assembly process. ', default=None)
+    parser.add_argument('-i', '--ingroup', help='Additional references from the same population. ', default='')
+    parser.add_argument('-o', '--outgroup', help='Additional references from other population. Reads that are more similar to outgroups will be excluded from analysis. ', default='')
+    
     parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite polish process. \nRequired format:\n<cont_name> <site> <base_type>', default=None)
     parser.add_argument('-c', '--cont_depth', help='Lower and upper limits of read depths for a valid contig. Default: 0.2,2.5', default='')
     
+    parser.add_argument('--excluded', help='A name of the file that contains reads excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
     parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
@@ -528,8 +587,6 @@ And
     args = parser.parse_args(a)
     if args.cont_depth == '' :
         args.cont_depth = '0.2,2.5' if not args.metagenome else '0.0001,10000'
-    #if args.mapper == '' :
-        #args.mapper = 'bwa' if not args.metagenome else 'bowtie2'
     if args.assembler == '' :
         args.assembler = 'spades' if not args.metagenome else 'megahit'
     if args.max_diff < 0 :
