@@ -89,7 +89,7 @@ class preprocess(object) :
             else :
                 Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['SE'][0]), shell=True).wait()
                 if parameters['noTrim'] == False :
-                    library_file2 = {'SE':'{0}.1.{1}.s.fastq.gz'.format(prefix, lib_id)}
+                    library_file2 = {'SE':['{0}.1.{1}.s.fastq.gz'.format(prefix, lib_id)]}
                 reads = 'in=' + library_file['SE'][0]
                 outputs = 'out=' + library_file2['SE'][0]
 
