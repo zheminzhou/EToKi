@@ -341,9 +341,11 @@ class mainprocess(object) :
         else :
             bams = self.__run_bwa(prefix, reference, reads, )
         
-        sequence = readFasta(filename=reference, qual=0)
+        sequence = readFasta(reference)
         for n, s in sequence.items() :
-            s[1] = list(s[1])
+            q = ['!'] * len(s)
+            sequence[n] = [s, q]
+            #s[1] = list(s[1])
 
         sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.items() }
         for bam in bams :
@@ -412,9 +414,10 @@ class mainprocess(object) :
                         sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
         with open('{0}.result.fastq'.format(prefix), 'w') as fout :
+            p = prefix.rsplit('/', 1)[-1]
             for n, (s, q) in sequence.items() :
                 if sites[n][2] >= cont_depth[0] :
-                    fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( n, s, ''.join(q), *sites[n] ) )
+                    fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( p+'_'+n, s, ''.join(q), *sites[n] ) )
         os.unlink( '{0}.mapping.vcf'.format(prefix) )
         logger('Final result is written into {0}'.format('{0}.result.fastq'.format(prefix)))
         return '{0}.result.fastq'.format(prefix)
