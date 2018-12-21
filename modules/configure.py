@@ -195,8 +195,8 @@ def configure(args) :
     logger('Configuration complete.')
 
 def prepare_externals() :
-    externals['gatk']  = 'java -Xmx128g -jar ' + externals.get('gatk', '')
-    externals['pilon'] = 'java -Xmx128g -jar ' + externals.get('pilon', '')
+    externals['gatk']  = 'java -Xmx63g -jar ' + externals.get('gatk', '')
+    externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
     externals['enbler_filter'] = sys.executable + ' ' + externals.get('enbler_filter', '')
 
 def add_args(a) :

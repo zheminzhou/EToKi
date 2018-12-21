@@ -3,7 +3,10 @@
 import sys, re, pandas as pd
 
 cutoff = float(sys.argv[1])
-outScore = {} if len(sys.argv) <= 2 else dict(pd.read_csv(sys.argv[2], sep='\t', header=None).values.tolist())
+try :
+    outScore = {} if len(sys.argv) <= 2 else dict(pd.read_csv(sys.argv[2], sep='\t', header=None).values.tolist())
+except :
+    outScore = {}
         
 for line in sys.stdin :
     if line.startswith('@') :
