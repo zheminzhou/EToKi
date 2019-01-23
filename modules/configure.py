@@ -1,4 +1,7 @@
 import os, sys, subprocess, numpy as np, argparse, glob, gzip, io, re
+import multiprocessing
+import multiprocessing.pool
+
 from datetime import datetime
 if sys.version_info[0] < 3:
     xrange = xrange
@@ -6,7 +9,20 @@ if sys.version_info[0] < 3:
 else :
     xrange = range
     asc2int = np.uint32
-    
+
+
+class NoDaemonProcess(multiprocessing.Process):
+    # make 'daemon' attribute always return False
+    def _get_daemon(self):
+        return False
+    def _set_daemon(self, value):
+        pass
+    daemon = property(_get_daemon, _set_daemon)
+
+class MyPool(multiprocessing.pool.Pool):
+    Process = NoDaemonProcess
+
+
 # * is designated as U; index is : (ord(r)-65)*32 + ord(q)-65
 blosum62 = np.array([  4., -2.,  0., -2., -1., -2.,  0., -2., -1.,  0., -1., -1., -1., -2.,  0., -1., -1., -1.,  1.,  0., -4.,  0.,
                        -3.,  0., -2., -1.,  0.,  0.,  0.,  0.,  0.,  0., -2., 4., -3.,  4.,  1., -3., -1.,  0., -3.,  0.,  0., -4.,
@@ -110,20 +126,25 @@ def rc(seq) :
     return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
 
 
-conv = np.empty(255, dtype=int)
-conv.fill(-100)
-conv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
-def transeq(seq, frame=7) :
+baseConv = np.empty(255, dtype=int)
+baseConv.fill(-100)
+baseConv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
+def transeq(seq, frame=7, transl_table=None) :
     frames = {'F': [1,2,3],
               'R': [4,5,6],
-              '7': [1,2,3,4,5,6]}.get( str(frame).upper() , [frame])
+              '7': [1,2,3,4,5,6]}.get( str(frame).upper() , None)
+    if frames is None :
+        frames = [int(f) for f in str(frame).split(',')]
     
-    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF-'))
+    if transl_table == 'starts' :
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVMVXYXYSSSSXCWCLFMF-'))
+    else :
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF-'))
     seqs = seq.items() if isinstance(seq, dict) else seq
     nFrame = (max(frames) > 3)
     trans_seq = []
     for n,s in seqs :
-        s = conv[np.array(list(s.upper())).view(asc2int)]
+        s = baseConv[np.array(list(s.upper())).view(asc2int)]
         if nFrame :
             rs = (3 - s)[::-1]
             rs[rs >= 100] *= -1            

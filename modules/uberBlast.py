@@ -1,7 +1,7 @@
 import os, sys, tempfile, time, shutil, numpy as np, pandas as pd, re
 from numba import jit
 from subprocess import Popen, PIPE
-from multiprocessing import Pool
+from multiprocessing.pool import ThreadPool
 from operator import itemgetter
 try:
     from .configure import externals, logger, xrange, readFastq, transeq, blosum62, rc, asc2int
@@ -74,19 +74,22 @@ def _linearMerge(data) :
                 if overlap[1] < 0 :
                     score +=  overlap[1]/3.
                 if score > m1[11] and score > m2[11] :
-                    grps.append( [ score, ident, rLen, 0, id, jd ] )
+                    grps.append( [ score, ident, rLen, 1, id, jd ] )
         return grps
-
+    
     groups = []
     prev, edges = matches[0][1], [[], []]
     nSave = len(matches)
     
+    #if matches[0][0] == 'HEL_AA0384AA:HEL_AA0349AA_AS_00479' :
+        #logger('aa')
+    
     for id, m1 in enumerate(matches) :
         rLen1 = m1[7] - m1[6] + 1
-        groups.append([ m1[11], m1[2], rLen1, 2, id, id ])
+        groups.append([ m1[11], m1[2], rLen1, 0, id ])
         if m1[6] > tailing and ((m1[8] > 0 and m1[8] - 1 <= gapDist) or (m1[8] < 0 and m1[13] + m1[8] < gapDist)) :   # any hit within the last 150 bps to either end of a scaffold is a potential fragmented gene
             edges[1].append([id, m1])
-        if m1[5] <= m1[12] - tailing :
+        if m1[7] <= m1[12] - tailing :
             if (m1[8] > 0 and m1[13]-m1[9] <= gapDist) or (m1[8] < 0 and -1-m1[9] < gapDist) :
                 edges[0].append([id, m1])
             for jd in xrange(id+1, nSave) :
@@ -108,39 +111,57 @@ def _linearMerge(data) :
                 if overlap[1] < 0 :
                     score +=  overlap[1]/3.
                 if score > m1[11] and score > m2[11] :
-                    groups.append( [ score, ident, rLen, 1, id, jd ] )
+                    groups.append( [ score, ident, rLen, 0, id, jd ] )
     if len(edges[0]) and len(edges[1]) :
         groups.extend(resolve_edges(edges))
     if len(groups) > len(matches) :
         groups.sort(reverse=True)
         usedMatches, usedGroups = {}, []
         for grp in groups :
-            if (grp[4], 4) in usedMatches or (grp[5], 5) in usedMatches :
+            if (grp[4], 4) in usedMatches or (grp[-1], 5) in usedMatches :
                 continue
-            usedGroups.append(grp)
-            usedMatches[(grp[4], 4)] = usedMatches[(grp[5], 5)] = 1
-            if grp[4] != grp[5] :
-                lMat, rMat = matches[grp[4]], matches[grp[5]]
-                for i in xrange(grp[4]+1, grp[5]) :
+            if grp[3] > 0 :
+                if (grp[4], 5) in usedMatches or (grp[-1], 4) in usedMatches :
+                    continue
+            if grp[4] != grp[-1] :
+                lMat, rMat = matches[grp[4]], matches[grp[-1]]
+                il, im = sorted([grp[4], grp[-1]])
+                skp = 0
+                for i in xrange(il+1, im) :
+                    if matches[i][1] in {lMat[1], rMat[1]} :
+                        if (i, 4) in usedMatches or (i, 5) in usedMatches :
+                            skp = 1
+                            break
+                if skp :
+                    continue
+                for i in xrange(il+1, im) :
                     if matches[i][1] in {lMat[1], rMat[1]} :
                         usedMatches[(i, 4)] = usedMatches[(i, 5)] = 0
+            usedGroups.append(grp)
+            usedMatches[(grp[4], 4)] = usedMatches[(grp[-1], 5)] = 1
+            if grp[3] > 0 :
+                usedMatches[(grp[4], 5)] = usedMatches[(grp[-1], 4)] = 1
+
         usedGroups.sort(key=itemgetter(4), reverse=True)
-        for gId, g1 in enumerate(usedGroups[:-1]):
-            g2 = usedGroups[gId+1]
-            if g1[4] == g2[5] :
+        for gId in xrange(len(usedGroups)-1) :
+            g1, g2 = usedGroups[gId:gId+2]
+            if g1[4] == g2[-1] :
                 m = matches[g1[4]]
                 score = g1[0] + g2[0] - m[11]
                 length = g1[2] + g2[2] - (m[7]-m[6]+1)
                 iden = (g1[1]*g1[2] + g2[1]*g2[2] - min(g1[1],g2[1])*(m[7]-m[6]+1))/length
-                usedGroups[gId+1] = [score, iden, length, g2[4]] + g1[4:]
+                usedGroups[gId+1] = [score, iden, length, 0, g2[4]] + g1[4:]
                 g1[1] = -1
-        for g in usedGroups :
-            if g[1] >= 0 and g[3] < 2 :
-                ids = [matches[i][15] for i in g[4:]]
-                for i in g[4:] :
-                    matches[i, -1] = g[:3] + ids
-        ids = { k[0] for k, v in usedMatches.items() if v == 1 }
-        matches = matches[np.array(list(ids))]
+    else :
+        usedGroups = groups
+        usedMatches = {(k, k): 1 for k in np.arange(matches.shape[0])}
+    for g in usedGroups :
+        if g[1] >= 0 :
+            ids = [matches[i][15] for i in g[4:]]
+            for i in g[4:] :
+                matches[i, -1] = g[:3] + ids
+    ids = { k[0] for k, v in usedMatches.items() if v == 1 }
+    matches = matches[np.array(list(ids))]
     return matches
 
 
@@ -229,13 +250,11 @@ class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
     def run(self, ref, qry, methods, min_id, min_cov, n_thread=8, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
-        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseq=self.runMMseq)
+        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseq=self.runMMseq)
         self.min_id = min_id
         self.min_cov = min_cov
         self.n_thread = n_thread
-        self.pool = Pool(n_thread)
-        #import pickle
-        #blastab = pickle.load(open('test', 'rb'))
+        self.pool = ThreadPool(n_thread)
         blastab = []
         self.dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
         try :
@@ -257,8 +276,10 @@ class RunBlast(object) :
         self.fixEnd(blastab, *fix_end)
         if return_overlap[0] :
             overlap = self.returnOverlap(blastab, return_overlap)
+            blastab = pd.DataFrame(blastab).sort_values([0,1,11]).values
             return blastab, overlap
         else :
+            blastab = pd.DataFrame(blastab).sort_values([0,1,11]).values
             return blastab
             
     def returnOverlap(self, blastab, param) :
@@ -376,7 +397,7 @@ class RunBlast(object) :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         else :
             refNA = ref
-        Popen('{formatdb} -dbtype nucl -in {refNA} -title {refDb}'.format(formatdb=formatdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
+        Popen('{formatdb} -dbtype nucl -in {refNA} -out {refDb}'.format(formatdb=formatdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
         qrys = [ os.path.join(self.dirPath, 'qryNA.{0}'.format(id)) for id in range(self.n_thread)]
         qrySeq = sorted(list(self.qrySeq.items()), key=lambda s:-len(s[1]))
         for id, q in enumerate(qrys) :
@@ -420,8 +441,9 @@ class RunBlast(object) :
         logger('Run MinimapASM finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
-
-    def runUBlast(self, ref, qry) :
+    def runUblastSELF(self, ref, qry) :
+        return self.runUBlast(ref, qry, nhits=200)
+    def runUBlast(self, ref, qry, nhits=6) :
         logger('Run uBLAST starts')        
         def parseUBlast(fin, refseq, qryseq, min_id, min_cov) :
             blastab = pd.read_csv(fin, sep='\t',header=None)
@@ -472,8 +494,8 @@ class RunBlast(object) :
                 for id, s in enumerate(ss) :
                     fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
-        ublast_cmd = '{ublast} -threads {n_thread} -db {refAA} -ublast {qryAA} -evalue 1e-3 -accel 0.9 -maxhits 30 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-            ublast=ublast, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread)
+        ublast_cmd = '{ublast} -threads {n_thread} -db {refAA} -ublast {qryAA} -evalue 1e-3 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
+            ublast=ublast, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, nhits=nhits)
         p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
         blastab = parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
@@ -548,6 +570,7 @@ def uberBlast(args) :
     parser.add_argument('-q', '--query',  help='[INPUT; REQUIRED] filename for the query. This can be short-reads or genes or genomic assemblies. ', required=True)
     parser.add_argument('--blastn',       help='Run BLASTn. Slowest. Good for identities between [70, 100]', action='store_true', default=False)
     parser.add_argument('--ublast',       help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
+    parser.add_argument('--ublastSELF',   help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--minimap',      help='Run minimap. Fast. Good for identities between [90-100]', action='store_true', default=False)
     parser.add_argument('--minimapASM',   help='Run minimap on assemblies. Fast. Good for identities between [90-100]', action='store_true', default=False)
     parser.add_argument('--mmseq',        help='Run mmseq2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
@@ -556,8 +579,8 @@ def uberBlast(args) :
     parser.add_argument('--min_cov', help='[DEFAULT: 40] Minimum length for an alignment to be kept', type=float, default=40.)
 
     parser.add_argument('-s', '--re_score', help='[DEFAULT: 0] Re-interpret alignment scores and identities. 0: No rescore; 1: Rescore with nucleotides; 2: Rescore with amino acid; 3: Rescore with codons', type=int, default=0)
-    parser.add_argument('-f', '--filter', help='[DEFAULT: False] Remove secondary alignments if they overlap with any other regions', default=True, action='store_true')
-    parser.add_argument('--filter_cov', help='[DEFAULT: 90] ', default=0.9, type=float)
+    parser.add_argument('-f', '--filter', help='[DEFAULT: False] Remove secondary alignments if they overlap with any other regions', default=False, action='store_true')
+    parser.add_argument('--filter_cov', help='[DEFAULT: 0.9] ', default=0.9, type=float)
     parser.add_argument('--filter_score', help='[DEFAULT: 0] ', default=0., type=float)
     parser.add_argument('-m', '--linear_merge', help='[DEFAULT: False] Merge consective alignments', default=False, action='store_true')
     parser.add_argument('--merge_gap', help='[DEFAULT: 300] ', default=300., type=float)
@@ -570,7 +593,7 @@ def uberBlast(args) :
     
     args = parser.parse_args(args)
     methods = []
-    for method in ('blastn', 'ublast', 'minimap', 'minimapASM', 'mmseq') :
+    for method in ('blastn', 'ublast', 'ublastSELF', 'minimap', 'minimapASM', 'mmseq') :
         if args.__dict__[method] :
             methods.append(method)
     for opt in ('fix_end',) :
