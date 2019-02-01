@@ -81,9 +81,6 @@ def _linearMerge(data) :
     prev, edges = matches[0][1], [[], []]
     nSave = len(matches)
     
-    #if matches[0][0] == 'HEL_AA0384AA:HEL_AA0349AA_AS_00479' :
-        #logger('aa')
-    
     for id, m1 in enumerate(matches) :
         rLen1 = m1[7] - m1[6] + 1
         groups.append([ m1[11], m1[2], rLen1, 0, id ])
@@ -227,7 +224,7 @@ def poolBlast(params) :
         return blastab
     
     blastn, refDb, qry, min_id, min_cov = params
-    blast_cmd = '{blastn} -db {refDb} -query {qry} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -task blastn -evalue 1e-3 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
+    blast_cmd = '{blastn} -db {refDb} -query {qry} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
         blastn=blastn, refDb=refDb, qry=qry)
     blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov)
     return blastab
@@ -315,7 +312,7 @@ class RunBlast(object) :
         for bId in xrange(0, blastab.shape[0], perBatch) :
             logger('Update scores: {0} / {1}'.format(bId, nTab))
             tabs = blastab[bId:bId+perBatch]
-            scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[t[1]][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[t[1]][t[9]-1:t[8]][::-1], self.qrySeq[t[0]][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
+            scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
             tabs.T[2], tabs.T[11] = scores.T
         return blastab
 
@@ -442,8 +439,8 @@ class RunBlast(object) :
         return blastab
 
     def runUblastSELF(self, ref, qry) :
-        return self.runUBlast(ref, qry, nhits=200)
-    def runUBlast(self, ref, qry, nhits=6) :
+        return self.runUBlast(ref, qry, nhits=100, frames='F')
+    def runUBlast(self, ref, qry, nhits=6, frames='7') :
         logger('Run uBLAST starts')        
         def parseUBlast(fin, refseq, qryseq, min_id, min_cov) :
             blastab = pd.read_csv(fin, sep='\t',header=None)
@@ -452,11 +449,15 @@ class RunBlast(object) :
             blastab[3], blastab[4] = blastab[3]*3, blastab[4]*3
             
             qf, rf = blastab[0].str.rsplit(':', 1, expand=True), blastab[1].str.rsplit(':', 1, expand=True)
+            if np.all(qf[0].str.isdigit()) :
+                qf[0] = qf[0].astype(int)
+            if np.all(rf[0].str.isdigit()) :
+                rf[0] = rf[0].astype(int)
             blastab[0], qf = qf[0], qf[1].astype(int)
             blastab[1], rf = rf[0], rf[1].astype(int)
             blastab[6], blastab[7] = blastab[6]*3+qf-3, blastab[7]*3+qf-1
             
-            blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[x])), blastab[1].apply(lambda x:len(refseq[x]))
+            blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[str(x)])), blastab[1].apply(lambda x:len(refseq[str(x)]))
             blastab[14] = np.array([ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))])
             
             rf3 = (rf <= 3)
@@ -488,16 +489,23 @@ class RunBlast(object) :
                 _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
                 fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
-        refAASeq = transeq(self.refSeq)
-        with open(refAA, 'w') as fout :
-            for n, ss in refAASeq.items() :
-                for id, s in enumerate(ss) :
-                    fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
+        refAASeq = transeq(self.refSeq, frames)
+        toWrite = []
+        for n, ss in refAASeq.items() :
+            for id, s in enumerate(ss) :
+                toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
-        ublast_cmd = '{ublast} -threads {n_thread} -db {refAA} -ublast {qryAA} -evalue 1e-3 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-            ublast=ublast, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, nhits=nhits)
-        p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
-        blastab = parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov)
+        blastab = []
+        for id in xrange(4) :
+            with open(refAA, 'w') as fout :
+                for line in toWrite[id::4] :
+                    fout.write(line)
+        
+            ublast_cmd = '{ublast} -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
+                ublast=ublast, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id, nhits=nhits)
+            p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
+            blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov))
+        blastab = pd.concat(blastab)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
     

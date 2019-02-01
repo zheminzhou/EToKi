@@ -85,7 +85,7 @@ def readGFF(fnames) :
 
 
     
-def get_similar_pairs(prefix, clust, params) :
+def get_similar_pairs(prefix, clust, priorities, params) :
     def get_similar(bsn, ortho_pairs) :
         key = tuple(sorted([bsn[0][0], bsn[0][1]]))
         if key in ortho_pairs :
@@ -110,7 +110,7 @@ def get_similar_pairs(prefix, clust, params) :
                 else :
                     s_j += s
                     
-    self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF -f --min_id {1} --min_cov {2} -t {3} -s 2'.format(clust, params['match_identity'] - 0.1, params['match_frag_len'], params['n_thread']).split())
+    self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF -f --min_id {1} --min_cov {2} -t {3} -s 2 -e 3,3'.format(clust, params['match_identity'] - 0.1, params['match_frag_len'], params['n_thread']).split())
     presence, ortho_pairs = {}, {}
     save = []
     for part in self_bsn :
@@ -139,13 +139,13 @@ def get_similar_pairs(prefix, clust, params) :
         for line in fin :
             if line.startswith('>') :
                 name = line[1:].strip().split()[0]
-                write= True if presence.get(name, 0) > 0 else False
+                write= True if presence.get(int(name), 0) > 0 else False
             if write :
                 toWrite.append(line)
     with open(params['clust'], 'w') as fout :
         for line in toWrite :
             fout.write(line)
-    return np.array(list(ortho_pairs.keys()))
+    return np.array(list(ortho_pairs.keys())).astype(int)
 
 @nb.jit('i8[:,:,:](i8[:,:], i8[:,:,:])', nopython=True)
 def compare_seq(seqs, diff) :
@@ -165,7 +165,7 @@ def global_difference2(g) :
     names, seqs = g[idx, 1], np.vstack(g[idx, 4])
     comparable = np.zeros(shape=[seqs.shape[0], seqs.shape[0]])
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 45
-    diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int))
+    diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=np.uint8))
     res = {}
     for i, n1 in enumerate(names) :
         for j in xrange(i+1, len(names)) :
@@ -216,7 +216,7 @@ def filt_per_group(data) :
     mat, ref, global_file = data
     global_differences = dict(np.load(global_file))
     nMat = mat.shape[0]
-    seqs = np.vstack([np.vstack(mat.T[4]), np.array(list(ref)).view(asc2int)[np.newaxis, :]])
+    seqs = np.vstack([np.vstack(mat.T[4]), np.array(list(ref)).view(asc2int).astype(np.uint8)[np.newaxis, :]])
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 45    
     diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int)).astype(float)
     incompatible, distances = {}, np.zeros(shape=[seqs.shape[0], seqs.shape[0]], dtype=float)
@@ -247,9 +247,9 @@ def filt_per_group(data) :
                 groups.append([j])
         group_tag = {gg:g[0] for g in groups for gg in g}
         try :
-            tags = {g[0]:mat[g[0]][4].astype(np.int8).tostring().decode('ascii') for g in groups}
+            tags = {g[0]:mat[g[0]][4].tostring().decode('ascii') for g in groups}
         except :
-            tags = {g[0]:mat[g[0]][4].astype(np.int8).tostring() for g in groups}
+            tags = {g[0]:mat[g[0]][4].tostring() for g in groups}
             
         tags.update({'REF':ref})
 
@@ -475,8 +475,8 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None) :
                         fout.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(pangene, min_rank, group_id, grp[1], '\t'.join(g[outPos].astype(str).tolist())))
     return '{0}.Prediction'.format(prefix)
 
-def load_priority(priority_list, genes) :
-    file_priority = { fn:id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
+def load_priority(priority_list, genes, encodes) :
+    file_priority = { encodes[fn]:id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
     unassign_id = max(file_priority.values()) + 1
     first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5], n ] for n, g in genes.items() }
 
@@ -522,7 +522,8 @@ def iter_map_bsn(data) :
     convA, convB = np.tile(-1, np.max(blastab.T[15])+1), np.tile(-1, np.max(blastab.T[15])+1)
     seq = dict(seq)
     for id, group in enumerate(groups) :
-        group[4] = np.tile(45, group[6][0][12])
+        group[4] = np.zeros(group[6][0][12], dtype=np.uint8)
+        group[4].fill(45)
         group[5] = id
         group[6] = np.array(group[6])
         if group[6].shape[0] == 1 :
@@ -545,7 +546,7 @@ def iter_map_bsn(data) :
                 else :
                     ms.append('-'*s)
                     f = (f+s)%3
-            group[4][tab[6]-1:tab[7]] = np.array(list(''.join(ms))).view(asc2int)
+            group[4][tab[6]-1:tab[7]] = np.array(list(''.join(ms))).view(asc2int).astype(np.uint8)
             max_sc += max(sc[0], sc[f])
         group[2] = max_sc
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
@@ -857,6 +858,13 @@ EToKi.py ortho
         params.prefilter = 'reference'
     return params
 
+def encodeNames(genomes, genes) :
+    taxon = {g[0] for g in genomes.values()}
+    labels = {label:labelId for labelId, label in enumerate(sorted(list(taxon) + list(genomes.keys()) + list(genes.keys())))}
+    genes = { labels[gene]:[labels[info[0]], labels[info[1]]] + info[2:] for gene, info in genes.items() }
+    genomes = { labels[genome]:[labels[info[0]]] + info[1:] for genome, info in genomes.items() }
+    return genomes, genes, labels
+
 params = dict(
     ml = '{fasttree} {0} -nt -gtr -pseudo', 
     nj = '{rapidnj} -i fa -t d {0}', 
@@ -885,8 +893,9 @@ def ortho(args) :
         np.savez_compressed(params['old_prediction'], **old_predictions)
         del old_predictions, n, g
     
+    genomes, genes, encodes = encodeNames(genomes, genes)
     if params.get('prediction', None) is None :
-        first_classes = load_priority( params.get('priority', ''), genes )
+        first_classes = load_priority( params.get('priority', ''), genes, encodes )
 
         if params.get('clust', None) is None :
             params['genes'] = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
@@ -896,7 +905,7 @@ def ortho(args) :
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'
-            orthoGroup = get_similar_pairs(params['prefix'], params['clust'], params)
+            orthoGroup = get_similar_pairs(params['prefix'], params['clust'], first_classes, params)
             np.save(params['self_bsn'], orthoGroup)
         else :
             orthoGroup = np.load(params['self_bsn'])
@@ -907,7 +916,7 @@ def ortho(args) :
             blastab = np.split(blastab, np.cumsum(np.unique(blastab.T[0], return_counts=True)[1])[:-1])
             
             params['map_bsn'], params['conflicts'] = params['prefix']+'.map_bsn.npz', params['prefix']+'.conflicts.npz'
-            np.savez_compressed(params['map_bsn'], **{b[0,0]:b for b in blastab})
+            np.savez_compressed(params['map_bsn'], **{str(b[0,0]):b for b in blastab})
             np.savez_compressed(params['conflicts'], conflicts=conflicts)
             del blastab, conflicts
         
