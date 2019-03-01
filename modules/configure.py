@@ -105,7 +105,7 @@ def readFastq(fastq) :
         line = fin.readline()
         if not line.startswith('@') :
             sequence = readFasta(fastq)
-            return sequence, None
+            return sequence, { n: re.sub(r'[^!]', 'I', re.sub(r'[^ACGTacgt]', '!', s)) for n, s in sequence.items() }
     with uopen(fastq) as fin :
         for lineId, line in enumerate(fin) :
             if lineId % 4 == 0 :

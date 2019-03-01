@@ -159,7 +159,8 @@ def compare_seq(seqs, diff) :
         diff[id, id+1:, 1] = n_comparable
     return diff
 
-def global_difference2(g) :
+def global_difference2(data) :
+    fname, g = data
     _, idx, cnt = np.unique(g.T[1], return_counts=True, return_index=True)
     idx = idx[cnt==1]
     names, seqs = g[idx, 1], np.vstack(g[idx, 4])
@@ -171,9 +172,10 @@ def global_difference2(g) :
             n2 = names[j]
             if diff[i, j, 1] >= min(params['match_len2'], seqs.shape[1]*params['match_prop2']) :
                 res[(n1, n2)] = diff[i, j, :]
-    return res
+    np.save(fname, np.array(list(res.items()), dtype=object))
+    return fname
 
-def global_difference(bsn_file, orthoGroup, counts=3000) :
+def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     groups = np.load(bsn_file)
     genes = []
     for gene, g in groups.items() :
@@ -196,9 +198,11 @@ def global_difference(bsn_file, orthoGroup, counts=3000) :
     global_differences = {}
     for iter in xrange(0, len(genes), 100) :
         logger('finding ANIs between genomes. {0}/{1}'.format(iter, len(genes)))
-        #diffs = list(map(global_difference2, [groups[i] for i in genes[iter:iter+100]]))
-        diffs = pool.map(global_difference2, [groups[i] for i in genes[iter:iter+100]])
-        for diff in diffs :
+        #diffs = list(map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), groups[i]] for i2, i in enumerate(genes[iter:iter+100])])
+        diffs = pool2.map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), groups[i]] for i2, i in enumerate(genes[iter:iter+100])])
+        for diff_file in diffs :
+            diff ={ tuple(a):b for a, b in np.load(diff_file).tolist()}
+            os.unlink(diff_file)
             for pair, (mut, aln) in diff.items() :
                 if pair not in global_differences :
                     global_differences[pair] = []
@@ -404,7 +408,7 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
     
                         to_run.append([mat, clust_ref[ mat[0][0] ], global_file])
                         to_run_id.append(gene)
-                working_groups = pool.map(filt_per_group, to_run)
+                working_groups = pool2.map(filt_per_group, to_run)
                 #working_groups = [filt_per_group(d) for d in to_run]
                 for gene, working_group in zip(to_run_id, working_groups) :
                     groups[gene] = working_group
@@ -663,7 +667,7 @@ def precluster2(data) :
     return [int(gene), matches[ingroup]]
 
 def precluster(bsn_file, global_file) :
-    return dict(pool.map(precluster2, [(bsn_file, gene, global_file) for gene in np.load(bsn_file).keys()]))
+    return dict(pool2.map(precluster2, [(bsn_file, gene, global_file) for gene in np.load(bsn_file).keys()]))
     #return dict(list(map(precluster2, [(bsn_file, gene, global_file) for gene in np.load(bsn_file).keys()])))
 
 def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction) :
@@ -875,14 +879,16 @@ params = dict(
     nj = '{rapidnj} -i fa -t d {0}', 
 )
 
-pool = None
+pool, pool2 = None, None
 def ortho(args) :
     global params
     params.update(add_args(args).__dict__)
     params.update(externals)
 
-    global pool
+    global pool, pool2
     pool = Pool(params['n_thread'])
+    pool2 = Pool(params['n_thread'])
+    
     genomes, genes = readGFF(params['GFFs'])
     genes = addGenes(genes, params['genes'])
     if params.get('old_prediction', None) is None :
@@ -924,10 +930,12 @@ def ortho(args) :
             np.savez_compressed(params['map_bsn'], **{str(b[0,0]):b for b in blastab})
             np.savez_compressed(params['conflicts'], conflicts=conflicts)
             del blastab, conflicts
+        pool.close()
+        pool.join()
         
         if params.get('global', None) is None :
             params['global'] = params['prefix']+'.global.npy'
-            global_differences = global_difference(params['map_bsn'], orthoGroup, 3000)
+            global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 3000)
             np.save(params['global'], global_differences)
             del global_differences
         
@@ -936,7 +944,8 @@ def ortho(args) :
         params['prediction'] = filt_genes(params['prefix'], blastab, params['global'], np.load(params['conflicts'])['conflicts'], first_classes, encodes)
     else :
         genes = {n:s[-1] for n,s in genes.items() }
-    pool.close()
+    pool2.close()
+    pool2.join()
     old_predictions = dict(np.load(params['old_prediction'])) if 'old_prediction' in params else {}
     
     write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions)

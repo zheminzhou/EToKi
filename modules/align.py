@@ -18,17 +18,17 @@ def parseArgs(argv) :
     parser.add_argument('-n', '--n_proc', help='number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
-    args.queries = [ qry.split(':', 1) if qry.find(':')>0 else [qry, qry] for qry in args.queries]
+    args.queries = [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries]
     args.queries.sort(key=lambda q:q[1] != args.reference)
     return args
 
 def alignAgainst(data) :
     prefix, minimap2, db, reference, (tag, query) = data
     try :
-        qrySeq = readFastq(query)
+        qrySeq, qryQual = readFastq(query)
     except :
         return [tag, query]
-    refSeq = readFastq(reference)
+    refSeq, refQual = readFastq(reference)
     proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -Z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
                                 minimap2, db, query).split(), stdout=subprocess.PIPE, universal_newlines=True, stderr=subprocess.PIPE)
     alignments = []
@@ -121,8 +121,8 @@ def alignAgainst(data) :
                     qryRepeat.append(pp)
                 elif pp[1] > qryRepeat[-1][1]:
                     qryRepeat[-1][1] = pp[1]
-        ref = refSeq[p[5]]
-        qry = qrySeq[p[0]]
+        ref = [refSeq[p[5]], refQual[p[5]]]
+        qry = [qrySeq[p[0]], qryQual[p[0]]]
         cigar = p[-1][5:]
         d = 1 if p[4] == '+' else -1
         if d < 0 :
@@ -292,9 +292,9 @@ def readMap(data) :
     return presences, absences, mutations
 
 def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
-    refSeq = readFastq(reference)
-    coreSites = { n:np.zeros(len(refSeq[n][0]), dtype=int) for n in refSeq }
-    matSites = { n:np.zeros(len(refSeq[n][0]), dtype=int) for n in refSeq }
+    refSeq, refQual = readFastq(reference)
+    coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
+    matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     alnId = { aln[0]:id for id, aln in enumerate(alignments) }
     res = pool.map(readMap, alignments)
     
@@ -334,7 +334,12 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                     matrix[k][0][j] = '-'
                 if len(matrix[k][1]) and matrix[k][1][j] == '.' :
                     matrix[k][1][j] = '-'
+    pres = np.unique(np.concatenate(list(coreSites.values())), return_counts=True)
+    pres = [pres[0][pres[0] > 0], pres[1][pres[0] > 0]]
     coreNum = len(alignments) * core
+    for p, n in zip(*pres) :
+        sys.stderr.write('#{2} {0} {1}\n'.format(p, n, '' if p > coreNum else '#'))
+
     missings = []
     coreBases = {'A':0, 'C':0, 'G':0, 'T':0}
     for n in sorted(coreSites) :
@@ -351,7 +356,7 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                 else :
                     missings[-1][2] = cSite[1]
             else :
-                b = refSeq[n][0][cSite[1]-1]
+                b = refSeq[n][cSite[1]-1]
                 if cSite in matrix and len(matrix[cSite][0]) :
                     matrix[cSite][0] = [ (b if s == '.' else s) for s in matrix[cSite][0]]
                 else :
@@ -363,7 +368,7 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
         with uopen(prefix + '.matrix.gz', 'w') as fout :
             fout.write('## Constant_bases: {A} {C} {G} {T}\n'.format(**coreBases))
             for n in refSeq :
-                fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n][0])))
+                fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n])))
             for region in missings :
                 fout.write('## Missing_region: {0} {1} {2}\n'.format(*region))
             fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments ]) + '\n')
@@ -378,10 +383,10 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
         sequences = []
         for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
             j = alnId[mTag]
-            seq = { n:['-']*len(s) for n, (s, q) in refSeq.items() } if j > 0 else { n:list(s) for n, (s, q) in refSeq.items() }
+            seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
             if j :
                 for n, s, e in presences :
-                    seq[n][s-1:e] = refSeq[n][0][s-1:e]
+                    seq[n][s-1:e] = refSeq[n][s-1:e]
                 for n, s, e, c in absences :
                     seq[n][s-1:e] = '-' * (e-s+1)
             for site in matrix :
@@ -402,8 +407,8 @@ def runAlignment(prefix, reference, queries, core, minimap2) :
     if reference :
         subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
     # run query in parallele
-    #alignments = list(map(alignAgainst, [[prefix + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
-    alignments = pool.map(alignAgainst, [[prefix + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
+    #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
+    alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
     # clean up reference database
     try :
         os.unlink(reference + '.mmi')
@@ -426,7 +431,10 @@ def align(argv) :
 
 pool = None
 if __name__ == '__main__' :
-    from configure import externals, readFastq, rc, uopen    
+    from configure import externals, readFastq, rc, uopen
+    from uberBlast import uberBlast
     align(sys.argv[1:])
 else :
     from .configure import externals, readFastq, rc, uopen
+    from .uberBlast import uberBlast
+    

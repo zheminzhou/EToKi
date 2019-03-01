@@ -193,7 +193,7 @@ def read_matrix(fname) :
                     missing.append([part[1], int(part[2]), int(part[3])])
             elif line.startswith('#') :
                 part = np.array(line.strip().split('\t'))
-                cols = (1 - np.char.startswith(part, '#')).astype(bool)
+                cols = np.where((1 - np.char.startswith(part, '#')).astype(bool))[0]
                 w_cols = np.where(np.char.startswith(part, '#!W'))[0]
                 names = part[cols]
                 break
@@ -204,7 +204,7 @@ def read_matrix(fname) :
                 w_cols = np.char.startswith(part, '#!W')
                 names = part[cols]
                 break
-        mat = pd.read_csv(fin, header=None, sep='\t', usecols=np.where(cols)[0].tolist() + w_cols.tolist() + [0,1]).values
+        mat = pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1]).values
         
     val = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-', '.':'.'}
     validate = np.vectorize(lambda b: b if len(b) > 1 else val.get(b, '-'))

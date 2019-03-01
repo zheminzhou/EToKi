@@ -350,7 +350,6 @@ class mainprocess(object) :
         for n, s in sequence.items() :
             q = ['!'] * len(s)
             sequence[n] = [s, q]
-            #s[1] = list(s[1])
 
         sites = { n:np.array([0 for ss in s[1] ]) for n, s in sequence.items() }
         for bam in bams :
@@ -370,11 +369,10 @@ class mainprocess(object) :
             if acc[0] *2 >= size :
                 break
         ave_depth = acc[1]/acc[0]
-        exp_mut_depth = max(ave_depth * 0.2, 1.)
+        exp_mut_depth = max(ave_depth * 0.2, 2.)
         for n, s in sites.items() :
             s[2] = s[1]/ave_depth
         logger('Average read depth: {0}'.format(ave_depth))
-        logger('Sites with over {0} or 15% unsupported reads is not called'.format(exp_mut_depth))
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
         with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
             for n, s in sorted(sequence.items()) :
@@ -398,11 +396,13 @@ class mainprocess(object) :
                     continue
                 try:
                     if part[-1] == '0/0' and len(part[3]) == 1 and len(part[4]) == 1 :
-                        dp, af = float(part[7].split(';', 1)[0][3:]), float(part[7][-4:])
-                        if af < 0.15 and dp >= 3 and dp * af <= exp_mut_depth :
+                        pp = part[7].split(';')
+                        dp = float(pp[0][3:])
+                        af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
+                        if af <= 15 and dp >= 3 and dp * af/100. <= exp_mut_depth :
                             if part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome']) :
                                 site = int(part[1])-1
-                                qual = chr(int(part[7].split(';')[4][3:])+33)
+                                qual = chr(int(pp[4][3:])+33)
                                 sequence[part[0]][1][site] = qual
                         else :
                             fout.write(line)
