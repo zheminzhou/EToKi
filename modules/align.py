@@ -29,8 +29,8 @@ def alignAgainst(data) :
     except :
         return [tag, query]
     refSeq, refQual = readFastq(reference)
-    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -Z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
-                                minimap2, db, query).split(), stdout=subprocess.PIPE, universal_newlines=True, stderr=subprocess.PIPE)
+    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+                                minimap2, db, query).split(), stdout=subprocess.PIPE, universal_newlines=True)
     alignments = []
     for lineId, line in enumerate(proc.stdout) :
         part = line.strip().split('\t')
