@@ -72,7 +72,7 @@ def readGFF(fnames) :
 
     seq, cds = {}, {}
     for fname, (ss, cc) in zip(fnames, combo) :
-        fprefix = fname.split('.')[0]
+        fprefix = os.path.basename(fname).split('.')[0]
         for n in ss :
             seq['{0}:{1}'.format(fprefix, n)] = ss[n][:]
 
@@ -414,19 +414,19 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                     groups[gene] = working_group
                     run[gene] = 1
             else :
-                _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
-                mat[:] = mat[region_score>=params['clust_identity']]
-                used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
-                for id, m in enumerate(mat) :
-                    for mmm in m[6] :
-                        if mmm[15] in used2 :
-                            kept[id] = False
-                            break
-                    if kept[id] :
-                        used2 |= {mmm[15] for mmm in m[6]}
-                mat = mat[kept]
-                _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
+                for gene, score in genes.items() :
+                    if gene not in run :
+                        mat = groups[gene]
+                        _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
+                        region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
+                        mat = mat[region_score>=params['clust_identity']]
+                        used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
+                        for id, m in enumerate(mat) :
+                            if m[5] in used2 :
+                                kept[id] = False
+                            else :
+                                used2.update(conflicts.get(m[5], {}))
+                        groups[gene] = mat[kept]
 
             while len(genes) :
                 score, gene = max([[np.sum(groups[gene][np.unique(groups[gene].T[1], return_index=True)[1]].T[2]), gene] for gene in genes])
@@ -473,7 +473,8 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                         pangene = pg
 
                 results[mat[0][0]] = pangene
-                logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score, encodes[pangene], len(results), len(groups)+len(results)))
+                if len(results) % 100 == 0 :
+                    logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score, encodes[pangene], len(results), len(groups)+len(results)))
 
                 for grp in mat[mat.T[3] > 0] :
                     group_id += 1
@@ -484,7 +485,7 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
     return '{0}.Prediction'.format(prefix)
 
 def load_priority(priority_list, genes, encodes) :
-    file_priority = { encodes[fn]:id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
+    file_priority = { encodes.get(fn, ''):id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
     unassign_id = max(file_priority.values()) + 1
     first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5], n ] for n, g in genes.items() }
 
@@ -504,7 +505,7 @@ def iter_map_bsn(data) :
         for n, s in seq :
             fout.write('>{0}\n{1}\n'.format(n, s) )
 
-    blastab, overlap = uberBlast('-r {0} -q {1} -f -m -o --blastn --ublast --min_id {2} --min_cov {3} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'] ).split())
+    blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'] ).split())
     os.unlink(gfile)
     
     groups = []
@@ -599,23 +600,23 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup) :
 
 def checkCDS(n, s) :
     if len(s) < params['min_cds'] :
-        logger('{0} is too short'.format(n))
+        #logger('{0} is too short'.format(n))
         return False
     if params['incompleteCDS'] :
         return True
 
     if len(s) % 3 > 0 :
-        logger('{0} is discarded due to frameshifts'.format(n))
+        #logger('{0} is discarded due to frameshifts'.format(n))
         return False
     aa = transeq({'n':s.upper()}, frame=1, transl_table='starts')['n'][0]
     if aa[0] != 'M' :
-        logger('{0} is discarded due to lack of start codon'.format(n))
+        #logger('{0} is discarded due to lack of start codon'.format(n))
         return False
     if aa[-1] != 'X' :
-        logger('{0} is discarded due to lack of stop codon'.format(n))
+        #logger('{0} is discarded due to lack of stop codon'.format(n))
         return False
     if len(aa[:-1].split('X')) > 1 :
-        logger('{0} is discarded due to internal stop codons'.format(n))
+        #logger('{0} is discarded due to internal stop codons'.format(n))
         return False
     return True
     
@@ -623,7 +624,7 @@ def checkCDS(n, s) :
 def addGenes(genes, gene_file) :
     for gfile in gene_file.split(',') :
         if gfile == '' : continue
-        gprefix = gfile.split('.')[0]
+        gprefix = os.path.basename(gfile).split('.')[0]
         ng = readFasta(gfile)
         for name in ng :
             s = ng[name]
@@ -804,6 +805,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     '' if len(old_tag) == 0 else 'locus_tag={0};'.format(','.join(old_tag)), 
                 ))
     allele_file.close()
+    logger('Pan genome annotations have been saved in {0}'.format('{0}.EToKi.gff'.format(prefix)))
+    logger('Gene allelic sequences have been saved in {0}'.format('{0}.allele.fna'.format(prefix)))
     return
 
 
@@ -848,7 +851,7 @@ EToKi.py ortho
 
     parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
     parser.add_argument('--incompleteCDS', help='Do not do CDS checking for the reference genes. Default: False.', default=False, action='store_true')
-    parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --prefilter reference"', default=False, action='store_true')
+    parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
     parser.add_argument('--clust', help='development param', default=None)
@@ -864,7 +867,7 @@ EToKi.py ortho
         params.clust_identity = 0.99
         params.clust_match_prop = 0.8
         params.match_identity = 0.98
-        params.prefilter = 'reference'
+        params.orthology = 'rapid'
     return params
 
 def encodeNames(genomes, genes) :
@@ -933,14 +936,16 @@ def ortho(args) :
         pool.close()
         pool.join()
         
-        if params.get('global', None) is None :
-            params['global'] = params['prefix']+'.global.npy'
-            global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 3000)
-            np.save(params['global'], global_differences)
-            del global_differences
-        
-        blastab = precluster(params['map_bsn'], params['global'])
-        #np.savez_compressed(params['map_bsn'], **blastab)
+        if params.get('orthology', 'rapid') != 'rapid' :
+            if params.get('global', None) is None :
+                params['global'] = params['prefix']+'.global.npy'
+                global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 3000)
+                np.save(params['global'], global_differences)
+                del global_differences
+            
+            blastab = precluster(params['map_bsn'], params['global'])
+        else :
+            blastab = { int(k):v for k, v in np.load(params['map_bsn']).items()}
         params['prediction'] = filt_genes(params['prefix'], blastab, params['global'], np.load(params['conflicts'])['conflicts'], first_classes, encodes)
     else :
         genes = {n:s[-1] for n,s in genes.items() }

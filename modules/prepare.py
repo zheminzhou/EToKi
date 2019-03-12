@@ -70,7 +70,7 @@ class preprocess(object) :
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={1} out2={2} outs={0}'.format(library_file2['SE'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
-                        Popen('{bbduk} -Xmx{memory} threads=8 ref={adapters} ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} {read} {outputs}'.format( \
+                        Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
                             read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
@@ -86,7 +86,7 @@ class preprocess(object) :
                                 os.unlink(fname)
                             except :
                                 pass
-            else :
+            if len(library_file.get('SE', [])) > 0 :
                 Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['SE'][0]), shell=True).wait()
                 if parameters['noTrim'] == False :
                     library_file2 = {'SE':['{0}.1.{1}.s.fastq.gz'.format(prefix, lib_id)]}
@@ -94,7 +94,7 @@ class preprocess(object) :
                 outputs = 'out=' + library_file2['SE'][0]
 
                 bb_run, bb_out = monitor_proc(
-                    Popen('{bbduk} -Xmx{memory} threads=8 ref={adapters} ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} {read} {outputs}'.format( \
+                    Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
                         read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 )
                 if bb_run.returncode == 0 :
@@ -184,7 +184,11 @@ class preprocess(object) :
                             else :
                                 Popen("pigz -cd {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print $0}} else {{ if(id==0){{print $0}} else {{print \"+\"}} }} }}'|pigz > {1}".format(
                                     lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id), shell=True).wait()
+                for lib in library :
+                    try :
                         os.unlink(lib)
+                    except :
+                        pass
         return new_reads
 
 reads, prefix, parameters = None, None, None

@@ -8,9 +8,9 @@ try:
 except :
     from configure import externals, logger, xrange, readFastq, transeq, blosum62, rc, asc2int
 
-formatdb = externals['formatdb']
+makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
-ublast = externals['ublast']
+usearch = externals['usearch']
 mmseqs = externals['mmseqs']
 minimap2 = externals['minimap2']
 
@@ -312,6 +312,7 @@ class RunBlast(object) :
         for bId in xrange(0, blastab.shape[0], perBatch) :
             logger('Update scores: {0} / {1}'.format(bId, nTab))
             tabs = blastab[bId:bId+perBatch]
+            #scores = np.array([ cigar2score([t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1]) for t in tabs ])
             scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
             tabs.T[2], tabs.T[11] = scores.T
         return blastab
@@ -394,7 +395,7 @@ class RunBlast(object) :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         else :
             refNA = ref
-        Popen('{formatdb} -dbtype nucl -in {refNA} -out {refDb}'.format(formatdb=formatdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
+        Popen('{makeblastdb} -dbtype nucl -in {refNA} -out {refDb}'.format(makeblastdb=makeblastdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
         qrys = [ os.path.join(self.dirPath, 'qryNA.{0}'.format(id)) for id in range(self.n_thread)]
         qrySeq = sorted(list(self.qrySeq.items()), key=lambda s:-len(s[1]))
         for id, q in enumerate(qrys) :
@@ -432,7 +433,7 @@ class RunBlast(object) :
 
     def runMinimapASM(self, ref, qry) :
         logger('Run MinimapASM starts')        
-        p = Popen('{0} -ct{3} --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -Z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+        p = Popen('{0} -ct{3} --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
             minimap2, ref, qry, self.n_thread).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
         blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov)
         logger('Run MinimapASM finishes. Got {0} alignments'.format(blastab.shape[0]))
@@ -458,7 +459,7 @@ class RunBlast(object) :
             blastab[6], blastab[7] = blastab[6]*3+qf-3, blastab[7]*3+qf-1
             
             blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[str(x)])), blastab[1].apply(lambda x:len(refseq[str(x)]))
-            blastab[14] = np.array([ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))])
+            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
             
             rf3 = (rf <= 3)
             blastab.loc[rf3, 8], blastab.loc[rf3, 9] = blastab.loc[rf3, 8]*3+rf[rf3]-3, blastab.loc[rf3, 9]*3+rf[rf3]-1
@@ -485,13 +486,13 @@ class RunBlast(object) :
 
         qryAASeq = transeq(self.qrySeq, frame='F')
         with open(qryAA, 'w') as fout :
-            for n, ss in qryAASeq.items() :
+            for n, ss in sorted(qryAASeq.items()) :
                 _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
                 fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
         refAASeq = transeq(self.refSeq, frames)
         toWrite = []
-        for n, ss in refAASeq.items() :
+        for n, ss in sorted(refAASeq.items()) :
             for id, s in enumerate(ss) :
                 toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
@@ -501,10 +502,11 @@ class RunBlast(object) :
                 for line in toWrite[id::4] :
                     fout.write(line)
         
-            ublast_cmd = '{ublast} -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-                ublast=ublast, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id, nhits=nhits)
+            ublast_cmd = '{usearch} -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
+                usearch=usearch, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id, nhits=nhits)
             p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
-            blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov))
+            if os.path.getsize(aaMatch) > 0 :
+                blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov))
         blastab = pd.concat(blastab)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
@@ -526,8 +528,8 @@ class RunBlast(object) :
             ref_sites[1] -= d
 
             direction = (blastab[8] < blastab[9])
-            qry_sites = pd.concat([ blastab[8], blastab[9]-1-d ], axis=1)
-            qry_sites[~direction] = pd.concat([ rlen-blastab[9]+1, rlen-blastab[8]+2+d ], axis=1)[~direction]
+            qry_sites = pd.concat([ blastab[8], blastab[9]-d ], axis=1)
+            qry_sites[~direction] = pd.concat([ blastab[8]-d, blastab[9] ], axis=1)[~direction]
             
             blastab = pd.DataFrame(np.hstack([ blastab[[0, 1, 2]], np.apply_along_axis(lambda x:x[1]-x[0]+1, 1, ref_sites.values)[:, np.newaxis], pd.DataFrame(np.zeros([blastab.shape[0], 2], dtype=int)), ref_sites, qry_sites, blastab[[10, 11]], qlen[:, np.newaxis], rlen[:, np.newaxis], cigar[:, np.newaxis] ]))
             return blastab[blastab[3] >= min_cov]
@@ -560,7 +562,7 @@ class RunBlast(object) :
                     break
             time.sleep(1)
         Popen('{0} convertalis {1} {2} {3} {3}.tab --threads {4} --format-output'.format(\
-            mmseqs, qryAA, refNA, aaMatch, self.n_thread).split() + ['query target pident alnlen mismatch gapopen qstart qend tstart tend evalue raw qlen tlen cigar'], stdout=PIPE).communicate()
+            mmseqs, qryAA, refNA, aaMatch, self.n_thread).split() + ['query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,raw,qlen,tlen,cigar'], stdout=PIPE).communicate()
         
         if not self.qrySeq :
             self.qrySeq, self.qryQual = readFastq(qry)
@@ -576,6 +578,7 @@ def uberBlast(args) :
     parser = argparse.ArgumentParser(description='Five different alignment methods. ')
     parser.add_argument('-r', '--reference',     help='[INPUT; REQUIRED] filename for the reference. This is normally a genomic assembly. ', required=True)
     parser.add_argument('-q', '--query',  help='[INPUT; REQUIRED] filename for the query. This can be short-reads or genes or genomic assemblies. ', required=True)
+    parser.add_argument('-o', '--output', help='[OUTPUT; Default: None] save result to a file or to screen (stdout). Default do nothing. ', default=None)
     parser.add_argument('--blastn',       help='Run BLASTn. Slowest. Good for identities between [70, 100]', action='store_true', default=False)
     parser.add_argument('--ublast',       help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--ublastSELF',   help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
@@ -593,7 +596,7 @@ def uberBlast(args) :
     parser.add_argument('-m', '--linear_merge', help='[DEFAULT: False] Merge consective alignments', default=False, action='store_true')
     parser.add_argument('--merge_gap', help='[DEFAULT: 300] ', default=300., type=float)
     parser.add_argument('--merge_diff', help='[DEFAULT: 1.2] ', default=1.2, type=float)
-    parser.add_argument('-o', '--return_overlap', help='[DEFAULT: False] Report overlapped alignments', default=False, action='store_true')
+    parser.add_argument('-O', '--return_overlap', help='[DEFAULT: False] Report overlapped alignments', default=False, action='store_true')
     parser.add_argument('--overlap_length', help='[DEFAULT: 300] Minimum overlap to report', default=300, type=float)
     parser.add_argument('--overlap_proportion', help='[DEFAULT: 0.6] Minimum overlap proportion to report', default=0.6, type=float)
     parser.add_argument('-e', '--fix_end', help='[FORMAT: L,R; DEFAULT: 0,0] Extend alignment to the edges if the un-aligned regions are <= [L,R] basepairs.', default='0,0')
@@ -612,9 +615,12 @@ def uberBlast(args) :
                              [args.linear_merge, args.merge_gap, args.merge_diff], \
                              [args.return_overlap, args.overlap_length, args.overlap_proportion], \
                              args.fix_end)
+    if args.output :
+        fout = sys.stdout if args.output.upper() == 'STDOUT' else open(args.output, 'w')
+        for t in data :
+            fout.write ('\t'.join([str(tt) for tt in t ]) + '\n')
+        fout.close()
     return data
 
 if __name__ == '__main__' :
     blastab = uberBlast(sys.argv[1:])
-    for t in blastab :
-        print ('\t'.join([str(tt) for tt in t ]))

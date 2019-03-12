@@ -25,7 +25,7 @@ def parse_bsn(save) :
     return value / float(save[0][-1])
 
 def run_prediction(prefix, assembly, db) :
-    subprocess.Popen('{0} -in {1} -dbtype nucl -out {2}'.format(externals['formatdb'], assembly, prefix).split(), stdout=subprocess.PIPE).communicate()
+    subprocess.Popen('{0} -in {1} -dbtype nucl -out {2}'.format(externals['makeblastdb'], assembly, prefix).split(), stdout=subprocess.PIPE).communicate()
     antigen_genes = {'H':{}, 'O':{}}
     with open(db) as fin :
         for line in fin :
@@ -54,6 +54,11 @@ def run_prediction(prefix, assembly, db) :
                 save = []
             if int(part[3]) >= 50 and float(part[2]) >= 80 :
                 save.append(part)
+    for fname in {'{0}.nhr', '{0}.nin', '{0}.nsq', '{0}.bsn'} :
+        try :
+            os.unlink(fname.format(prefix))
+        except :
+            pass
     if len(save) > 0 :
         antigen, gene = save[0][0].split('__')[:2]
         category = antigen[0] if antigen[0] in antigen_genes else 'O'
@@ -63,10 +68,7 @@ def run_prediction(prefix, assembly, db) :
             antigen_genes[category][antigen][gene] = score
     prediction = {'query':assembly, 'prefix':prefix}
     for category, antigens in antigen_genes.items() :
-        scores = sorted([[antigen, sum(genes.values()) if antigen not in {'H3', 'H17', 'H35', 'H36', 'H44', 'H47', 'H53', 'H54', 'H55'} else sum(genes.values())*1.05 ] for antigen, genes in antigens.items()], key=lambda x:x[1], reverse=True)
-        #for antigen, score in scores[:2] :
-            #sys.stderr.write('{0}: {1}\n'.format(antigen, antigens[antigen]))
-
+        scores = sorted([[antigen, sum(genes.values())/len(genes) if antigen not in {'H3', 'H17', 'H35', 'H36', 'H44', 'H47', 'H53', 'H54', 'H55'} else sum(genes.values())*1.1/len(genes) ] for antigen, genes in antigens.items()], key=lambda x:x[1], reverse=True)
         antigen, score = scores[0]
 
         if score * 2. < 1. :

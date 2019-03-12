@@ -2,7 +2,7 @@ import argparse, tempfile, glob, os, subprocess, sys, shutil
 try:
     from configure import externals, uopen, xrange, logger
 except :
-    from .configure import externals, uopen, xrange
+    from .configure import externals, uopen, xrange, logger
 
 def clust(argv) :
     parser = argparse.ArgumentParser(description='Get clusters and exemplar sequences of the clusters. Run mmseqs linclust iteratively. ')

@@ -1,26 +1,24 @@
-import os, sys, subprocess, numpy as np, argparse, glob, gzip, io, re
+import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 import multiprocessing
 import multiprocessing.pool
 
 from datetime import datetime
 if sys.version_info[0] < 3:
+    from cStringIO import StringIO
     xrange = xrange
     asc2int = np.uint8
 else :
+    from io import StringIO
     xrange = range
     asc2int = np.uint32
 
-
-class NoDaemonProcess(multiprocessing.Process):
-    # make 'daemon' attribute always return False
-    def _get_daemon(self):
-        return False
-    def _set_daemon(self, value):
-        pass
-    daemon = property(_get_daemon, _set_daemon)
-
-class MyPool(multiprocessing.pool.Pool):
-    Process = NoDaemonProcess
+import hashlib, uuid
+def get_md5(value, dtype=str) :
+    m = hashlib.md5(str(value).encode()).hexdigest()
+    if dtype == str :
+        return str(uuid.UUID(m))
+    else :
+        return int(m, 16)
 
 
 # * is designated as U; index is : (ord(r)-65)*32 + ord(q)-65
@@ -83,7 +81,10 @@ class uopen(object) :
         if self.fout :
             self.fout.close()
         return 
-
+    def __iter__(self) :
+        return self.fstream
+    def __next__(self) :
+        return self.fstream
 
 
 def readFasta(fasta) :
@@ -166,113 +167,61 @@ def transeq(seq, frame=7, transl_table=None) :
 def logger(log, pipe=sys.stderr) :
     pipe.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
-search_file = lambda x: [os.path.abspath(x)] if os.path.exists(x) else [os.path.abspath(fname) for path in os.environ["PATH"].split(os.pathsep) for fname in sorted(glob.glob(os.path.join(path, x)))]
+
+# -------------------------------------------------------------- #
+ETOKI = os.path.dirname(os.path.dirname(__file__))
 def configure(args) :
-    global externals
-    externals = load_configure()
-    defaults = dict(
-        adapters='adapters.fa', 
-        kraken_database='minikraken*', 
-        bbduk='bbduk2.sh', 
-        bbmerge='bbmerge.sh',
-        spades='spades.py', 
-        megahit='megahit', 
-        minimap2='minimap2', 
-        bwa='bwa', 
-        bowtie2='bowtie2', 
-        bowtie2build='bowtie2-build', 
-        samtools='samtools', 
-        gatk='gatk-package-4*', 
-        pilon='pilon*', 
-        kraken_program='kraken', 
-        kraken_report='kraken-report', 
-        mmseqs='mmseqs', 
-        fasttree='?fast?ree*',
-        rapidnj='rapidnj',
-        ublast='usearch*',
-        blastn='blastn',
-        formatdb='makeblastdb',
-        raxml='raxml*', 
-        enbler_filter=os.path.join(os.path.dirname(os.path.realpath(__file__)), '_EnFlt.py')
-    )
+    configs = load_configure()
     args = add_args(args)
 
-    for param in defaults :
-        value = defaults[param]
-        if args.__dict__.get(param, None) :
-            fn = search_file(args.__dict__[param])
-            assert len(fn), 'The specified "{0}" is not found.'.format(param)
-            logger('Found {0}'.format(fn[0]))
-            externals[param] = fn[0]
-        elif not os.path.exists(externals.get(param, '')) :
-            fn = search_file(value)
-            if not len(fn) :
-                logger('{0} is not found. Be aware that some functions may not able to run.'.format(param))
+    for key, value in args.__dict__.items() :
+        if value is not None :
+            configs[configs.T[0] == key, 1] = value
+    externals = prepare_externals(conf=configs)
+    for fname, flink in sorted(externals.items()) :
+        flinks = flink.split()
+        #
+        try:        
+            if fname in {'kraken_database', 'adapters'} :
+                if not os.path.exists(flinks[-1]) :
+                    raise FileNotFoundError
             else :
-                logger('Found {0}'.format(fn[0]))
-                externals[param] = fn[0]
-
-    write_configure()
+                subprocess.Popen(flinks, stderr=subprocess.PIPE, stdout=subprocess.PIPE).wait()
+            logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
+        except FileNotFoundError as e:
+            logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
+            sys.exit(0)
+    write_configure(configs)
     logger('Configuration complete.')
 
-def prepare_externals() :
+def prepare_externals(conf=None) :
+    if conf is None :
+        conf = load_configure()
+    externals = {k.strip():v.split('#')[0].strip().format(ETOKI=ETOKI) for k,v in conf.tolist()}
     externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
     externals['enbler_filter'] = sys.executable + ' ' + externals.get('enbler_filter', '')
+    return externals
 
 def add_args(a) :
-    parser = argparse.ArgumentParser(description='''Configure external dependencies for EToKi (Enterobase Tool Kit).
-Will search executable files from system paths by default.
-The path to two databases for Kraken and Illumina adapters are required for the assembler. ''', formatter_class=argparse.RawTextHelpFormatter)
-    # EnBler database
-    parser.add_argument('--adapters', help='adapter database to be used in bbduk.\nIt can be found as resources/adapters.fa in the BBmap package')
-    parser.add_argument('--krakenDB', dest='kraken_database', help='database to be used in kraken based species prediction.\nIt can be downloaded from \n"https://ccb.jhu.edu/software/kraken/"')
-    # EnBler executables
-    parser.add_argument('--bbduk')
-    parser.add_argument('--bbmerge')
-    parser.add_argument('--spades')
-    parser.add_argument('--bwa')
-    parser.add_argument('--minimap2')
-
-    parser.add_argument('--megahit')
-    parser.add_argument('--bowtie2')
-    parser.add_argument('--bowtie2-build', dest='bowtie2build')
-
-    parser.add_argument('--samtools')
-    parser.add_argument('--gatk4', dest='gatk')
-    parser.add_argument('--pilon')
-    parser.add_argument('--kraken', dest='kraken_program')
-    parser.add_argument('--kraken-report', dest='kraken_report')
-    # EnOrth executables
-    parser.add_argument('--mmseqs')
-    parser.add_argument('--fasttree')
-    # EnSign executables
-    parser.add_argument('--usearch', dest='ublast')
-    parser.add_argument('--blastn')
-    parser.add_argument('--makeblastdb', dest='formatdb')
-    # EnPhyl executables
-    parser.add_argument('--raxml')
-
+    parser = argparse.ArgumentParser(description='''Specify links to kraken database and usearch program.''')
+    parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. Download the 32-bit version from https://www.drive5.com/usearch/.', default=None)
+    parser.add_argument('--kraken_database', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database or use MiniKraken2: https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz', default=None)
     return parser.parse_args(a)
 
 
 def load_configure() :
     EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
     try :
-        mat = np.genfromtxt(EnConf_file, dtype=str, delimiter='=')
-        return dict(mat.tolist())
+        return pd.read_csv(EnConf_file, sep='=', header=None).values
     except :
-        return {}
+        return np.array([0, 2], dtype=str)
     
 
-def write_configure() :
+def write_configure(configs) :
     EnConf_file = os.path.realpath(__file__).rsplit('.', 1)[0] + '.ini'
-    with open(EnConf_file, 'w') as fout :
-        for k,v in externals.items() :
-            fout.write('{0}={1}\n'.format(k, v))
+    pd.DataFrame(configs).to_csv(EnConf_file, sep='=', index=False, header=False)
 
-externals = load_configure()
+externals = prepare_externals()
 if __name__ == '__main__' :
     configure(sys.argv[1:])
-else :
-    prepare_externals()

@@ -1,20 +1,15 @@
 import os, sys, numpy as np, tempfile, shutil, re
 from subprocess import Popen, PIPE
 from operator import itemgetter
-import StringIO, md5, uuid
 try:
-    from configure import externals, rc, uopen
-except :    
-    from .configure import externals, rc, uopen
+    from configure import externals, rc, uopen, xrange, get_md5
+except :
+    from .configure import externals, rc, uopen, xrange, get_md5
 
-ublast = externals['ublast']
-formatdb = externals['formatdb']
+usearch = externals['usearch']
+makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
 
-def get_md5(value) :
-    m = md5.new()
-    m.update(str(value))
-    return str(uuid.UUID(m.hexdigest()))
 
 def transeq(seq, frames=[1,2,3,4,5,6]) :
     gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF '))
@@ -154,7 +149,7 @@ class dualBlast(object) :
             for n,s in qrySeq.items() :
                 fout.write('>{0}\n{1}\n'.format(n, s))
         
-        Popen('{formatdb} -dbtype nucl -in {qry}'.format(formatdb=formatdb, qry=qryNA).split(), stderr=PIPE, stdout=PIPE).communicate()
+        Popen('{makeblastdb} -dbtype nucl -in {qry}'.format(makeblastdb=makeblastdb, qry=qryNA).split(), stderr=PIPE, stdout=PIPE).communicate()
 
         refs = [ [os.path.join(dirPath, 'ref.{0}'.format(id)), os.path.join(dirPath, 'ref.{0}.out'.format(id)), []] for id in range(n_thread)]
         
@@ -183,8 +178,8 @@ class dualBlast(object) :
                 p[0].communicate()
                 fout.write(open(o).read())
                 os.unlink(o)
-        ublast_cmd = '{ublast} -threads {n_thread} -db {qryAA} -ublast {refAA} -evalue 1e-3 -accel 0.9 -maxhits 6 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-            ublast=ublast, qryAA=qryAA, refAA=refAA, aaMatch=aaMatch, n_thread=n_thread)
+        ublast_cmd = '{usearch} -threads {n_thread} -db {qryAA} -ublast {refAA} -evalue 1e-3 -accel 0.9 -maxhits 6 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
+            usearch=usearch, qryAA=qryAA, refAA=refAA, aaMatch=aaMatch, n_thread=n_thread)
         pp = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE)
         pp.communicate()
         
@@ -473,6 +468,7 @@ class blastParser(object) :
                 flag = self.lookForORF(qrySeq, region)
                 region['accepted'] = region['accepted'] | flag
             region['seq'] = self.get_seq(qrySeq, *region['coordinates'])
+            region['id'] = ''
             region['value_md5'] = get_md5(region['seq'])
             if min(region['flanking']) >= 0 and len(re.findall(r'[^ACGT]', region['seq'])) == 0 :  ## add proportional check
                 region['accepted'] = region['accepted'] | 1
@@ -621,24 +617,45 @@ def nomenclature(genome, refAllele, parameters) :
         # submission
         qrySeq, qryQual = dualBlast().readFastq(qry)
         alleles = blasttab_parser.form_alleles(regions, qrySeq, qryQual, parameters['unique_key'], not parameters['query_only'], parameters)
+        for field, allele in alleles.items() :
+            allele['id'] = allele['value_md5'] if allele['accepted'] < 8 else '-'+allele['value_md5']
+        if parameters.get('database', None) is not None :
+            import pandas as pd
+            database = pd.read_csv(parameters['database'], header=None, index_col=0)
+            for field, allele in alleles.items() :
+                try :
+                    allele_info = database.loc[allele['value_md5']].values
+                    if len(allele_info.shape) > 1 :
+                        allele['id'] = str(allele_info[allele_info.T[0] == field][0, 1])
+                    elif len(allele_info.shape) == 1 and allele_info[0] == field :
+                        allele['id'] = str(allele_info[1])
+                except :
+                    pass
     finally:
         shutil.rmtree(dirPath)
-    allele_seq = '\n'.join([ '>{0} value_md5={2} CIGAR={6} accepted={3} reference={4} identity={5} coordinates={7}\n{1}'.format(locus, allele['seq'], allele['value_md5'], allele['accepted'], allele['reference'], allele['identity'], allele['CIGAR'], '{0}:{1}..{2}:{3}'.format(*allele['coordinates']), allele['status'], allele['identity']) for locus, allele in sorted(alleles.items()) ])
+    allele_seq = '\n'.join([ '>{0} value_md5={2} id={7} CIGAR={6} accepted={3} reference={4} identity={5} coordinates={8}\n{1}'.format(locus, allele['seq'], allele['value_md5'], allele['accepted'], allele['reference'], allele['identity'], allele['CIGAR'], allele['id'], '{0}:{1}..{2}:{3}'.format(*allele['coordinates']), allele['status'], allele['identity']) for locus, allele in sorted(alleles.items()) ])
     return allele_seq
 
 
 parameters = {}
 def MLSType(args) :
     parameters = getParams(args)
-    return nomenclature(open(parameters['genome']).read(), open(parameters['refAllele']).read(), parameters)
+    alleles = nomenclature(open(parameters['genome']).read(), open(parameters['refAllele']).read(), parameters)
+    if parameters['output'] is not None :
+        fout = open(parameters['output'], 'w') if parameters['output'].upper() != 'STDOUT' else sys.stdout
+        fout.write(alleles + '\n')
+        fout.close()
+    return alleles
 
 
 def getParams(args) :
     import argparse
-    parser = argparse.ArgumentParser(description='MLSTdb. Create reference sets of alleles for nomenclature. ')
+    parser = argparse.ArgumentParser(description='MLSType. Find and designate MLST alleles from a queried assembly. ')
     parser.add_argument('-i', '--genome',     help='[REQUIRED] Input - filename for genomic assembly. ', required=True)
     parser.add_argument('-r', '--refAllele',  help='[REQUIRED] Input - fasta file for reference alleles. ', required=True)
-    parser.add_argument('-k', '--unique_key', help='[REQUIRED] An unique identifier for the assembly. ', default=None)
+    parser.add_argument('-k', '--unique_key', help='[REQUIRED] An unique identifier for the assembly. ', required=True)
+    parser.add_argument('-d', '--database',   help='[OPTIONAL] Input - lookup table of existing alleles. ', default=None)
+    parser.add_argument('-o', '--output',     help='[DEFAULT: No output] Output - filename for the generated alleles. Specify to STDOUT for screen output. ', default=None)
     parser.add_argument('-q', '--query_only', help='[DEFAULT: False] Do not submit new allele, only query. ', action='store_true', default=False)
     parser.add_argument('-f', '--force', help='[DEFAULT: False] Force to accept low quality alleles. ', action='store_true', default=False)
     parser.add_argument('-m', '--min_iden',   help='[DEFAULT: 0.65 ] Minimum identities between refAllele and genome. ', type=float, default=0.65)
@@ -648,6 +665,7 @@ def getParams(args) :
     parser.add_argument('-x', '--intergenic',  help='[DEFAULT: 50,500 ] Call alleles in intergenic region if to closely located loci differ by a distance between two numbers. ', default='50,500')
 
     parser.add_argument('--merging_prop',  help='[DEFAULT: 0.5 ] Two hits are conflicted if they cover by this proportion. ', type=float, default=0.5)
+    parser.add_argument('--merging_error',  help='[DEFAULT: 0.05 ] Remove a secondary hit if its similarity is lower than another overlapped region by this value. ', type=float, default=0.05)
     
     parser.add_argument('--max_dist',  help='[DEFAULT: 300 ] Synteny block: Ignore if two alignments seperate by at least this value. ', type=float, default=300)
     parser.add_argument('--diag_diff',  help='[DEFAULT: 1.2 ] Synteny block: Ignore if the lengths of the resulted block differ by X fold between qry and ref. ', type=float, default=1.2)
@@ -659,5 +677,4 @@ def getParams(args) :
     
 
 if __name__ == '__main__' :
-    alleles, profile = MLSType(sys.argv[1:])
-    print alleles
+    alleles = MLSType(sys.argv[1:])

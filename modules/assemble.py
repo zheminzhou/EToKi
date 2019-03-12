@@ -476,25 +476,21 @@ class postprocess(object) :
         return seq, fasfile
 
     def do_kraken(self, assembly) :
-        cmd = '{kraken_program} -db {kraken_database} --fasta-input {assembly} --threads 8 > {assembly}.kraken'.format(
+        cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}'.format(
             assembly=assembly, **parameters
         )
         Popen(cmd, stderr=PIPE, stdout=PIPE, shell=True, universal_newlines=True).communicate()
-        cmd = '{kraken_report} -db {kraken_database} {assembly}.kraken'.format(
-            assembly=assembly, **parameters
-        )
-
-        kraken_out = Popen(cmd.split(' '), stderr=PIPE, stdout=PIPE, universal_newlines=True)
         species = {}
-        for line in kraken_out.stdout :
-            part = line.strip().split('\t')
-            if len(part) < 5 :
-                continue
-            if part[3] == 'S' :
-                s_name = part[5].strip(' ')
-                if s_name.startswith( 'Shigella') or s_name.startswith('Escherichia coli') :
-                    s_name = 'Escherichia coli / Shigella'
-                species[s_name] = species.get(s_name, 0) + float(part[0])
+        with open('{0}.kraken'.format(assembly)) as fin :
+            for line in fin :
+                part = line.strip().split('\t')
+                if len(part) < 5 :
+                    continue
+                if part[3] == 'S' :
+                    s_name = part[5].strip(' ')
+                    if s_name.startswith( 'Shigella') or s_name.startswith('Escherichia coli') :
+                        s_name = 'Escherichia coli / Shigella'
+                    species[s_name] = species.get(s_name, 0) + float(part[0])
         species = sorted(species.items(), key=lambda x:x[1], reverse=True)
         species_sum = sum([x[1] for x in species])
         species = [[x[0], int(10000.0*x[1]/species_sum + 0.5)/100.0] for x in species]

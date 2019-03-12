@@ -1,9 +1,9 @@
-import os, sys, cStringIO as StringIO
+import os, sys, shutil, pandas as pd
 try :
-    from configure import externals, logger, uopen
+    from configure import externals, logger, uopen, xrange, StringIO, get_md5
 except :
-    from .configure import externals, logger, uopen
-import subprocess, tempfile, shutil, time
+    from .configure import externals, logger, uopen, xrange, StringIO, get_md5
+import subprocess, tempfile, time
 
 mmseqs = externals['mmseqs']
 minimap2 = externals['minimap2']
@@ -109,8 +109,6 @@ def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, 
                     name = line[1:].strip().split()[0]
                     locus, id = name.rsplit('_', 1)
                     writable = True if locus in orderedLoci and goodCandidates.get(name, 0) - crossSites.get(name, 0) > paralog else False
-                    #if not writable and id == '1' and locus in orderedLoci :
-                        #print name, goodCandidates.get(name, 0), crossSites.get(name, 0)
                 if writable :
                     fout.write(line)
         subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetClsFna).split(), stdout = subprocess.PIPE).communicate()
@@ -162,41 +160,53 @@ def readFasta(fastaText) :
 
 def MLSTdb(args) :
     params = getParams(args)
-    refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd=params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
+    database, refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd=params['database'], params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
     if os.path.isfile(alleleFasta) :
         alleles = readFasta(uopen(alleleFasta))
     else :
-        alleles = readFasta(StringIO.StringIO(alleleFasta))
+        alleles = readFasta(StringIO(alleleFasta))
     alleles = [allele for allele in alleles \
-                   if allele['value_id'] and allele['value_id'] > 0]
-    if refstrain :
-        if os.path.isfile(refstrain) :
-            references = readFasta(uopen(refstrain))
+                   if allele['value_id'].isdigit() and int(allele['value_id']) > 0]
+    refAlleles = ''
+    if refset is not None :
+        if refstrain :
+            if os.path.isfile(refstrain) :
+                references = readFasta(uopen(refstrain))
+            else :
+                references = readFasta(StringIO(refstrain))
         else :
-            references = readFasta(StringIO.StringIO(refstrain))
-    else :
-        loci, references = {}, []
-        for allele in alleles :
-            if allele['fieldname'] not in loci :
-                loci[allele['fieldname']] = 1
-                references.append(allele)
-    
-    refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
-    if refset :
-        with open(refset, 'w') as fout :
-            fout.write(refAlleles + '\n')
-    else :
-        return refAlleles
+            loci, references = {}, []
+            for allele in alleles :
+                if allele['fieldname'] not in loci :
+                    loci[allele['fieldname']] = 1
+                    references.append(allele)
+        
+        refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
+        if refset :
+            with open(str(refset), 'w') as fout :
+                fout.write(refAlleles + '\n')
+        logger('A file of reference alleles has been generated:  {0}'.format(refset))
+    if database :
+        conversion = [[], []]
+        with open(database, 'w') as fout :
+            for allele in alleles :
+                conversion[0].append(get_md5(allele['value']))
+                conversion[1].append([allele['fieldname'], int(allele['value_id'])])
+        conversion = pd.DataFrame(conversion[1], index=conversion[0])
+        conversion.to_csv(database, header=False)
+        logger('A lookup table of all alleles has been generated:  {0}'.format(database))
+    return refAlleles
 
 def getParams(args) :
     import argparse
     parser = argparse.ArgumentParser(description='MLSTdb. Create reference sets of alleles for nomenclature. ')
     parser.add_argument('-i', '--input', dest='alleleFasta', help='[REQUIRED] A single file contains all known alleles in a MLST scheme. ', required=True)
-    parser.add_argument('-o', '--output', dest='refset',     help='[DEFAULT: to screen] Output - A single file used for MLSType. ', default=None)
-    parser.add_argument('-r', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
+    parser.add_argument('-r', '--refset',                    help='[DEFAULT: No ref allele] Output - Reference alleles used for MLSType. ', default=None)
+    parser.add_argument('-d', '--database',                  help='[DEFAULT: No allele DB] Output - A lookup table of all alleles. ', default=None)
+    parser.add_argument('-s', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
     parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
-    parser.add_argument('-d', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.2)
+    parser.add_argument('-p', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.2)
     parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.7 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
     parser.add_argument('-e', '--relaxEnd',                  help='[DEFAULT: False ] Allow changed ends (for pubmlst). ', action='store_true', default=False)
 
