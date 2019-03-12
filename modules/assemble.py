@@ -438,7 +438,7 @@ class postprocess(object) :
             return {}
         evaluation = dict(assembly=assembly, fasta=fasfile)
         evaluation.update(self.do_evaluation(seq))
-        if parameters['kraken_database'] is not None :
+        if parameters['runKraken'] and os.path.exists(parameters['kraken_database']) :
             evaluation.update({'kraken': self.do_kraken(fasfile)})
         return evaluation
     def __readAssembly(self, assembly) :
@@ -589,7 +589,7 @@ And
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
-    parser.add_argument('--noKraken', help='Do not run species prediciton.', action='store_true', default=False)
+    parser.add_argument('--kraken', target='runKraken', help='Run kmer based species prediciton on contigs.', action='store_true', default=False)
 
     args = parser.parse_args(a)
     if args.cont_depth == '' :

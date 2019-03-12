@@ -1,0 +1,23 @@
+# file_name = SOP id
+# 2017-04-24
+3primerna.txt = 0
+bisulphite.txt = 1055
+cell-enrichment.txt = 1056
+clip-pe.txt = 1057
+clrs.txt = 1058
+dna.txt = 1059.1
+fungal.txt = 1060
+iso.txt = 1061
+itag.txt = 1062
+lfpe.txt = 1063
+metagenome.txt = 1064
+mtaa.txt = 1066.1
+microtrans.txt = 1065
+nextera-lmp.txt = 1067
+plant-2x150.txt = 1068
+plant-2x250.txt = 1069
+rna.txt = 1070
+sag.txt = 1071
+smrna.txt = 1072.2
+chip-seq.txt = 1076
+viral-metagenome.txt = 1078

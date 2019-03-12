@@ -1,0 +1,60 @@
+# metadata.json file for nextera lmp filtering
+{
+  "inputs": [ "<seq_unit_name>" ],
+  "metadata": {
+    "analysis_project_id" : [<analysis_project_id>],
+    "analysis_task_id" : [<analysis_task_id>],
+    "library_name": ["<library_name>"], 
+    "sequencing_project_id": [<seq_project_id>], 
+    "seq_unit_name" : ["<seq_unit_base_name>"],
+    "filter_product_type" : "<filter_method>",
+    "input_read_count": <input_read_count>,
+    "input_base_count" : <input_base_count>,
+    "filter_reads_count" : <filter_read_count>,
+    "filter_base_count" : <filter_base_count>,
+    "filter_reads_count_pct" : <filter_read_count_pct>,
+    "filter_base_count_pct" : <filter_base_count_pct>,    
+    "bbtools_version" : "<bbtools_version>",
+    "filter_pipeline_version" : "<filter_pipeline_version>",
+    "rqc_filter_command" : "<rqc_filter_command>"
+  }, 
+  "outputs": [
+    {
+      "file": "<filter_fastq_file>", 
+      "label": "filtered_fastq",
+      "metadata" : { "illumina_sdm_seq_unit_id" : <sdm_seq_unit_id>, "fastq_type" : "filtered" }
+    }, 
+    {
+      "file": "<fragment_filter_fastq_file>", 
+      "label": "fragment_filtered_fastq",
+      "metadata" : { "illumina_sdm_seq_unit_id" : <sdm_seq_unit_id>, "fastq_type" : "fragment filtered" }
+    }, 
+    {
+      "file": "<singleton_filter_fastq_file>", 
+      "label": "singleton_filtered_fastq",
+      "metadata" : { "illumina_sdm_seq_unit_id" : <sdm_seq_unit_id>, "fastq_type" : "singleton filtered" }
+    }, 
+    {
+      "file": "<unknown_filter_fastq_file>", 
+      "label": "unknown_filtered_fastq",
+      "metadata" : { "illumina_sdm_seq_unit_id" : <sdm_seq_unit_id>, "fastq_type" : "unknown filtered" }
+    }, 
+    {
+      "file": "<filter_chaff_fastq_file>", 
+      "label": "filtered_reads_chaff",
+      "metadata" : { "illumina_sdm_seq_unit_id" : <sdm_seq_unit_id> }
+    },    
+    {
+      "file" : "<filter_txt_report>",
+      "label" : "filtered_report"
+    },
+    {
+      "file" : "<filter_txt_method>",
+      "label" : "filtered_methods_report"
+    },
+    {
+      "file" : "<filter_commands>",
+      "label" : "filter_commands"
+    }
+  ]
+}

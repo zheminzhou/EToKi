@@ -1,0 +1,123 @@
+<div>
+    <span class="notice">Filtering is performed using BBTools rqcfilter.sh script.</span> <br />
+</div>
+
+<div style="padding: 10px">
+    <h2 class="section-title"> Fastq Files </h2>
+    <div class="section">
+        <table class='data'>
+            <tr>
+                <th></th>
+                <th>Number of Reads	</th>
+                <th>File Size</th>
+                <th>File Location</th>
+            </tr>
+            <tr>
+                <th>Input FASTQ</th>
+                <td>[_RAW-READ-CNT_]</td>
+                <td>[_RAW-FILE-SIZE_] MB</td>
+                <td>[_RAW-FILE-LOCATION_]</td>
+            </tr>
+
+            <tr>
+                <th>Filtered FASTQ</th>
+                <td>[_FILTERED-READ-CNT_]</td>
+                <td>[_FILTERED-FILE-SIZE_] MB</td>
+                <td>[_FILTERED-FILE-LOCATION_]</td>
+            </tr>
+            <tr>
+                <th>Filtered %</th>
+                <td>[_REMOVED-READ-PCT_]%</td>
+                <td>-</td>
+                <td>-</td>
+            </tr>
+        </table>
+        <span class="notice">The file size for the filtered fastq is significantly smaller than the input fastq because the reads were re-ordered to optimize gzip file compression.</span>
+    </div>
+    <br />
+    <h2 class="section-title"> Filtering Metrics </h2>
+    <div class="section">
+        <table class='hori, border, data'>
+            <tr>
+                <th>Metric</th>
+                <th>Read Count</th>
+                <th>Base Count</th>
+            </tr>
+            <tr>
+                <th>Input</th>
+                <td>[_RAW-READ-CNT_]</td>
+                <td>[_RAW-BASE-CNT_]</td>
+            </tr>
+
+            <tr>
+                <th>Remaining</th>
+                <td>[_FILTERED-READ-CNT_]</td>
+                <td>[_FILTERED-BASE-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Percentage Removed</th>
+                <td>[_REMOVED-READ-PCT_]%</td>
+                <td>[_REMOVED-BASE-PCT_]%</td>
+            </tr>
+        </table>
+    </div>
+
+    <br />
+    <div class="section">
+        <table class='data'>
+            <tr>
+                <th>Metric</th>
+                <th>Percent	</th>
+                <th>Read Count</th>
+            </tr>
+            <tr>
+                <th>Low Quality Removed</th>
+                <td>[_LOW-QUAL-REMOVED-PCT_]</td>
+                <td>[_LOW-QUAL-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Artifact Removed</th>
+                <td>[_ARTI-REMOVED-PCT_]</td>
+                <td>[_ARTI-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Ribosomal RNA Removed</th>
+                <td>[_RRNA-REMOVED-READ-PCT_]</td>
+                <td>[_RRNA-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Microbial Removed</th>
+                <td>[_MICROBE-REMOVED-READ-PCT_]</td>
+                <td>[_MICROBE-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Human Filtered</th>
+                <td>[_HUMAN-REMOVED-READ-PCT_]</td>
+                <td>[_HUMAN-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Dog Filtered</th>
+                <td>[_DOG-REMOVED-READ-PCT_]</td>
+                <td>[_DOG-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Cat Filtered</th>
+                <td>[_CAT-REMOVED-READ-PCT_]</td>
+                <td>[_CAT-REMOVED-READ-CNT_]</td>
+            </tr>
+            <tr>
+                <th>Mouse Filtered</th>
+                <td>[_MOUSE-REMOVED-READ-PCT_]</td>
+                <td>[_MOUSE-REMOVED-READ-CNT_]</td>
+            </tr>
+        </table>
+        
+        <!-- ul>
+                <li>Filter log: [_FILTER-LOG_] ([_FILTER-LOG-SIZE_] KB)</li>
+                <li>Filter Text Report: [_FILTER-REPORT_] ([_FILTER-REPORT-SIZE_] KB) filter.txt (878.0 bytes)</li>
+        </ul -->
+    </div>
+
+    <br />
+    [_FILTERED-READ-QC_]
+</div>

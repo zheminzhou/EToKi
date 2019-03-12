@@ -1,0 +1,5 @@
+config
+*.pyc
+*.swp
+*.log
+._*.py

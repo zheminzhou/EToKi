@@ -1,0 +1,26 @@
+JGI RQC Filtering Report
+Filtering Date: <timestamp>
+
+Input Sequence Unit: <seq_unit_base_name>
+Library: <library_name>
+Filtered File Name: <filter_fastq_file>
+
+Input Reads: <input_read_count>
+Input Bases: <input_base_count>
+Percent Low Quality: <low_quality_read_count_pct>  (<low_quality_read_count>/<input_read_count>)
+Percent Artifact: <artifact_read_count_pct>  (<artifact_read_count>/<input_read_count>)
+Percent Ribosomal RNA: <rrna_read_count_pct>  (<rrna_read_count>/<input_read_count>)
+Percent Microbial: <microbial_read_count_pct>  (<microbial_read_count>/<input_read_count>)
+Percent Human Filtering: <human_read_count_pct>  (<human_read_count>/<input_read_count>)
+Percent Dog Filtering: <dog_read_count_pct>  (<dog_read_count>/<input_read_count>)
+Percent Cat Filtering: <cat_read_count_pct>  (<cat_read_count>/<input_read_count>)
+Percent Mouse Filtering: <mouse_read_count_pct>  (<mouse_read_count>/<input_read_count>)
+Percent Adapter Filtering (Reads): <ktrimmed_total_removed_percreads>  (<ktrimmed_total_removed_numreads>/<input_read_count>)
+Percent Adapter Filtering (Bases): <ktrimmed_total_removed_percbases>  (<ktrimmed_total_removed_numbases>/<input_base_count>)
+Remaining Reads: <filter_read_count>
+Remaining Bases: <filter_base_count>
+Percent Reads Removed: <filter_read_count_pct>
+Percent Bases Removed: <filter_base_count_pct>
+
+Filter command:
+<rqc_filter_command>

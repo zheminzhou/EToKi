@@ -1,0 +1,27 @@
+# 3'-end RNA-seq - 2016-08-24
+# rna=t trimfragadapter=t qtrim=r trimq=6 maxns=1 maq=10 minlen=25 mlf=0.33 phix=t filterk=25 removehuman=t remove
+#dog=t removecat=t removemouse=t khist=t removemicrobes=t
+
+RQC Read Filtering Methods
+
+Sequence data for library <library_name> was generated at the DOE Joint Genome Institute (JGI) using Illumina technology [1].  An Illumina <library_type> was constructed and
+sequenced <sequencing_run_mode> using the Illumina <sequencer_name> platform which generated <raw_read_count> reads totaling <raw_base_count> bp.  BBDuk (version <bbtools_version>) [2]
+was used to remove <contams_list> [3],  trim reads that contained RNA specific sequencing artifacts and right quality trim reads where quality drops below 6. Reads containing
+1 or more 'N' bases, with average quality score across the read less than 10, having minimum length <= 49bp or 33% of the full read length, containing known Illumina artifacts
+and reads mapping to PhiX, human, cat, dog and mouse at 93% identity were discarded [4].  Reads mapping to common contaminants were discarded [5].  The final filtered fastq
+contained <filtered_read_count> reads totalling <filtered_base_count> bp. 
+
+1. SOP 1070
+2. B. Bushnell: BBTools software package, http:\\bbtools.jgi.doe.gov
+3. bbduk parameters:
+<rqc_filter_command>
+4. All removed reads are placed in file:
+<filter_chaff_fastq_file>
+5. List of contaminants screened against:
+Ralstonia solanacearum strain KACC 10722, Staphylococcus aureus strain V605, Escherichia coli str. K-12 substr. MG1655, Xanthomonas campestris pv. campestris str. ATCC 33913,
+Ralstonia solanacearum GMI1000, Pseudomonas fluorescens SBW25, Bacillus halodurans C-125, Staphylococcus epidermidis RP62A, Pseudomonas fluorescens Pf0-1, Acidovorax sp. JS42,
+Delftia acidovorans SPH-1, Stenotrophomonas maltophilia R551-3, Azoarcus sp. BH72, Stenotrophomonas maltophilia K279a, strain K279a, Comamonas testosteroni CNB-2,
+Herbaspirillum seropedicae SmR1, Delftia sp. Cs1-4, Pseudomonas fluorescens F113, Rhizobium sp. AP16, Acidovorax sp. KKS102, Sphingomonas sp. MM-1, Curvibacter lanceolatus ATCC 14669,
+Acinetobacter calcoaceticus ANC 3811, Burkholderia cepacia ATCC 25416, Rhizobium sp. LPU83, Pseudomonas sp. WCS374, Klebsiella oxytoca KONIH1, Cupriavidus basilensis strain 4G11,
+Acidovorax temperans strain KY4, Cupriavidus gilardii CR3, Acinetobacter johnsonii XBB1, Acinetobacter baumannii strain XH857, Klebsiella pneumoniae subsp. pneumoniae HS11286,
+Shigella dysenteriae Sd197, Shigella flexneri 2a str. 301

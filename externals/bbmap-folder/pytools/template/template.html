@@ -1,0 +1,40 @@
+<html xmlns="http://www.w3.org/1999/xhtml" dir="ltr" lang="en_US" xml:lang="en-US">
+    <head>
+        <title> [_PAGE-TITLE_] </title>
+        <link rel="stylesheet" href="css/report.css">
+        <script src="http://code.jquery.com/jquery-latest.min.js" type="text/javascript"></script>
+        <script type="text/javascript">
+            $().ready(function(){
+                $('table.plot td img').css({"border-color": "#C1E0FF",
+                    "border-width":"1px",
+                    "border-style":"solid"});
+                $('.left').css('text-align', 'left')
+                $('.right').css('text-align', 'right')
+            })
+            
+        </script>
+    </head>
+
+    <body>
+        <div class="header"  style="background-color: #eee">
+            <table style="width: 100%; padding-left: 10px; padding-right: 10px">
+                <tr>
+                    <td><img id="logo" src="images/jgi_log_transparent.png" class="logo"></a></td>
+                    <td style="white-space: nowrap; text-align: left"><span class="title"> [_REPORT-TITLE_] </span></td>
+                    <td style="width: 100%">
+                        <table style="width: 100%; font-weight: bold">
+                            <tr><td style="white-space: nowrap; width: 100%; text-align: right;">Report for: [_INPUT-FILE-NAME_]</td></tr>
+                            <tr><td style="white-space: nowrap; width: 100%; text-align: right">[_REPORT-DATE_]</td></tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="main">
+            <div style="padding: 10px">
+                [_REPORT-BODY_]
+            </div>
+        </div>
+    </body>
+</html>

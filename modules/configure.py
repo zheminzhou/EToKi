@@ -1,4 +1,4 @@
-import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
+import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re, requests
 import multiprocessing
 import multiprocessing.pool
 
@@ -168,11 +168,70 @@ def logger(log, pipe=sys.stderr) :
     pipe.write('{0}\t{1}\n'.format(str(datetime.now()), log))
 
 
+def checkExecutable(commands) :
+    try :
+        return subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1
+    except FileNotFoundError as e :
+        return False
+
+def install_externals() :
+    curdir = os.path.abspath(os.curdir)
+    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    os.chdir(moveTo)
+    
+    if not checkExecutable([externals['blastn']]) or not checkExecutable([externals['makeblastdb']]) :
+        blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
+        logger('Downloading ncbi-blast package from {0}'.format(blast_url))
+        subprocess.Popen('curl -Lo ncbi-blast-2.8.1+-x64-linux.tar.gz {0}'.format(blast_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging ncbi-blast package'.format(blast_url))
+        subprocess.Popen('tar -xzf ncbi-blast-2.8.1+-x64-linux.tar.gz'.split()).wait()
+        os.unlink('ncbi-blast-2.8.1+-x64-linux.tar.gz')
+        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/blastn ./blastn'.split()).wait()
+        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/makeblastdb ./makeblastdb'.split()).wait()
+        logger('Done\n')
+    
+    if not checkExecutable([externals['megahit']]) :
+        megahit_url = 'https://github.com/voutcn/megahit/releases/download/v1.1.4/megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'
+        logger('Downloading megahit package from {0}'.format(megahit_url))
+        subprocess.Popen('curl -Lo megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz {0}'.format(megahit_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging megahit package'.format(megahit_url))
+        subprocess.Popen('tar -xzf megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'.split()).wait()
+        os.unlink('megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz')
+        subprocess.Popen('ln -fs megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin/megahit ./megahit'.split()).wait()
+        logger('Done\n')
+
+    if not checkExecutable([externals['bowtie2']]) :
+        bowtie2_url = 'https://sourceforge.net/projects/bowtie-bio/files/bowtie2/2.3.4.3/bowtie2-2.3.4.3-linux-x86_64.zip/download'
+        logger('Downloading bowtie2 package from {0}'.format(bowtie2_url))
+        subprocess.Popen('curl -Lo bowtie2-2.3.4.3-linux-x86_64.zip {0}'.format(bowtie2_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging bowtie2 package')
+        subprocess.Popen('unzip -f bowtie2-2.3.4.3-linux-x86_64.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        os.unlink('bowtie2-2.3.4.3-linux-x86_64.zip')
+        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2 ./bowtie2'.split()).wait()
+        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2-build ./bowtie2-build'.split()).wait()
+        logger('Done\n')
+
+    if not checkExecutable([externals['gatk']]) :
+        gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
+        logger('Downloading gatk package from {0}'.format(gatk_url))
+        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging bowtie2 package')
+        subprocess.Popen('unzip -f gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        os.unlink('gatk-4.1.0.0.zip')
+        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).wait()
+        logger('Done\n')
+
+    if not checkExecutable([externals['usearch']]) :
+        logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html')
+        logger('')
+    os.chdir(curdir)
 # -------------------------------------------------------------- #
 ETOKI = os.path.dirname(os.path.dirname(__file__))
 def configure(args) :
     configs = load_configure()
     args = add_args(args)
+    if args.install :
+        install_externals()
 
     for key, value in args.__dict__.items() :
         if value is not None :
@@ -180,17 +239,17 @@ def configure(args) :
     externals = prepare_externals(conf=configs)
     for fname, flink in sorted(externals.items()) :
         flinks = flink.split()
-        #
-        try:        
-            if fname in {'kraken_database', 'adapters'} :
-                if not os.path.exists(flinks[-1]) :
-                    raise FileNotFoundError
-            else :
-                subprocess.Popen(flinks, stderr=subprocess.PIPE, stdout=subprocess.PIPE).wait()
+        if fname not in {'kraken_database', 'enbler_filter'} :
+            if not checkExecutable(flinks) :
+                logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
+                sys.exit(0)
             logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
-        except FileNotFoundError as e:
-            logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
-            sys.exit(0)
+    if not os.path.exists(externals['kraken_database']) :
+        logger('''WARNING - kraken_database is not present. 
+You can still use EToKi except the parameter "--kraken" in EToKi assemble will not work.
+Alternatively you can download and unpackage minikraken2 manually at    https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz.
+And pass the unpackaged folder in the parameter "--kraken_database" into EToKi.''')
+    
     write_configure(configs)
     logger('Configuration complete.')
 
@@ -205,6 +264,7 @@ def prepare_externals(conf=None) :
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''Specify links to kraken database and usearch program.''')
+    parser.add_argument('--install', help='install external programs.', default=False, action='store_true')
     parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. Download the 32-bit version from https://www.drive5.com/usearch/.', default=None)
     parser.add_argument('--kraken_database', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database or use MiniKraken2: https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz', default=None)
     return parser.parse_args(a)

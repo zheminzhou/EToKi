@@ -1,0 +1,13 @@
+The readqc standalone pipeline;
+The filter standalone pipeline;
+
+ex data:
+12248.8.247376.CAGAGTG-ACACTCT.fastq.gz
+
+ex run syntax:
+% time filter.py -o OUTDIR -f FASTQ.gz --prod-type RNA --skip-blast
+% readqc.py -o OUTDIR -f FASTQ.gz --skip-blast -html
+
+
+
+

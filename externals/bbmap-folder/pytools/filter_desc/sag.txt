@@ -1,0 +1,21 @@
+Microbial Single Cell: SOP 1071
+Updated: 2016-10-24
+RQC Read Filtering Methods
+
+
+Sequence data for library <library_name> was generated at the DOE Joint Genome Institute (JGI) using Illumina technology [1].  An Illumina <library type> was constructed and sequenced <sequencing_run_mode> using the Illumina <sequencer_name> platform which generated <raw_read_count> reads totaling <raw_base_count> bp.  BBDuk (version <bbtools version>) [2] was used to remove contaminants [3],  trim reads that contained adapter sequence, remove reads containing 1 or more 'N' bases or having a minimum length <= 51 bp or 33% of the full read length. Reads mapped with BBMap [2] to masked [5] human, cat, dog and mouse references at 93% identity were separated into a chaff file [4].  Further, reads aligned to masked common microbial contaminants [6] were separated into a chaff file [4].  The final filtered fastq contained <filtered_read_count> reads totalling <filtered_base_count> bp.
+
+
+1. SOP 1071
+2. B. Bushnell: BBTools software package, http:\\bbtools.jgi.doe.gov
+3. BBDuk, BBMap and BBMerge commands used for filtering are placed in file:
+<filter_command_file>
+4. All removed reads are placed in file:
+<filter_chaff_fastq_file>
+5. Filtering references file:
+filtering_references-20160921.tar
+6. SOP 1077
+
+
+ 
+ 

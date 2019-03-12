@@ -1,0 +1,1 @@
+bbmap-folder/bbduk.sh
