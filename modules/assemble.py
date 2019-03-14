@@ -589,7 +589,7 @@ And
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
-    parser.add_argument('--kraken', target='runKraken', help='Run kmer based species prediciton on contigs.', action='store_true', default=False)
+    parser.add_argument('--kraken', dest='runKraken', help='Run kmer based species prediciton on contigs.', action='store_true', default=False)
 
     args = parser.parse_args(a)
     if args.cont_depth == '' :
