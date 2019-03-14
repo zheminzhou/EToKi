@@ -406,9 +406,11 @@ def runAlignment(prefix, reference, queries, core, minimap2) :
     # prepare minimap2 reference
     if reference :
         subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
+        
     # run query in parallele
-    #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
-    alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
+    alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
+    #alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
+
     # clean up reference database
     try :
         os.unlink(reference + '.mmi')

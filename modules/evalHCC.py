@@ -2,18 +2,7 @@ import pandas as pd, numpy as np, sys, os, gzip
 from configure import uopen
 from sklearn.metrics.cluster import adjusted_rand_score
 from sklearn.metrics import v_measure_score, silhouette_score, f1_score
-from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-
-def simpson_index(cls, type=1) :
-    sid = np.zeros(cls.shape[0])
-    for cid, c in enumerate(cls) :
-        cls_cnt = np.unique(c, return_counts=True)[1]
-        sid[cid] = np.sum(cls_cnt * (cls_cnt-1)).astype(np.float64)/(c.shape[0]*(c.shape[0]-1))
-    if type == 1 :
-        return 1-sid
-    else :
-        return 1/sid
 
 def shannon_index(cls) :
     h = np.zeros(cls.shape[0])
@@ -21,23 +10,6 @@ def shannon_index(cls) :
         cls_cnt = np.unique(c, return_counts=True)[1]/float(c.size)
         h[cid] = -np.sum(cls_cnt*np.log(cls_cnt))/np.log(c.size)
     return h
-
-def cluster_distance_AW(cluster) :
-    def composition_table(cls) :
-        ct = np.ones([cls.shape[0], cls.shape[1], cls.shape[1]])
-        for c, cct in zip(cls, ct) :
-            for cid, cc in enumerate(c) :
-                cct[:cid, cid]  = cct[cid, :cid] = (cc == c[:cid])
-        return ct
-    dist = np.ones([cluster.shape[1], cluster.shape[1]], dtype=np.float64)
-    ct = composition_table(cluster.T)
-    wi = 1-simpson_index(cluster.T)
-    for d, cct in enumerate(dist, ct) :
-        a = np.sum(ct*cct, (1,2))
-        b = np.sum((1-ct)*cct, (1,2))
-        w = a/(a+b)
-        d = (w-wi)/(1-wi)
-    return dist
 
 def cluster_distance_AR(cluster) :
     dist = np.ones([cluster.shape[1], cluster.shape[1]], dtype=np.float64)
@@ -67,7 +39,7 @@ def profile_distance(profile, genes=None) :
         #dist[:id, id] = dist[id, :id] = np.sum(d, 1).astype(float)/np.sum(pp[:id] * ppp, 1)
     return dist
 
-options = 'shannon,simpson,f1,silhouette,width'
+options = 'shannon,f1,silhouette'
 if __name__ == '__main__' :
     options, profile, cluster = sys.argv[1:4]
     options = options.split(',')
@@ -105,11 +77,6 @@ if __name__ == '__main__' :
         h = shannon_index(cluster.T)
         np.save('shannon', h)
         plt.scatter(stepwise, h, lw=2)
-    if 'simpson' in options :
-        plt.figure()
-        s = simpson_index(cluster.T)
-        np.save('simpson', s)
-        plt.scatter(stepwise, s, lw=2)
     if 'f1' in options :
         plt.figure()
         dist = cluster_distance_V(cluster)

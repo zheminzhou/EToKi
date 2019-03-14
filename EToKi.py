@@ -10,7 +10,7 @@ commands = [['configure', 'configure external dependencies if you do not use imp
             ['MLSTdb',    'select exemplar genes from pan genes as references for MLST typing'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
             ['cgMLST',    'pick core genes from wgMLST genes'], 
-            ['HierCC',    'generate hierarchical clusters from cgMLST profiles'], 
+            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
             ['evalHCC',   'evaluate HierCC to find the most stable clusters'], 
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments or SNP matrix'], 

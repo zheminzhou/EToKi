@@ -171,7 +171,7 @@ def logger(log, pipe=sys.stderr) :
 def checkExecutable(commands) :
     try :
         return subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1
-    except FileNotFoundError as e :
+    except  :
         return False
 
 def install_externals() :
@@ -201,22 +201,32 @@ def install_externals() :
         logger('Done\n')
 
     if not checkExecutable([externals['bowtie2']]) :
-        bowtie2_url = 'https://sourceforge.net/projects/bowtie-bio/files/bowtie2/2.3.4.3/bowtie2-2.3.4.3-linux-x86_64.zip/download'
+        bowtie2_url = 'https://github.com/BenLangmead/bowtie2/releases/download/v2.3.4.3/bowtie2-2.3.4.3-linux-x86_64.zip'
         logger('Downloading bowtie2 package from {0}'.format(bowtie2_url))
         subprocess.Popen('curl -Lo bowtie2-2.3.4.3-linux-x86_64.zip {0}'.format(bowtie2_url).split(), stderr=subprocess.PIPE).wait()
         logger('Unpackaging bowtie2 package')
-        subprocess.Popen('unzip -f bowtie2-2.3.4.3-linux-x86_64.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        subprocess.Popen('unzip -o bowtie2-2.3.4.3-linux-x86_64.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
         os.unlink('bowtie2-2.3.4.3-linux-x86_64.zip')
         subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2 ./bowtie2'.split()).wait()
         subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2-build ./bowtie2-build'.split()).wait()
         logger('Done\n')
 
-    if not checkExecutable([externals['gatk']]) :
+    if not checkExecutable([externals['mmseqs']]) :
+        mmseqs_url = 'https://github.com/soedinglab/MMseqs2/releases/download/7-4e23d/MMseqs2-Linux-SSE4_1.tar.gz'
+        logger('Downloading mmseqs package from {0}'.format(mmseqs_url))
+        subprocess.Popen('curl -Lo MMseqs2-Linux-SSE4_1.tar.gz {0}'.format(mmseqs_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging mmseqs package')
+        subprocess.Popen('tar -xzf MMseqs2-Linux-SSE4_1.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        os.unlink('MMseqs2-Linux-SSE4_1.tar.gz')
+        subprocess.Popen('ln -fs mmseqs2/bin/mmseqs ./mmseqs'.split()).wait()
+        logger('Done\n')
+
+    if not checkExecutable(externals['gatk'].split()) :
         gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
         logger('Downloading gatk package from {0}'.format(gatk_url))
         subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging bowtie2 package')
-        subprocess.Popen('unzip -f gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        logger('Unpackaging gatk package')
+        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
         os.unlink('gatk-4.1.0.0.zip')
         subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).wait()
         logger('Done\n')
@@ -230,13 +240,14 @@ ETOKI = os.path.dirname(os.path.dirname(__file__))
 def configure(args) :
     configs = load_configure()
     args = add_args(args)
-    if args.install :
-        install_externals()
 
     for key, value in args.__dict__.items() :
         if value is not None :
             configs[configs.T[0] == key, 1] = value
     externals = prepare_externals(conf=configs)
+    if args.install :
+        install_externals()
+        
     for fname, flink in sorted(externals.items()) :
         flinks = flink.split()
         if fname not in {'kraken_database', 'enbler_filter'} :
