@@ -48,7 +48,7 @@ class preprocess(object) :
                     outputs = 'out={0} outu1={1} outu2={2}'.format(library_file2['MP'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
                         Popen('{bbmerge} -Xmx{memory} threads=8 loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
-                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, universal_newlines=True)
+                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
                         for fname in library_file['PE'] :
@@ -71,7 +71,7 @@ class preprocess(object) :
                     outputs = 'out={1} out2={2} outs={0}'.format(library_file2['SE'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
                         Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
-                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, universal_newlines=True)
+                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
                         for fname in library_file['PE'] :
@@ -95,7 +95,7 @@ class preprocess(object) :
 
                 bb_run, bb_out = monitor_proc(
                     Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
-                        read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, universal_newlines=True)
+                        read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 )
                 if bb_run.returncode == 0 :
                     for fname in library_file['SE'] :
