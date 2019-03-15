@@ -328,7 +328,7 @@ def filt_per_group(data) :
                 for r1 in list(incompatible.keys()) :
                     if len(incompatible[r1]) == 0 :
                         incompatible.pop(r1, None)
-                logger('     Iteration {0}. Remains {1} tips with {2} conflicts.'.format(ite+1, len(gene_phy.get_leaf_names()), len(incompatible)))
+#                logger('     Iteration {0}. Remains {1} tips with {2} conflicts.'.format(ite+1, len(gene_phy.get_leaf_names()), len(incompatible)))
                 if len(incompatible) == 0 :
                     break
             else :

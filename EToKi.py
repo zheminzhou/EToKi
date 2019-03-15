@@ -15,6 +15,7 @@ commands = [['configure', 'configure external dependencies if you do not use imp
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments or SNP matrix'], 
             ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
+            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
             ['EBEis',     'ab initio serotype prediction for Escherichia'],                             #
             ['uberBlast', 'A merged BLAST-like results from Blastn, uBlastp, minimap2 and mmseqs'],     #
             ['clust',     'cluster of short sequences using mmseqs linclust']]                          #
