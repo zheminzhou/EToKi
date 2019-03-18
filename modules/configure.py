@@ -231,6 +231,17 @@ def install_externals() :
         subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).wait()
         logger('Done\n')
 
+    if not checkExecutable(externals['kraken2'].split()) :
+        gatk_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
+        logger('Downloading kraken2 package from {0}'.format(gatk_url))
+        subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging gatk package')
+        subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        os.unlink('v2.0.7-beta.tar.gz')
+        subprocess.Popen('bash kraken2-2.0.7-beta/install_kraken2.sh kraken2-2.0.7-beta/'.split()).wait()
+        subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).wait()
+        logger('Done\n')
+
     if not checkExecutable([externals['usearch']]) :
         logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html')
         logger('')
@@ -258,7 +269,7 @@ def configure(args) :
     if not os.path.exists(externals['kraken_database']) :
         logger('''WARNING - kraken_database is not present. 
 You can still use EToKi except the parameter "--kraken" in EToKi assemble will not work.
-Alternatively you can download and unpackage minikraken2 manually at    https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz.
+Alternatively you can download and unpackage minikraken2 manually at    https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz
 And pass the unpackaged folder in the parameter "--kraken_database" into EToKi.''')
     
     write_configure(configs)
