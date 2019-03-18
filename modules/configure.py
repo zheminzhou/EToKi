@@ -235,10 +235,10 @@ def install_externals() :
         gatk_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
         logger('Downloading kraken2 package from {0}'.format(gatk_url))
         subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging gatk package')
+        logger('Unpackaging kraken2 package')
         subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
         os.unlink('v2.0.7-beta.tar.gz')
-        subprocess.Popen('bash kraken2-2.0.7-beta/install_kraken2.sh kraken2-2.0.7-beta/'.split()).wait()
+        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).wait()
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).wait()
         logger('Done\n')
 
