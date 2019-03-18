@@ -9,17 +9,17 @@ except :
     xrange = range
 
 def parseArgs(argv) :
-    parser = argparse.ArgumentParser(description='''Alignment multiple genomes onto a single reference. ''', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('-p', '--prefix', help='prefix for all outputs.', default='Enlign')
-    parser.add_argument('-r', '--reference', help='reference genomes to be aligned against.[REQUIRED]', required=True)
-    parser.add_argument('-c', '--core', help='percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)#, required=True)
+    parser = argparse.ArgumentParser(description='''Alignment multiple genomes onto a single reference. ''')
+    parser.add_argument('-r', '--reference', help='[REQUIRED; INPUT] reference genomes to be aligned against. Use <Tag>:<Filename> format to assign a tag to the reference.', required=True)
+    parser.add_argument('-p', '--prefix', help='[OUTPUT] prefix for all outputs.', default='Enlign')
     parser.add_argument('-a', '--alignment', help='[OUTPUT] Generate core genomic alignments in FASTA format', default=False, action='store_true')
     parser.add_argument('-m', '--matrix', help='[OUTPUT] Do not generate core SNP matrix', default=True, action='store_false')
-    parser.add_argument('-n', '--n_proc', help='number of processes to use. [DEFAULT: 5]', default=5, type=int)
+    parser.add_argument('-c', '--core', help='[PARAM] percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)
+    parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
-    args.queries = [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries]
-    args.queries.sort(key=lambda q:q[1] != args.reference)
+    args.reference = [ args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference] ]
+    args.queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries ] if qt != args.reference[0] ])
     return args
 
 def alignAgainst(data) :
@@ -403,26 +403,29 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
     return outputs
 
 def runAlignment(prefix, reference, queries, core, minimap2) :
-    # prepare minimap2 reference
-    if reference :
-        subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
-        
-    # run query in parallele
     alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
     #alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
 
-    # clean up reference database
     try :
         os.unlink(reference + '.mmi')
     except :
         pass
     return alignments
 
+def prepReference(prefix, reference, minimap2, pilercr, trf) :
+    # prepare minimap2 reference
+    if reference :
+        subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
+    sys.stdout.write(prefix)
+    return
+
 def align(argv) :
     args = parseArgs(argv)
+    
     global pool
     pool = Pool(args.n_proc)
     
+    refMask = prepReference(args.prefix, args.reference[1], **externals)
     alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, externals['minimap2'])
     outputs = {'mappings': dict(alignments)}
     if args.matrix or args.alignment :
