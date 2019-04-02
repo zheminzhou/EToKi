@@ -42,6 +42,26 @@ class preprocess(object) :
             if len(library_file.get('PE', [])) :
                 Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['PE'][0]), shell=True).wait()
                 Popen('cat {0} > {1}'.format(' '.join([run[1] for run in library]), library_file['PE'][1]), shell=True).wait()
+                if parameters['repair'] :                
+                    library_file2 = {'PE':['{0}.1.{1}.x.fastq.gz'.format(prefix, lib_id), '{0}.1.{1}.y.fastq.gz'.format(prefix, lib_id)]}
+                    reads = 'in={0} in2={1}'.format(*library_file['PE'])
+                    outputs = 'out={0} out2={1}'.format(*library_file2['PE'])
+                    bb_run, bb_out = monitor_proc(                    
+                        Popen('{repair} overwrite=t ain=t {reads} {outputs}'.format(reads=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                    )
+                    if bb_run.returncode == 0 :
+                        for fname in library_file['PE'] :
+                            try:
+                                os.unlink(fname)
+                            except :
+                                pass
+                        library_file.update(library_file2)
+                    else :
+                        for fname in library_file2['PE'] :
+                            try:
+                                os.unlink(fname)
+                            except :
+                                pass 
                 if parameters['merge'] :
                     library_file2 = {'MP':['{0}.1.{1}.m.fastq.gz'.format(prefix, lib_id)], 'PE':['{0}.1.{1}.1.fastq.gz'.format(prefix, lib_id), '{0}.1.{1}.2.fastq.gz'.format(prefix, lib_id)]}
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
