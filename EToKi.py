@@ -17,6 +17,7 @@ commands = [['configure', 'configure external dependencies if you do not use imp
             ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
             ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
             ['EBEis',     'ab initio serotype prediction for Escherichia'],                             #
+            ['isCRISPOL', 'ab initio prediction of CRISPOL for Typhimurium assemblies'],                #
             ['uberBlast', 'A merged BLAST-like results from Blastn, uBlastp, minimap2 and mmseqs'],     #
             ['clust',     'cluster of short sequences using mmseqs linclust']]                          #
 
