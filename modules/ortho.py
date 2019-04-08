@@ -931,7 +931,7 @@ EToKi.py ortho
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.7', default=0.7, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
     parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.9', default=0.9, type=float)
-    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
+    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 50', default=50., type=float)
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
