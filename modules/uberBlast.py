@@ -448,7 +448,7 @@ class RunBlast(object) :
         return blastab
 
     def runUblastSELF(self, ref, qry) :
-        return self.runUBlast(ref, qry, nhits=300, frames='F')
+        return self.runUBlast(ref, qry, nhits=200, frames='F')
     def runUBlast(self, ref, qry, nhits=6, frames='7') :
         logger('Run uBLAST starts')        
         def parseUBlast(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
