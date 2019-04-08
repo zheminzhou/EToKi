@@ -54,11 +54,14 @@ class MapBsn(object) :
         self.conn.execute('UPDATE map_bsn SET score = -1 WHERE gene = ?', (gene,))
         return data
     def size(self) :
-        return self.conn.execute('SELECT SUM(1) FROM map_bsn WHERE score >= 0').fetchone()[0]
+        r = self.conn.execute('SELECT SUM(1) FROM map_bsn WHERE score >= 0').fetchone()[0]
+        return r if r else 0
         
     def save(self, gene, bsn) :
         exist = self.exists(gene)
-        d = buffer(zlib.compress(bsn.dumps()))
+        d = zlib.compress(bsn.dumps())
+        if sys.version_info[0] < 3 :
+            d = buffer(d)
         if exist :
             self.conn.execute('UPDATE map_bsn SET bsn = ? WHERE gene = ?', (d, gene))
         else :
@@ -159,7 +162,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                         matched_aa.update({ (s_i+x): 1 for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
-                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len']) or len(matched_aa) >= (min(params['match_prop'], params['match_prop2'])-0.1) * len_aa :
+                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) or len(matched_aa) >= (min(params['match_prop'], params['match_prop1'], params['match_prop2'])-0.1) * len_aa :
                         ortho_pairs[key] = 1
                         return
                 elif t == 'I' :
@@ -167,7 +170,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                 else :
                     s_j += s
                     
-    self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF -f --min_id {1} --min_cov {2} -t {3} -s 2 -e 3,3'.format(clust, params['match_identity'] - 0.1, params['match_frag_len'], params['n_thread']).split())
+    self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
     presence, ortho_pairs = {}, {}
     save = []
     for part in self_bsn :
@@ -230,7 +233,7 @@ def global_difference2(data) :
     for i, n1 in enumerate(names) :
         for j in xrange(i+1, len(names)) :
             n2 = names[j]
-            if diff[i, j, 1] >= min(params['match_len2'], seqs.shape[1]*params['match_prop2']) :
+            if diff[i, j, 1] >= min(params['match_len1'], seqs.shape[1]*params['match_prop2']) :
                 res[(n1, n2)] = diff[i, j, :]
     np.save(fname, np.array(list(res.items()), dtype=object))
     return fname
@@ -569,20 +572,24 @@ def iter_map_bsn(data) :
         for n, s in seq :
             fout.write('>{0}\n{1}\n'.format(n, s) )
 
-    blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'] ).split())
+    blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     os.unlink(gfile)
     
     groups = []
     groups2 = {}
     ids = np.zeros(np.max(blastab.T[15])+1, dtype=bool)
     for tab in blastab :
-        if tab[16][1] >= params['match_identity'] and tab[16][2] >= max(params['match_prop']*tab[12], params['match_len']) and tab[16][2] >= max(params['match_prop2']*tab[12], params['match_len2']) :
+        if tab[16][1] >= params['match_identity'] and (tab[16][2] >= max(params['match_prop']*tab[12], params['match_len']) or \
+                                                       tab[16][2] >= max(params['match_prop1']*tab[12], params['match_len1']) or \
+                                                       tab[16][2] >= max(params['match_prop2']*tab[12], params['match_len2'])) :
             ids[tab[15]] = True
             if len(tab[16]) <= 4 :
                 groups.append(tab[:2].tolist() + tab[16][:2] + [None, 0, [tab[:16]]])
             else :
                 length = tab[7]-tab[6]+1
-                if tab[2] >= params['match_identity'] and length >= max(params['match_prop']*tab[12], params['match_len']) and length >= max(params['match_prop2']*tab[12], params['match_len2']) :
+                if tab[2] >= params['match_identity'] and (length >= max(params['match_prop']*tab[12], params['match_len']) or \
+                                                           length >= max(params['match_prop1']*tab[12], params['match_len1']) or \
+                                                           length >= max(params['match_prop2']*tab[12], params['match_len2'])) :
                     groups.append(tab[:2].tolist() + [tab[11], tab[2], None, 0, [tab[:16]]])
                 if tab[16][3] not in groups2 :
                     groups2[tab[16][3]] = tab[:2].tolist() + tab[16][:2] + [None, 0, [[]]*(len(tab[16])-3)]
@@ -828,7 +835,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         
                     seq2 = seq[(lp):(len(seq)-rp)]
                     if seq2 not in alleles[pred[0]] :
-                        if pred[3] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
+                        if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
                             alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
                         else :
                             alleles[pred[0]][seq2] = 'LowQ{0}'.format(len(alleles[pred[0]])+1)
@@ -865,7 +872,6 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                             start, stop = s, e
                             if frame > 0 :
                                 cds = 'frameshift'
-
                 if pred[5] != op[0] :
                     op = [pred[5], 0, old_prediction.get(pred[5], [])]
                 old_tag = []
@@ -881,14 +887,14 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (stop - start + 1) :
                         frame = min((opd[1] - start) % 3, (opd[2] - stop) % 3)
                         if frame == 0 :
-                            old_tag.append('{0}:{1}-{2}'.format(*opd))
+                            old_tag.append('{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2]))
 
                 fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog group:{6},allele ID:{7},matched region:{8}-{9}{10}{11}\n'.format(
                     pred[5], 'CDS' if cds == 'CDS' else 'pseudogene', start, stop, pred[11], 
                     '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, s, e, 
                     '' if pred[0] == pred[4] else ',structure variant group:' + pred[4], 
                     '' if cds == 'CDS' else ';pseudogene=' + cds, 
-                    '' if len(old_tag) == 0 else 'locus_tag={0};'.format(','.join(old_tag)), 
+                    '' if len(old_tag) == 0 else 'old_locus_tag={0};'.format(','.join(old_tag)), 
                 ))
     allele_file.close()
     logger('Pan genome annotations have been saved in {0}'.format('{0}.EToKi.gff'.format(prefix)))
@@ -921,19 +927,18 @@ EToKi.py ortho
     parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.9', default=0.9, type=float)
     parser.add_argument('--clust_match_prop', help='minimum matches in mmseq clusters. Default: 0.9', default=0.9, type=float)
 
-    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.6', default=0.5, type=float)
-    parser.add_argument('--match_prop', help='minimum match proportion for short genes in BLAST search. Default: 0.7', default=0.7, type=float)
-    parser.add_argument('--match_len', help='minimum match proportion for short genes in BLAST search. Default: 300', default=300., type=float)
+    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
+    parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.7', default=0.7, type=float)
+    parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
+    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.9', default=0.9, type=float)
+    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
-    parser.add_argument('--match_len2', help='minimum match proportion for long genes in BLAST search. Default: 500', default=500., type=float)
-    parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.4', default=0.4, type=float)
-    parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 90', default=90., type=float)
+    parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
+    parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
+    parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 60', default=60., type=float)
     
-    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 200', default=200., type=float)
+    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
     parser.add_argument('--synteny_diff', help='. Default: 1.2', default=1.2, type=float)
-    parser.add_argument('--synteny_ovl_prop', help='Max proportion of overlaps between two fragments in a synteny block. Default: 0.7', default=0.7, type=float)
-    parser.add_argument('--synteny_ovl_len', help='Max length of overlaps between two fragments in a synteny block. Default: 300', default=300, type=float)
-    parser.add_argument('--edge_rescue', help='Consider fragments that are within N bases of contig edges as part of a synteny block. Default: 150', default=150., type=float)
 
     parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
     parser.add_argument('--incompleteCDS', help='Do not do CDS checking for the reference genes. Default: False.', default=False, action='store_true')
@@ -989,7 +994,7 @@ def ortho(args) :
                     old_predictions[g[1]] = []
                 old_predictions[g[1]].append([n, g[2], g[3], g[4]])
         for gene, g in old_predictions.items() :
-            old_predictions[gene] = np.array(sorted(g), dtype=object)
+            old_predictions[gene] = np.array(sorted(g, key=lambda x:x[1]), dtype=object)
         np.savez_compressed(params['old_prediction'], **old_predictions)
         del old_predictions, n, g
     

@@ -1,7 +1,7 @@
 import os, sys, tempfile, time, shutil, numpy as np, pandas as pd, re
 from numba import jit
 from subprocess import Popen, PIPE
-from multiprocessing.pool import ThreadPool
+from multiprocessing.pool import ThreadPool, Pool
 from operator import itemgetter
 try:
     from .configure import externals, logger, xrange, readFastq, transeq, blosum62, rc, asc2int
@@ -54,7 +54,7 @@ def _linearMerge(data) :
         for id, m1 in edges[0] :
             for jd, m2 in edges[1] :
                 if (m1[1] == m2[1] and max(abs(m1[8]), abs(m1[9])) > min(abs(m2[8]), abs(m2[9])) ) or \
-                   abs(m1[2]-m2[2]) > 0.3 or m1[6] >= m2[6] or m1[7] >= m2[7] or m2[6]-m1[7]-1 >=gapDist:
+                   abs(m1[2]-m2[2]) > 0.3 or m1[6] >= m2[6] or m1[7] >= m2[7] or m2[6]-m1[7]-1 >= gapDist:
                     continue
                 rLen = m2[7] - m1[6] + 1
                 g1 = -m1[9]-1 if m1[9] < 0 else m1[13] - m1[9]
@@ -215,19 +215,20 @@ nucEncoder[(np.array(['A', 'C', 'G', 'T']).view(asc2int),)] = (0, 1, 3, 4)
 gtable = np.array(list('KNXKNTTXTTXXXXXRSXRSIIXMIQHXQHPPXPPXXXXXRRXRRLLXLLXXXXXXXXXXXXXXXXXXXXXXXXXEDXEDAAXAAXXXXXGGXGGVVXVVXYXXYSSXSSXXXXXXCXWCLFXLF')).view(asc2int).astype(int)-65
 
 def poolBlast(params) :
-    def parseBlast(fin, min_id, min_cov) :
+    def parseBlast(fin, min_id, min_cov, min_ratio) :
         blastab = pd.read_csv(fin, sep='\t',header=None)
         blastab[2] /= 100.
-        blastab = blastab[(blastab[2] >= min_id) & (blastab[7]-blastab[6]+1 >= min_cov) ]
-        blastab[14] = np.array(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
+        blastab = blastab[(blastab[2] >= min_id) & (blastab[7]-blastab[6]+1 >= min_cov) & (blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) ]
+        blastab.loc[:, 14] = np.array(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
         blastab = blastab.drop(columns=[15])
         return blastab
     
-    blastn, refDb, qry, min_id, min_cov = params
-    blast_cmd = '{blastn} -db {refDb} -query {qry} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
-        blastn=blastn, refDb=refDb, qry=qry)
-    blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov)
-    return blastab
+    blastn, refDb, qry, min_id, min_cov, min_ratio = params
+    blast_cmd = '{blastn} -db {refDb} -query {qry} -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
+        blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
+    blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov, min_ratio)
+    blastab.to_pickle(qry + '.match.pkl')
+    return qry + '.match.pkl'
 
 
 
@@ -246,12 +247,16 @@ def getCIGAR(data) :
 class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
-    def run(self, ref, qry, methods, min_id, min_cov, n_thread=8, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
+    def run(self, ref, qry, methods, min_id, min_cov, min_ratio, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
         tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseq=self.runMMseq)
         self.min_id = min_id
         self.min_cov = min_cov
+        self.min_ratio = min_ratio
         self.n_thread = n_thread
-        self.pool = ThreadPool(n_thread)
+        if useProcess :
+            self.pool = Pool(n_thread)
+        else :
+            self.pool = ThreadPool(n_thread)
         blastab = []
         self.dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
         try :
@@ -402,7 +407,10 @@ class RunBlast(object) :
             with open(q, 'w') as fout :
                 for n, s in qrySeq[id::self.n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
-        blastab = pd.concat(self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov] for q in qrys ]))
+        res = self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ])
+        blastab = pd.concat([ pd.read_pickle(r) for r in res ])
+        for r in res :
+            os.unlink(r)
         logger('Run BLASTn finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
@@ -410,15 +418,15 @@ class RunBlast(object) :
         logger('Run Minimap starts')
         p = Popen('{0} -ct{3} -k13 -w5 -A2 -B3 -O8,16 -E2,1 -r50 -p.001 -N500 -f2000,10000 --end-bonus 5 -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(\
             minimap2, ref, qry, self.n_thread).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov)
+        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov, self.min_ratio)
         logger('Run Minimap finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
-    def __parseMinimap(self, fin, min_id, min_cov) :
+    def __parseMinimap(self, fin, min_id, min_cov, min_ratio) :
         blastab = []
         for line in fin :
             part = line.strip().split('\t')
-            if float(part[9])/float(part[10]) < min_id or float(part[10]) < min_cov :
+            if float(part[9])/float(part[10]) < min_id or float(part[10]) < min_cov or float(part[10]) < min_ratio*float(part[1]):
                 continue
             direction = part[4]
             ref_sites = [int(part[2])+1, int(part[3])]
@@ -435,15 +443,15 @@ class RunBlast(object) :
         logger('Run MinimapASM starts')        
         p = Popen('{0} -ct{3} --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
             minimap2, ref, qry, self.n_thread).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov)
+        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov, self.min_ratio)
         logger('Run MinimapASM finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
     def runUblastSELF(self, ref, qry) :
-        return self.runUBlast(ref, qry, nhits=100, frames='F')
+        return self.runUBlast(ref, qry, nhits=300, frames='F')
     def runUBlast(self, ref, qry, nhits=6, frames='7') :
         logger('Run uBLAST starts')        
-        def parseUBlast(fin, refseq, qryseq, min_id, min_cov) :
+        def parseUBlast(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
             blastab = pd.read_csv(fin, sep='\t',header=None)
             blastab[2] /= 100.
             blastab = blastab[blastab[2] >= min_id]
@@ -457,9 +465,9 @@ class RunBlast(object) :
             blastab[0], qf = qf[0], qf[1].astype(int)
             blastab[1], rf = rf[0], rf[1].astype(int)
             blastab[6], blastab[7] = blastab[6]*3+qf-3, blastab[7]*3+qf-1
+            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
             
             blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[str(x)])), blastab[1].apply(lambda x:len(refseq[str(x)]))
-            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
             
             rf3 = (rf <= 3)
             blastab.loc[rf3, 8], blastab.loc[rf3, 9] = blastab.loc[rf3, 8]*3+rf[rf3]-3, blastab.loc[rf3, 9]*3+rf[rf3]-1
@@ -472,8 +480,8 @@ class RunBlast(object) :
             np.vectorize(ending)(blastab[14], d)
             d[~rf3] *= -1
             blastab[9] -= d
-            blastab = blastab[blastab[7]-blastab[6]+1 >= min_cov].drop(columns=[15,16])
-            return blastab
+            blastab = blastab[(blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) & (blastab[7]-blastab[6]+1 >= min_cov)]
+            return blastab.drop(columns=[15,16])
         
         refAA = os.path.join(self.dirPath, 'refAA')
         qryAA = os.path.join(self.dirPath, 'qryAA')
@@ -502,18 +510,18 @@ class RunBlast(object) :
                 for line in toWrite[id::4] :
                     fout.write(line)
         
-            ublast_cmd = '{usearch} -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-                usearch=usearch, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id, nhits=nhits)
+            ublast_cmd = '{usearch} -self -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -query_cov {min_ratio} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
+                usearch=usearch, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio)
             p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
             if os.path.getsize(aaMatch) > 0 :
-                blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov))
+                blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio))
         blastab = pd.concat(blastab)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
     
     def runMMseq(self, ref, qry) :
         logger('Run MMSeqs starts')
-        def parseMMSeq(fin, refseq, qryseq, min_id, min_cov) :
+        def parseMMSeq(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
             blastab = pd.read_csv(fin, sep='\t', header=None)
             blastab = blastab[blastab[2] >= min_id]
             qlen = blastab[0].apply(lambda r:len(qryseq[r]))
@@ -532,7 +540,7 @@ class RunBlast(object) :
             qry_sites[~direction] = pd.concat([ blastab[8]-d, blastab[9] ], axis=1)[~direction]
             
             blastab = pd.DataFrame(np.hstack([ blastab[[0, 1, 2]], np.apply_along_axis(lambda x:x[1]-x[0]+1, 1, ref_sites.values)[:, np.newaxis], pd.DataFrame(np.zeros([blastab.shape[0], 2], dtype=int)), ref_sites, qry_sites, blastab[[10, 11]], qlen[:, np.newaxis], rlen[:, np.newaxis], cigar[:, np.newaxis] ]))
-            return blastab[blastab[3] >= min_cov]
+            return blastab[(blastab[3] >= min_cov) & (blastab[3] >= blastab[12]*min_ratio)]
 
         tmpDir = os.path.join(self.dirPath, 'tmp')
         refNA = os.path.join(self.dirPath, 'refNA')
@@ -548,15 +556,15 @@ class RunBlast(object) :
         for ite in range(9) :
             if os.path.isdir(tmpDir) :
                 shutil.rmtree(tmpDir)
-            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id 0.5 -e 10'.format(\
-                mmseqs, qryAA, refNA, aaMatch, tmpDir, self.n_thread).split(), stdout=PIPE)
+            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
+                mmseqs, qryAA, refNA, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
             p.communicate()
             if p.returncode == 0 :
                 break
             if ite > 2 :
                 Popen('{0} extractorfs {2} {3}'.format(mmseqs, qryAA, refNA, refCDS).split(), stdout=PIPE).communicate()
-                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id 0.5 -e 10'.format(\
-                    mmseqs, qryAA, refCDS, aaMatch, tmpDir, self.n_thread).split(), stdout=PIPE)
+                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
+                    mmseqs, qryAA, refCDS, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
                 p.communicate()
                 if p.returncode == 0 :
                     break
@@ -568,7 +576,7 @@ class RunBlast(object) :
             self.qrySeq, self.qryQual = readFastq(qry)
         if not self.refSeq :
             self.refSeq, self.refQual = readFastq(ref)
-        blastab = parseMMSeq(open(aaMatch+'.tab'), self.refSeq, self.qrySeq, self.min_id, self.min_cov)
+        blastab = parseMMSeq(open(aaMatch+'.tab'), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
         logger('Run MMSeqs finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
@@ -588,6 +596,7 @@ def uberBlast(args) :
     
     parser.add_argument('--min_id', help='[DEFAULT: 0.3] Minimum identity before reScore for an alignment to be kept', type=float, default=0.3)
     parser.add_argument('--min_cov', help='[DEFAULT: 40] Minimum length for an alignment to be kept', type=float, default=40.)
+    parser.add_argument('--min_ratio', help='[DEFAULT: 0.05] Minimum length for an alignment to be kept, proportional to the length of the query', type=float, default=0.05)
 
     parser.add_argument('-s', '--re_score', help='[DEFAULT: 0] Re-interpret alignment scores and identities. 0: No rescore; 1: Rescore with nucleotides; 2: Rescore with amino acid; 3: Rescore with codons', type=int, default=0)
     parser.add_argument('-f', '--filter', help='[DEFAULT: False] Remove secondary alignments if they overlap with any other regions', default=False, action='store_true')
@@ -601,6 +610,7 @@ def uberBlast(args) :
     parser.add_argument('--overlap_proportion', help='[DEFAULT: 0.6] Minimum overlap proportion to report', default=0.6, type=float)
     parser.add_argument('-e', '--fix_end', help='[FORMAT: L,R; DEFAULT: 0,0] Extend alignment to the edges if the un-aligned regions are <= [L,R] basepairs.', default='0,0')
     parser.add_argument('-t', '--n_thread', help='[DEFAULT: 8] Number of threads to use. ', type=int, default=8)
+    parser.add_argument('-p', '--process', help='[DEFAULT: False] Use processes instead of threads. ', action='store_true', default=False)
     
     args = parser.parse_args(args)
     methods = []
@@ -610,7 +620,7 @@ def uberBlast(args) :
     for opt in ('fix_end',) :
         args.__dict__[opt] = args.__dict__[opt].split(',')
         args.__dict__[opt][-2:] = list(map(float, args.__dict__[opt][-2:]))
-    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.n_thread, args.re_score, \
+    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.min_ratio, args.n_thread, args.process, args.re_score, \
                              [args.filter, args.filter_cov, args.filter_score], \
                              [args.linear_merge, args.merge_gap, args.merge_diff], \
                              [args.return_overlap, args.overlap_length, args.overlap_proportion], \
