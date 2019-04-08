@@ -1,6 +1,7 @@
-import sys, shlex, re, ete3, tempfile, hashlib, shutil
+import os, re, sys, shlex, ete3, tempfile, hashlib, shutil
+import subprocess, numpy as np, pandas as pd, numba as nb
 from operator import itemgetter
-import subprocess, os, numpy as np, pandas as pd, numba as nb
+import sqlite3, zlib
 from multiprocessing import Pool
 try:
     from configure import externals, logger, rc, transeq, readFasta, uopen, xrange, asc2int
@@ -10,44 +11,98 @@ except :
     from .configure import externals, logger, rc, transeq, readFasta, uopen, xrange, asc2int
     from .clust import getClust
     from .uberBlast import uberBlast
-    
+
+
+class MapBsn(object) :
+    def __init__(self, db, rebuild=False) :
+        if rebuild and os.path.isfile(db) :
+                os.unlink(db)
+        self.conn = sqlite3.connect(db)
+        if rebuild :        
+            self.conn.execute('CREATE TABLE map_bsn (gene integer, score float, bsn blob)')
+            self.conn.execute('CREATE UNIQUE INDEX map_bsn_idx ON map_bsn (gene)')
+            self.conn.commit()        
+        return
+    def __enter__(self) :
+        return self
+    def __exit__(self, type, value, traceback) :
+        self.conn.close()
+    def get(self, gene, default=None) :
+        d = self.conn.execute('SELECT bsn FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchone()
+        return np.loads(zlib.decompress(d[0])) if d else default
+    def __getitem__(self, gene) :
+        return self.get(gene)
+
+    def exists(self, gene) :
+        d = self.conn.execute('SELECT 1 FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchone()
+        return True if d else False
+    def keys(self) :
+        for g in self.conn.execute('SELECT gene FROM map_bsn WHERE score >= 0') :
+            yield g[0]
+    def items(self) :
+        for gene, data in self.conn.execute('SELECT gene, bsn FROM map_bsn WHERE score >= 0') :
+            bsn = np.loads(zlib.decompress(data))
+            yield gene, bsn
+    def values(self) :
+        for data in self.conn.execute('SELECT bsn FROM map_bsn WHERE score >= 0') :
+            bsn = np.loads(zlib.decompress(data[0]))
+            yield bsn
+    def delete(self, gene) :
+        self.conn.execute('UPDATE map_bsn SET score = -1 WHERE gene = ?', (gene,))
+    def pop(self, gene, default=None) :
+        data = self.get(gene, default)        
+        self.conn.execute('UPDATE map_bsn SET score = -1 WHERE gene = ?', (gene,))
+        return data
+    def size(self) :
+        return self.conn.execute('SELECT SUM(1) FROM map_bsn WHERE score >= 0').fetchone()[0]
+        
+    def save(self, gene, bsn) :
+        exist = self.exists(gene)
+        d = buffer(zlib.compress(bsn.dumps()))
+        if exist :
+            self.conn.execute('UPDATE map_bsn SET bsn = ? WHERE gene = ?', (d, gene))
+        else :
+            self.conn.execute('INSERT INTO map_bsn (gene, score, bsn) VALUES (?, 1, ?)', (gene, d))
+    def commit(self) :
+        return self.conn.commit()
 
 def iter_readGFF(fname) :
     seq, cds = {}, {}
     names = {}
-    with uopen(fname) as fin :
-        sequenceMode = False
-        for line in fin :
-            if line.startswith('#') : 
-                continue
-            elif line.startswith('>') :
-                sequenceMode = True
-                name = line[1:].strip().split()[0]
-                assert name not in seq, logger('Error: duplicated sequence name {0}'.format(name))
-                seq[name] = [fname, []]
-            elif sequenceMode :
-                seq[name][1].extend(line.strip().split())
-            else :
-                part = line.strip().split('\t')
-                if len(part) > 2 :
-                    name = re.findall(r'locus_tag=([^;]+)', part[8])
-                    if len(name) == 0 :
-                        parent = re.findall(r'Parent=([^;]+)', part[8])
-                        if len(parent) and parent[0] in names :
-                            name = names[parent[0]]
-                    if len(name) == 0 :
-                        name = re.findall(r'Name=([^;]+)', part[8])
-                    if len(name) == 0 :
-                        name = re.findall(r'ID=([^;]+)', part[8])
-
-                    if part[2] == 'CDS' :
-                        assert len(name) > 0, logger('Error: CDS has no name. {0}'.format(line))
-                        #          source_file, seqName, Start,       End,      Direction, hash, Sequences
-                        cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, '']
-                    else :
-                        ids = re.findall(r'ID=([^;]+)', part[8])
-                        if len(ids) :
-                            names[ids[0]] = name
+    for fn in fname.split(',') :
+        with uopen(fn) as fin :
+            sequenceMode = False
+            for line in fin :
+                if line.startswith('#') : 
+                    continue
+                elif line.startswith('>') :
+                    sequenceMode = True
+                    name = line[1:].strip().split()[0]
+                    assert name not in seq, logger('Error: duplicated sequence name {0}'.format(name))
+                    seq[name] = [fname, []]
+                elif sequenceMode :
+                    seq[name][1].extend(line.strip().split())
+                else :
+                    part = line.strip().split('\t')
+                    if len(part) > 2 :
+                        name = re.findall(r'locus_tag=([^;]+)', part[8])
+                        if len(name) == 0 :
+                            parent = re.findall(r'Parent=([^;]+)', part[8])
+                            if len(parent) and parent[0] in names :
+                                name = names[parent[0]]
+                        if len(name) == 0 :
+                            name = re.findall(r'Name=([^;]+)', part[8])
+                        if len(name) == 0 :
+                            name = re.findall(r'ID=([^;]+)', part[8])
+    
+                        if part[2] == 'CDS' :
+                            assert len(name) > 0, logger('Error: CDS has no name. {0}'.format(line))
+                            #          source_file, seqName, Start,       End,      Direction, hash, Sequences
+                            cds[name[0]] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, '']
+                        else :
+                            ids = re.findall(r'ID=([^;]+)', part[8])
+                            if len(ids) :
+                                names[ids[0]] = name
 
     for n in seq :
         seq[n][1] = ''.join(seq[n][1]).upper()
@@ -160,7 +215,10 @@ def compare_seq(seqs, diff) :
     return diff
 
 def global_difference2(data) :
-    fname, g = data
+    fname, db, g = data
+    with MapBsn(db) as conn :
+        g = conn.get(g)
+
     _, idx, cnt = np.unique(g.T[1], return_counts=True, return_index=True)
     idx = idx[cnt==1]
     names, seqs = g[idx, 1], np.vstack(g[idx, 4])
@@ -176,22 +234,21 @@ def global_difference2(data) :
     return fname
 
 def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
-    groups = np.load(bsn_file)
     genes = []
-    for gene, g in groups.items() :
-        _, idx, cnt = np.unique(g.T[1], return_counts=True, return_index=True)
-        score = (np.sum(cnt==1)-1)*(2**41)-np.sum(g[idx[cnt==1], 2], dtype=int)
-        if score > 0 :
-            genes.append([score, gene])
-    genes = sorted(genes, reverse=True)
+    with MapBsn(bsn_file) as conn :
+        for gene, g in conn.items() : 
+            _, idx, cnt = np.unique(g.T[1], return_counts=True, return_index=True)
+            score = (np.sum(cnt==1)-1)*(2**41)-np.sum(g[idx[cnt==1], 2], dtype=int)
+            if score > 0 :
+                genes.append([score, gene])
+        genes = sorted(genes, reverse=True)
     
     og = np.array(list(orthoGroup.keys()))
     grp_order, all_useds = [], set([])
     for score, gene in genes :
-        tag = groups[gene][0][0]
-        if tag not in all_useds :
+        if gene not in all_useds :
             grp_order.append(gene)
-            used = og[og.T[0] == tag, 1]
+            used = og[og.T[0] == gene, 1]
             all_useds |= set(used.tolist())
     genes = grp_order[:counts]
 
@@ -199,7 +256,7 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     for iter in xrange(0, len(genes), 100) :
         logger('finding ANIs between genomes. {0}/{1}'.format(iter, len(genes)))
         #diffs = list(map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), groups[i]] for i2, i in enumerate(genes[iter:iter+100])])
-        diffs = pool2.map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), groups[i]] for i2, i in enumerate(genes[iter:iter+100])])
+        diffs = pool2.map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])])
         for diff_file in diffs :
             diff ={ tuple(a):b for a, b in np.load(diff_file).tolist()}
             os.unlink(diff_file)
@@ -340,23 +397,27 @@ def filt_per_group(data) :
     return mat
 
 def get_gene(groups, first_classes, cnt=1) :
-    ranking = {gene:first_classes[gene][0] for gene in groups if gene in first_classes}
+    ranking = {gene:first_classes[gene][0] for gene in groups.keys() if gene in first_classes}
     if len(ranking) > 0 :
         min_rank = min(ranking.values())
-        scores = { gene:np.sum(groups[gene][np.unique(groups[gene].T[1], return_index=True)[1]].T[2])
-                   for gene, score in ranking.items() if score == min_rank }
+        scores = {}
+        for gene, score in ranking.items() :
+            if score == min_rank :
+                matches = groups.get(gene, [])
+                s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
+                scores[gene] = s
     else :
         min_rank = -1
         scores = {}
     genes = [[gene, score, min_rank] for gene, score in sorted(sorted(scores.items()), key=itemgetter(1), reverse=True)[:cnt] if score > 0]
     if len(genes) <= 0 :
         for gene in scores :
-            groups.pop(gene)
+            groups.delete(gene)
         return []
     elif min(scores.values()) <= 0 :
         for gene, score in scores.items() :
             if score <= 0 :
-                groups.pop(gene)
+                groups.delete(gene)
     return genes
 
 def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, encodes = None) :
@@ -371,13 +432,10 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
     
     clust_ref = { int(n):s for n, s in readFasta(params['clust']).items()}
     
-    for gene, g in groups.items() : 
-        g.T[2] *= g.T[3]
-        g[:] = g[np.argsort(-g.T[2], kind='mergesort')]
     used, results, run = {}, {}, {}
     group_id = 0
     with open('{0}.Prediction'.format(prefix), 'w') as fout :
-        while len(groups) > 0 :
+        while groups.size() > 0 :
             genes = get_gene(groups, first_classes, cnt=50)
             if len(genes) <= 0 :
                 continue
@@ -386,7 +444,7 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
             if params['orthology'] in ('ml', 'nj') :
                 for gene, score in genes.items() :
                     if gene not in run :
-                        mat = groups[gene]
+                        mat = groups.get(gene)
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         if region_score.size >= bestPerGenome.size * 2 :
@@ -411,12 +469,12 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                 working_groups = pool2.map(filt_per_group, to_run)
                 #working_groups = [filt_per_group(d) for d in to_run]
                 for gene, working_group in zip(to_run_id, working_groups) :
-                    groups[gene] = working_group
+                    groups.save(gene, working_group)
                     run[gene] = 1
             else :
                 for gene, score in genes.items() :
                     if gene not in run :
-                        mat = groups[gene]
+                        mat = groups.get(gene)
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         mat = mat[region_score>=params['clust_identity']]
@@ -426,13 +484,17 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                                 kept[id] = False
                             else :
                                 used2.update(conflicts.get(m[5], {}))
-                        groups[gene] = mat[kept]
+                        groups.save(gene, mat[kept])
 
             while len(genes) :
-                score, gene = max([[np.sum(groups[gene][np.unique(groups[gene].T[1], return_index=True)[1]].T[2]), gene] for gene in genes])
+                tmp = []
+                for gene in genes :
+                    matches = groups.get(gene)
+                    tmp.append( [np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2]), gene] )
+                score, gene = max(tmp)
                 if score < min_score :
                     break
-                mat = groups.pop(gene, [])
+                mat = groups.pop(gene)
                 genes.pop(gene)
 
                 paralog, paralog2 = 0, 0
@@ -474,7 +536,7 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
 
                 results[mat[0][0]] = pangene
                 if len(results) % 100 == 0 :
-                    logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score, encodes[pangene], len(results), len(groups)+len(results)))
+                    logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score, encodes[pangene], len(results), groups.size()+len(results)))
 
                 for grp in mat[mat.T[3] > 0] :
                     group_id += 1
@@ -564,9 +626,11 @@ def iter_map_bsn(data) :
     np.savez_compressed(out_prefix+'.bsn.npz', bsn=np.array(groups, dtype=object), ovl=overlap)
     return out_prefix
 
-def get_map_bsn(prefix, clust, genomes, orthoGroup) :
+
+def get_map_bsn(prefix, clust, genomes, orthoGroup, conn) :
     if len(genomes) == 0 :
         sys.exit(1)
+
     taxa = {}
     for g, s in genomes.items() :
         if s[0] not in taxa : taxa[s[0]] = []
@@ -575,28 +639,36 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup) :
     #bsns = list(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())]))
     bsns = pool.map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())])
     
-    blastab, overlaps = [], []
+    overlaps = []
     ids = 0
     for bsnPrefix in bsns :
         tmp = np.load(bsnPrefix + '.bsn.npz')
         bsn, ovl = tmp['bsn'], tmp['ovl']
+        ovl_score = np.vectorize(lambda m,n:orthoGroup.get((m,n), 2))(bsn[ovl.T[0], 0], bsn[ovl.T[1], 0])
+        ovl = np.hstack([ovl, ovl_score[:, np.newaxis]])
 
         bsn.T[5] += ids
         ovl += ids
         ids += bsn.shape[0]
-        blastab.append(bsn)
+        bsn.T[1] = np.vectorize(lambda x:genomes.get(x, [-1])[0])(bsn.T[1])
         overlaps.append(ovl)
 
+        bsn = bsn[np.argsort(-bsn.T[2])]
+        bsn = bsn[np.argsort(bsn.T[0], kind = 'mergesort')]
+        bsn = np.split(bsn, np.cumsum(np.unique(bsn.T[0], return_counts=True)[1])[:-1])
+        
+        for i, tab in enumerate(bsn) :
+            key = tab[0][0]
+            old_data = conn.get(key)
+            if old_data is not None :
+                tab = np.vstack([old_data, tab])
+            conn.save(key, tab)
+            if i > 0 and i % 3000 == 0 :
+                conn.commit()
+        conn.commit()
         os.unlink(bsnPrefix + '.bsn.npz')
-    blastab = np.vstack(blastab)
-    blastab.T[1] = np.vectorize(lambda x:genomes.get(x, ['-'])[0])(blastab.T[1])
     overlaps = np.vstack(overlaps)
-    ovl_score = np.vectorize(lambda m,n:orthoGroup.get((m,n), 2))(blastab[overlaps.T[0], 0], blastab[overlaps.T[1], 0])
-    overlaps = np.hstack([overlaps, ovl_score[:, np.newaxis]])
-    
-    blastab = blastab[np.argsort(-blastab.T[2])]
-    blastab = blastab[np.argsort(blastab.T[0], kind='mergesort')]
-    return blastab, overlaps
+    return overlaps
 
 def checkCDS(n, s) :
     if len(s) < params['min_cds'] :
@@ -648,9 +720,10 @@ def writeGenes(fname, genes, priority) :
 
 def precluster2(data) :
     bsn_file, gene, global_file = data
-    matches = np.load(bsn_file)[gene]
+    with MapBsn(bsn_file) as conn :
+        matches = conn.get(gene)
     if len(matches) <= 1 :
-        return [int(gene), matches]
+        return []
     global_differences = dict(np.load(global_file))
     gIden = np.hstack([matches[:, [1, 3]], np.arange(matches.shape[0])[:, np.newaxis]])
     ingroup = np.zeros(matches.shape[0], dtype=bool)
@@ -665,11 +738,22 @@ def precluster2(data) :
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
-    return [int(gene), matches[ingroup]]
+    if np.any(ingroup == False) :
+        return [gene, matches[ingroup]]
+    return []
 
 def precluster(bsn_file, global_file) :
-    return dict(pool2.map(precluster2, [(bsn_file, gene, global_file) for gene in np.load(bsn_file).keys()]))
-    #return dict(list(map(precluster2, [(bsn_file, gene, global_file) for gene in np.load(bsn_file).keys()])))
+    with MapBsn(bsn_file) as conn :
+        genes = list(conn.keys())
+    
+        toUpdate = pool2.map(precluster2, [(bsn_file, gene, global_file) for gene in genes])
+        #toUpdate = list(map(precluster2, [(bsn_file, gene, global_file) for gene in genes]))
+        for i, (g, d) in enumerate([d for d in toUpdate if len(d)>0]) :
+            conn.save(g, d)
+            if i > 0 and i % 1000 == 0 :
+                conn.commit()
+        conn.commit()
+    return
 
 def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction) :
     predictions, alleles = {}, {}
@@ -926,13 +1010,12 @@ def ortho(args) :
         orthoGroup = dict([[tuple(g),1] for g in orthoGroup] + [[(g[1], g[0]),1] for g in orthoGroup] + [[(g, g), 0] for g in genes])
         
         if params.get('map_bsn', None) is None or params.get('conflicts', None) is None :
-            blastab, conflicts = get_map_bsn(params['prefix'], params['clust'], genomes, orthoGroup)
-            blastab = np.split(blastab, np.cumsum(np.unique(blastab.T[0], return_counts=True)[1])[:-1])
+            params['map_bsn'], params['conflicts'] = params['prefix']+'.map_bsn.db', params['prefix']+'.conflicts.npz'
             
-            params['map_bsn'], params['conflicts'] = params['prefix']+'.map_bsn.npz', params['prefix']+'.conflicts.npz'
-            np.savez_compressed(params['map_bsn'], **{str(b[0,0]):b for b in blastab})
+            with MapBsn(params['map_bsn'], rebuild=True) as conn :
+                conflicts = get_map_bsn(params['prefix'], params['clust'], genomes, orthoGroup, conn)
             np.savez_compressed(params['conflicts'], conflicts=conflicts)
-            del blastab, conflicts
+            del conflicts
         pool.close()
         pool.join()
         
@@ -943,10 +1026,9 @@ def ortho(args) :
                 np.save(params['global'], global_differences)
                 del global_differences
             
-            blastab = precluster(params['map_bsn'], params['global'])
-        else :
-            blastab = { int(k):v for k, v in np.load(params['map_bsn']).items()}
-        params['prediction'] = filt_genes(params['prefix'], blastab, params['global'], np.load(params['conflicts'])['conflicts'], first_classes, encodes)
+            precluster(params['map_bsn'], params['global'])
+        with MapBsn(params['map_bsn']) as conn :
+            params['prediction'] = filt_genes(params['prefix'], conn, params['global'], np.load(params['conflicts'])['conflicts'], first_classes, encodes)
     else :
         genes = {n:s[-1] for n,s in genes.items() }
     pool2.close()
