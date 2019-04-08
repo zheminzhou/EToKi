@@ -158,7 +158,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                 frame_i, frame_j = s_i % 3, s_j % 3
                 s = int(s)
                 if t == 'M' :
-                    if frame_i == frame_j or params['incompleteCDS'] :
+                    if frame_i == frame_j or 'f' in params['incompleteCDS'] :
                         matched_aa.update({ (s_i+x): 1 for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
@@ -686,17 +686,17 @@ def checkCDS(n, s) :
     if params['incompleteCDS'] :
         return True
 
-    if len(s) % 3 > 0 :
+    if len(s) % 3 > 0 and 'f' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to frameshifts'.format(n))
         return False
     aa = transeq({'n':s.upper()}, frame=1, transl_table='starts')['n'][0]
-    if aa[0] != 'M' :
+    if aa[0] != 'M' and 'm' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to lack of start codon'.format(n))
         return False
-    if aa[-1] != 'X' :
+    if aa[-1] != 'X' and '*' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to lack of stop codon'.format(n))
         return False
-    if len(aa[:-1].split('X')) > 1 :
+    if len(aa[:-1].split('X')) > 1 and 's' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to internal stop codons'.format(n))
         return False
     return True
@@ -941,7 +941,7 @@ EToKi.py ortho
     parser.add_argument('--synteny_diff', help='. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
-    parser.add_argument('--incompleteCDS', help='Do not do CDS checking for the reference genes. Default: False.', default=False, action='store_true')
+    parser.add_argument('--incompleteCDS', help="Allowed type of imperfection for the reference genes. Default: ''. 'm': allows unrecognized start codon. '*' allows unrecognized stop codon. 's': allows internal stop codon. 'f': allows frameshift. Multiple keywords can be used together. e.g., use 'm*sf' to allow random sequences.", default='')
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -954,11 +954,12 @@ EToKi.py ortho
 
     params = parser.parse_args(a)
     if params.metagenome :
-        params.incompleteCDS = True
+        params.incompleteCDS = 'm*sf'
         params.clust_identity = 0.99
         params.clust_match_prop = 0.8
         params.match_identity = 0.98
         params.orthology = 'rapid'
+    params.incompleteCDS = params.incompleteCDS.lower()
     return params
 
 def encodeNames(genomes, genes, geneFiles) :
