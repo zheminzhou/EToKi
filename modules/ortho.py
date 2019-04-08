@@ -1006,8 +1006,10 @@ def ortho(args) :
         if params.get('clust', None) is None :
             params['genes'] = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
+            logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop'))
             params['clust'], params['uc'] = getClust(params['prefix'], params['genes'], dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread']))
         genes = { int(n):s for n, s in readFasta(params['clust']).items()}
+        logger('Obtained {0} exemplar gene sequences').format(len(genes))
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'
