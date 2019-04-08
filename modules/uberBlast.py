@@ -227,8 +227,8 @@ def poolBlast(params) :
     blast_cmd = '{blastn} -db {refDb} -query {qry} -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
         blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
     blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov, min_ratio)
-    blastab.to_pickle(qry + '.match.pkl')
-    return qry + '.match.pkl'
+    blastab.to_msgpack(qry + '.match.msg')
+    return qry + '.match.msg'
 
 
 
@@ -408,7 +408,8 @@ class RunBlast(object) :
                 for n, s in qrySeq[id::self.n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         res = self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ])
-        blastab = pd.concat([ pd.read_pickle(r) for r in res ])
+        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res ]))
+        blastab[14] = [ [ list(t) for t in tab ] for tab in blastab[14].tolist()]
         for r in res :
             os.unlink(r)
         logger('Run BLASTn finishes. Got {0} alignments'.format(blastab.shape[0]))

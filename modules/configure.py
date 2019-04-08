@@ -166,6 +166,7 @@ def transeq(seq, frame=7, transl_table=None) :
 
 def logger(log, pipe=sys.stderr) :
     pipe.write('{0}\t{1}\n'.format(str(datetime.now()), log))
+    pipe.flush()
 
 
 def checkExecutable(commands) :
@@ -176,7 +177,7 @@ def checkExecutable(commands) :
 
 def install_externals() :
     curdir = os.path.abspath(os.curdir)
-    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    moveTo = os.path.joifn(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
     
     if not checkExecutable([externals['blastn']]) or not checkExecutable([externals['makeblastdb']]) :
