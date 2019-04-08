@@ -69,7 +69,9 @@ class MapBsn(object) :
 def iter_readGFF(fname) :
     seq, cds = {}, {}
     names = {}
-    for fn in fname.split(',') :
+    fnames = fname.split(',')
+    fname = fnames[0]
+    for fn in fnames :
         with uopen(fn) as fin :
             sequenceMode = False
             for line in fin :
@@ -957,6 +959,7 @@ EToKi.py ortho
 def encodeNames(genomes, genes) :
     taxon = {g[0] for g in genomes.values()}
     labels = {label:labelId for labelId, label in enumerate(sorted(list(taxon) + list(genomes.keys()) + list(genes.keys())))}
+    labels[''] = -1
     genes = { labels[gene]:[labels[info[0]], labels[info[1]]] + info[2:] for gene, info in genes.items() }
     genomes = { labels[genome]:[labels[info[0]]] + info[1:] for genome, info in genomes.items() }
     return genomes, genes, labels
