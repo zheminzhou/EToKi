@@ -956,11 +956,10 @@ EToKi.py ortho
         params.orthology = 'rapid'
     return params
 
-def encodeNames(genomes, genes) :
+def encodeNames(genomes, genes, geneFiles) :
     taxon = {g[0] for g in genomes.values()}
-    labels = {label:labelId for labelId, label in enumerate(sorted(list(taxon) + list(genomes.keys()) + list(genes.keys())))}
-    labels[''] = -1
-    genes = { labels[gene]:[labels[info[0]], labels[info[1]]] + info[2:] for gene, info in genes.items() }
+    labels = {label:labelId for labelId, label in enumerate(sorted(set(list(taxon) + list(genomes.keys()) + list(genes.keys()) + geneFiles.split(','))))}
+    genes = { labels[gene]:[labels.get(info[0], -1), labels.get(info[1], -1)] + info[2:] for gene, info in genes.items() }
     genomes = { labels[genome]:[labels[info[0]]] + info[1:] for genome, info in genomes.items() }
     return genomes, genes, labels
 
@@ -994,7 +993,7 @@ def ortho(args) :
         np.savez_compressed(params['old_prediction'], **old_predictions)
         del old_predictions, n, g
     
-    genomes, genes, encodes = encodeNames(genomes, genes)
+    genomes, genes, encodes = encodeNames(genomes, genes, params['genes'])
     if params.get('prediction', None) is None :
         first_classes = load_priority( params.get('priority', ''), genes, encodes )
 
