@@ -449,7 +449,7 @@ class RunBlast(object) :
         return blastab
 
     def runUblastSELF(self, ref, qry) :
-        return self.runUBlast(ref, qry, nhits=200, frames='F')
+        return self.runUBlast(ref, qry, nhits=100, frames='F')
     def runUBlast(self, ref, qry, nhits=6, frames='7') :
         logger('Run uBLAST starts')        
         def parseUBlast(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
@@ -506,7 +506,7 @@ class RunBlast(object) :
                 toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
         blastab = []
-        for id in xrange(4) :
+        for id in xrange(5) :
             with open(refAA, 'w') as fout :
                 for line in toWrite[id::4] :
                     fout.write(line)

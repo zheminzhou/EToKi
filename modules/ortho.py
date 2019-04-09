@@ -261,8 +261,7 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     for iter in xrange(0, len(genes), 100) :
         logger('finding ANIs between genomes. {0}/{1}'.format(iter, len(genes)))
         #diffs = list(map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), groups[i]] for i2, i in enumerate(genes[iter:iter+100])])
-        diffs = pool2.map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])])
-        for diff_file in diffs :
+        for diff_file in pool2.imap_unordered(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])]) :
             diff ={ tuple(a):b for a, b in np.load(diff_file).tolist()}
             os.unlink(diff_file)
             for pair, (mut, aln) in diff.items() :
@@ -645,12 +644,12 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn) :
         if s[0] not in taxa : taxa[s[0]] = []
         taxa[s[0]].append([g, s[1]])
     
-    #bsns = list(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())]))
-    bsns = pool.map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())])
-    
     overlaps = []
     ids = 0
-    for bsnPrefix in bsns :
+    
+    #bsns = list(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())]))
+    
+    for bsnPrefix in pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())]) :
         tmp = np.load(bsnPrefix + '.bsn.npz')
         bsn, ovl = tmp['bsn'], tmp['ovl']
         ovl_score = np.vectorize(lambda m,n:orthoGroup.get((m,n), 2))(bsn[ovl.T[0], 0], bsn[ovl.T[1], 0])
