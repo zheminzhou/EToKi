@@ -175,9 +175,26 @@ def checkExecutable(commands) :
     except  :
         return False
 
+def download_krakenDB() :
+    curdir = os.path.abspath(os.curdir)
+    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    os.chdir(moveTo)
+    if not os.path.exists('minikraken2') :
+        os.makedirs('minikraken2')
+    os.chdir(os.path.join(moveTo, 'minikraken2'))
+    minikraken_url = 'https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz'
+    logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))    
+    subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).wait()
+    logger('Unpackaging minikraken2.')
+    subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).wait()
+    os.unlink('minikraken2_v2_8GB.tgz')
+    
+    os.chdir(curdir)
+
+
 def install_externals() :
     curdir = os.path.abspath(os.curdir)
-    moveTo = os.path.joifn(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
     
     if not checkExecutable([externals['blastn']]) or not checkExecutable([externals['makeblastdb']]) :
@@ -259,7 +276,8 @@ def configure(args) :
     externals = prepare_externals(conf=configs)
     if args.install :
         install_externals()
-        
+    if args.download_krakenDB :
+        download_krakenDB()
     for fname, flink in sorted(externals.items()) :
         flinks = flink.split()
         if fname not in {'kraken_database', 'enbler_filter'} :
@@ -270,8 +288,7 @@ def configure(args) :
     if not os.path.exists(externals['kraken_database']) :
         logger('''WARNING - kraken_database is not present. 
 You can still use EToKi except the parameter "--kraken" in EToKi assemble will not work.
-Alternatively you can download and unpackage minikraken2 manually at    https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz
-And pass the unpackaged folder in the parameter "--kraken_database" into EToKi.''')
+Alternatively you can download minikraken2 database using --download_krakenDB or pass an pre-installed database into EToKi using --link_krakenDB.''')
     
     write_configure(configs)
     logger('Configuration complete.')
@@ -282,15 +299,21 @@ def prepare_externals(conf=None) :
     externals = {k.strip():v.split('#')[0].strip().format(ETOKI=ETOKI) for k,v in conf.tolist()}
     externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
-    externals['enbler_filter'] = sys.executable + ' ' + externals.get('enbler_filter', '')
+    externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'
     return externals
 
 def add_args(a) :
-    parser = argparse.ArgumentParser(description='''Specify links to kraken database and usearch program.''')
+    parser = argparse.ArgumentParser(description='''Install or modify the 3rd party programs.''')
     parser.add_argument('--install', help='install external programs.', default=False, action='store_true')
-    parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. Download the 32-bit version from https://www.drive5.com/usearch/.', default=None)
-    parser.add_argument('--kraken_database', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database or use MiniKraken2: https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz', default=None)
-    return parser.parse_args(a)
+    parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. The 32-bit version can be downloaded from https://www.drive5.com/usearch/.', default=None)
+    parser.add_argument('--download_krakenDB', help='When specified, miniKraken2 (8GB) will be downloaded into the EToKi folder. You can also use --link_krakenDB to pass a pre-installed kraken2 database into EToKi.', default=False, action='store_true')
+    parser.add_argument('--link_krakenDB', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database or use MiniKraken2: https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz', default=None)
+    parser.add_argument('--path', '-p', help='Specify path to 3rd party programs manually. Use <program>=<path> format. --path can be specified multiple times', default=[], action='append')
+    args = parser.parse_args(a)
+    for ps in args.path :
+        k, v = ps.split('=')
+        args.__dict__[k] = v
+    return args
 
 
 def load_configure() :
