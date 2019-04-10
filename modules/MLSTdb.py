@@ -205,7 +205,7 @@ def getParams(args) :
     parser.add_argument('-d', '--database',                  help='[DEFAULT: No allele DB] Output - A lookup table of all alleles. ', default=None)
     parser.add_argument('-s', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
-    parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
+    parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.4 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.4)
     parser.add_argument('-p', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.2)
     parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.7 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
     parser.add_argument('-e', '--relaxEnd',                  help='[DEFAULT: False ] Allow changed ends (for pubmlst). ', action='store_true', default=False)
