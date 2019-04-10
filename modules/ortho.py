@@ -169,8 +169,10 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                     s_i += s
                 else :
                     s_j += s
-                    
-    self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+    if params['skipUBLAST'] :
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+    else :
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
     presence, ortho_pairs = {}, {}
     save = []
     for part in self_bsn :
@@ -288,10 +290,10 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            if aln > 0 :
+            if aln > match_frag_len :
                 gd = global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.01, 4))
                 distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
-                difference = mut/aln/gd[0]/gd[1]
+                difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
             else :
                 distances[i1, i2] = distances[i2, i1] = 0.8
                 difference = 1.5
@@ -571,7 +573,10 @@ def iter_map_bsn(data) :
         for n, s in seq :
             fout.write('>{0}\n{1}\n'.format(n, s) )
 
-    blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+    if params['skipUBLAST'] :
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+    else :
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     os.unlink(gfile)
     
     groups = []
@@ -742,7 +747,7 @@ def precluster2(data) :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2].astype(int)] != True]
             if m2.size :
                 gs = np.vectorize(lambda g1, g2:global_differences.get(tuple(sorted([g1, g2])), (0.01, 4.) ))(m2.T[0], m1[0])
-                sc = -(m2.T[1] - m1[1])/gs[0]/gs[1]
+                sc = -(m2.T[1] - m1[1])/gs[0]/gs[1]/params['allowed_variation']
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
@@ -918,14 +923,16 @@ EToKi.py ortho
     parser.add_argument('-P', '--priority', help='Comma delimited filenames that contain highly confident genes. ', default='')
     
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi', default='EToKi')
-    parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml or rapid (for extremely large datasets)', default='nj')
+    parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml (for small dataset) or rapid (extremely large datasets)', default='nj')
 
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
+    parser.add_argument('--incompleteCDS', help="Allowed type of imperfection for the reference genes. Default: ''. 'm': allows unrecognized start codon. '*' allows unrecognized stop codon. 's': allows internal stop codon. 'f': allows frameshift. Multiple keywords can be used together. e.g., use 'm*sf' to allow random sequences.", default='')
 
     parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.9', default=0.9, type=float)
     parser.add_argument('--clust_match_prop', help='minimum matches in mmseq clusters. Default: 0.9', default=0.9, type=float)
 
+    parser.add_argument('--fast', target='skipUBLAST', help='disable uBLAST search. Fast but less sensitive when nucleotide identities < 90%', default=False, action='store_true')
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.7', default=0.7, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
@@ -939,8 +946,7 @@ EToKi.py ortho
     parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
     parser.add_argument('--synteny_diff', help='. Default: 1.2', default=1.2, type=float)
 
-    parser.add_argument('--mutation_variation', help='Relative variation level in an ortholog group. Default: 2.', default=2., type=float)
-    parser.add_argument('--incompleteCDS', help="Allowed type of imperfection for the reference genes. Default: ''. 'm': allows unrecognized start codon. '*' allows unrecognized stop codon. 's': allows internal stop codon. 'f': allows frameshift. Multiple keywords can be used together. e.g., use 'm*sf' to allow random sequences.", default='')
+    parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. The larger, the more variations are kept. Default: 1.', default=1., type=float)
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -953,6 +959,7 @@ EToKi.py ortho
 
     params = parser.parse_args(a)
     if params.metagenome :
+        params.skipUBLAST = True
         params.incompleteCDS = 'm*sf'
         params.clust_identity = 0.99
         params.clust_match_prop = 0.8
