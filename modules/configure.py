@@ -299,16 +299,16 @@ def prepare_externals(conf=None) :
     externals = {k.strip():v.split('#')[0].strip().format(ETOKI=ETOKI) for k,v in conf.tolist()}
     externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
-    externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'
+    externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'.format(ETOKI=ETOKI)
     return externals
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''Install or modify the 3rd party programs.''')
-    parser.add_argument('--install', help='install external programs.', default=False, action='store_true')
-    parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. The 32-bit version can be downloaded from https://www.drive5.com/usearch/.', default=None)
-    parser.add_argument('--download_krakenDB', help='When specified, miniKraken2 (8GB) will be downloaded into the EToKi folder. You can also use --link_krakenDB to pass a pre-installed kraken2 database into EToKi.', default=False, action='store_true')
-    parser.add_argument('--link_krakenDB', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database or use MiniKraken2: https://ccb.jhu.edu/software/kraken2/dl/minikraken2_v2_8GB.tgz', default=None)
-    parser.add_argument('--path', '-p', help='Specify path to 3rd party programs manually. Use <program>=<path> format. --path can be specified multiple times', default=[], action='append')
+    parser.add_argument('--install', help='install 3rd party programs', default=False, action='store_true')
+    parser.add_argument('--usearch', dest='usearch', help='usearch is required for ortho and MLSType. A 32-bit version of usearch can be downloaded from https://www.drive5.com/usearch/', default=None)
+    parser.add_argument('--download_krakenDB', help='When specified, miniKraken2 (8GB) will be downloaded into the EToKi folder. You can also use --link_krakenDB to use a pre-installed kraken2 database.', default=False, action='store_true')
+    parser.add_argument('--link_krakenDB', dest='kraken_database', help='Kraken is optional in the assemble module. You can specify your own database here', default=None)
+    parser.add_argument('--path', '-p', help='Specify path to the 3rd party programs manually. Format: <program>=<path>. This parameter can be specified multiple times', default=[], action='append')
     args = parser.parse_args(a)
     for ps in args.path :
         k, v = ps.split('=')

@@ -258,19 +258,20 @@ def add_args(a) :
     parser = argparse.ArgumentParser(description='''
 EToKi.py prepare 
 (1) Concatenates reads of the same library together.
-(2) Trims sequences based on base-qualities.
-(3) Removes potential adapters and barcodes. 
-(4) Limits total amount of reads to be used.
-(5) Renames reads using their indexes.
+(2) Merge pair-end sequences for metagenomic reads (bbmap).
+(3) Trims sequences based on base-qualities (bbduk).
+(4) Removes potential adapters and barcodes (bbduk).
+(5) Limits total amount of reads to be used.
+(6) Renames reads using sequential numbers.
 ''', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--pe', action='append', help='sets of PE reads from the same library, delimited by commas. \ne.g.\nIf you have two sets of reads from a same library, it writes like:\n--pe a_R1.fq.gz,a_R2.fq.gz,b_R1.fq.gz,b_R2.fq.gz\nSpecify this multiple times if there are multiple libraries. ', default=[])
-    parser.add_argument('--se', action='append', help='sets of SE reads from the same library, delimited by commas. \ne.g.\nIf you have two sets of reads from a same library, it writes like:\n--se a.fq.gz,b.fq.gz\nSpecify this multiple times if there are multiple libraries. ', default=[])
-    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKiPrepare', default='EToKiPrepare')
-    parser.add_argument('-q', '--read_qual', help='Minimum quality for trimming. Default: 6', type=int, default=6)
-    parser.add_argument('-b', '--max_base', help='Total amount of bases (in BPs) to be kept. Set -1 to no restriction. Use ~100X coverage when you know the size of genome. Default: -1', type=int, default=-1)
-    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk2. Default: 30g', default='30g')
-    parser.add_argument('--noTrim', help='Do not do quality trim using bbduk2', action='store_true', default=False)
-    parser.add_argument('--merge', help='Try to merge PE reads by their overlaps', action='store_true', default=False)
+    parser.add_argument('--pe', action='append', help='comma delimited files of PE reads from the same library.\ne.g. --pe a_R1.fq.gz,a_R2.fq.gz,b_R1.fq.gz,b_R2.fq.gz\nThis can be specified multiple times for different libraries. ', default=[])
+    parser.add_argument('--se', action='append', help='comma delimited files of SE reads from the same library.\ne.g. --se c_SE.fq.gz,d_SE.fq.gz\nThis can be specified multiple times for different libraries. ', default=[])
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_prepare', default='EToKi_prepare')
+    parser.add_argument('-q', '--read_qual', help='Minimum quality to be kept in bbduk. Default: 6', type=int, default=6)
+    parser.add_argument('-b', '--max_base', help='Total amount of bases (in BPs) to be kept. \nDefault as -1 for no restriction. \nSuggest to use ~100X coverage for de novo assembly.', type=int, default=-1)
+    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 30g', default='30g')
+    parser.add_argument('--noTrim', help='Do not do quality trim using bbduk', action='store_true', default=False)
+    parser.add_argument('--merge', help='Try to merge PE reads by their overlaps using bbmap', action='store_true', default=False)
     parser.add_argument('--noRename', help='Do not rename reads', action='store_true', default=False)
 
     args = parser.parse_args(a)

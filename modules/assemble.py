@@ -560,36 +560,37 @@ def add_args(a) :
     import argparse
     parser = argparse.ArgumentParser(description='''
 EToKi.py assemble
-(1.1) assembles short reads into assemblies, or 
-(1.2) maps them onto a reference. 
+(1.1) Assembles short reads into assemblies, or 
+(1.2) Maps them onto a reference. 
 And
-(2) polishes consensus using polish, 
+(2) Polishes consensus using polish, 
 (3) Removes low level contaminations. 
 (4) Estimates the base quality of the consensus. 
 (5) Predicts taxonomy using Kraken.
 ''', formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--pe', action='append', help='two files of PE reads, delimited by commas. ', default=[])
-    parser.add_argument('--se', action='append', help='a file of SE read. \n', default=[])
-    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EnBler', default='EnBler')
-    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. Default: spades for single isolates, megahit for metagenome', default='')
-    parser.add_argument('-k', '--kmers', help='Relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
-    parser.add_argument('-m', '--mapper', help='Aligner used for read mapping.\nDisabled if you specify a reference. \n bwa for single isolates, bowtie2 for metagenome\nDefault: minimap2 for both', default='minimap2')
-    parser.add_argument('-d', '--max_diff', help='Maximum proportion of mismatches in mapping. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
-    parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this will disable assembly process. ', default=None)
-    parser.add_argument('-i', '--ingroup', help='Additional references from the same population. ', default='')
-    parser.add_argument('-o', '--outgroup', help='Additional references from other population. Reads that are more similar to outgroups will be excluded from analysis. ', default='')
+    parser.add_argument('--pe', action='append', help='comma delimited two files of PE reads. ', default=[])
+    parser.add_argument('--se', action='append', help='one file of SE read. \n', default=[])
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_assemble', default='EToKi_assemble')
+    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome', default='')
+    parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this for reference mapping module. ', default=None)
+    parser.add_argument('-k', '--kmers', help='relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
+    parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa and bowtie2', default='minimap2')
+    parser.add_argument('-d', '--max_diff', help='Maximum proportion of variations allowed for a aligned reads. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
+    parser.add_argument('-i', '--ingroup', help='Additional references presenting intra-population genetic diversities. ', default='')
+    parser.add_argument('-o', '--outgroup', help='Additional references presenting genetic diversities outside of the studied population. \nReads that are more similar to outgroups will be excluded from analysis. ', default='')
     
-    parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite polish process. \nRequired format:\n<cont_name> <site> <base_type>', default=None)
-    parser.add_argument('-c', '--cont_depth', help='Lower and upper limits of read depths for a valid contig. Default: 0.2,2.5', default='')
+    parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite the polish process. \nRequired format:\n<cont_name> <site> <base_type>\n...', default=None)
+    parser.add_argument('-c', '--cont_depth', help='Allowed range of read depth variations relative to average value.\nDefault: 0.2,2.5\nContigs with read depths outside of this range will be removed from the final assembly.', default='')
     
-    parser.add_argument('--excluded', help='A name of the file that contains reads excluded from the analysis.', default='')
+    parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
-    parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
+
     parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
+    parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
-    parser.add_argument('--kraken', dest='runKraken', help='Run kmer based species prediciton on contigs.', action='store_true', default=False)
+    parser.add_argument('--kraken', dest='runKraken', help='Run kmer based species predicton on contigs.', action='store_true', default=False)
 
     args = parser.parse_args(a)
     if args.cont_depth == '' :

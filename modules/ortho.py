@@ -290,7 +290,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            if aln > match_frag_len :
+            if aln >= params['match_frag_len'] :
                 gd = global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.01, 4))
                 distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
                 difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
@@ -914,53 +914,53 @@ EToKi.py ortho
 (1) Retieves genes and genomic sequences from GFF files and FASTA files.
 (2) Groups genes into clusters using mmseq.
 (3) Maps gene clusters back to genomes. 
-(4) Filters paralogous cluster alignments.
-(5) identify a set of most probable non-overlapping orthologs.
-(6) Re-annotate genomes using the new set of orthologs. 
+(4) Discard paralogous alignments.
+(5) Discard orthologous clusters if they had regions which overlapped with the regions within other sets that had greater scores.
+(6) Re-annotate genomes using the remained of orthologs. 
 ''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('GFFs', metavar='N', help='GFF files containing both annotations and sequences.', nargs='*')
     parser.add_argument('-g', '--genes', help='Comma delimited files for additional genes. ', default='')
-    parser.add_argument('-P', '--priority', help='Comma delimited filenames that contain highly confident genes. ', default='')
+    parser.add_argument('-P', '--priority', help='Comma delimited, ordered list of filenames that contain genes with reliable starts and ends. \nGenes listed in these files are preferred in all stages.', default='')
     
-    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi', default='EToKi')
-    parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. nj [default], ml (for small dataset) or rapid (extremely large datasets)', default='nj')
+    parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_ortho', default='EToKi_ortho')
+    parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. \nnj [default], ml (for small dataset) or rapid (extremely large datasets)', default='nj')
 
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
-    parser.add_argument('--incompleteCDS', help="Allowed type of imperfection for the reference genes. Default: ''. 'm': allows unrecognized start codon. '*' allows unrecognized stop codon. 's': allows internal stop codon. 'f': allows frameshift. Multiple keywords can be used together. e.g., use 'm*sf' to allow random sequences.", default='')
+    parser.add_argument('--incompleteCDS', help="Allowed types of imperfection for reference genes. Default: ''. \n's': allows unrecognized start codon. \n'e': allows unrecognized stop codon. \n'i': allows stop codons in the coding region. \n'f': allows frameshift in the coding region. \nMultiple keywords can be used together. e.g., use 'sife' to allow random sequences.", default='')
 
-    parser.add_argument('--clust_identity', help='minimum identities in mmseq clusters. Default: 0.9', default=0.9, type=float)
-    parser.add_argument('--clust_match_prop', help='minimum matches in mmseq clusters. Default: 0.9', default=0.9, type=float)
+    parser.add_argument('--clust_identity', help='minimum identities of mmseqs clusters. Default: 0.95', default=0.95, type=float)
+    parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.85', default=0.85, type=float)
 
-    parser.add_argument('--fast', target='skipUBLAST', help='disable uBLAST search. Fast but less sensitive when nucleotide identities < 90%', default=False, action='store_true')
+    parser.add_argument('--fast', dest='skipUBLAST', help='disable uBLAST search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
-    parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.7', default=0.7, type=float)
+    parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
-    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.9', default=0.9, type=float)
-    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 50', default=50., type=float)
+    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
+    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 0', default=0., type=float)
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 60', default=60., type=float)
     
     parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
-    parser.add_argument('--synteny_diff', help='. Default: 1.2', default=1.2, type=float)
+    parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
-    parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. The larger, the more variations are kept. Default: 1.', default=1., type=float)
-    parser.add_argument('--metagenome', help='Set to metagenome mode. equals to "--incompleteCDS --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
+    parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept. Default: 1.', default=1., type=float)
+    parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
-    parser.add_argument('--old_prediction', help='development param', default=None)
+    '''parser.add_argument('--old_prediction', help='development param', default=None)
     parser.add_argument('--clust', help='development param', default=None)
     parser.add_argument('--map_bsn', help='development param', default=None)
     parser.add_argument('--self_bsn', help='development param', default=None)
     parser.add_argument('--conflicts', help='development param', default=None)
     parser.add_argument('--global', help='development param', default=None)
-    parser.add_argument('--prediction', help='development param', default=None)
+    parser.add_argument('--prediction', help='development param', default=None)'''
 
     params = parser.parse_args(a)
     if params.metagenome :
         params.skipUBLAST = True
-        params.incompleteCDS = 'm*sf'
+        params.incompleteCDS = 'sife'
         params.clust_identity = 0.99
         params.clust_match_prop = 0.8
         params.match_identity = 0.98

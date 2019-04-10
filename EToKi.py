@@ -3,23 +3,23 @@ from modules.configure import logger
 #refMasker, profile2matrix
 #            ['metaCaller','secondary SNP caller for metagenomic samples with intra-species diversity'], 
 
-commands = [['configure', 'configure external dependencies if you do not use implemented version.'],    #
-            ['prepare',   'trim, collapse, downsize and rename in short reads.'],                       #
+commands = [['configure', 'install and/or configure 3rd party programs'],    #
+            ['prepare',   'trim, collapse, downsize and rename the short reads.'],                       #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
-            ['ortho',     'Pan-genome prediction (also used to find genes for wgMLST schemes)'],        #
-            ['MLSTdb',    'select exemplar genes from pan genes as references for MLST typing'],        #
+            ['ortho',     'pan-genome (and wgMLST scheme) prediction'],        #
+            ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
-            ['cgMLST',    'pick core genes from wgMLST genes'], 
+#            ['cgMLST',    'pick core genes from wgMLST genes'], 
             ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
-            ['evalHCC',   'evaluate HierCC to find the most stable clusters'], 
+#            ['evalHCC',   'evaluate HierCC to find the most stable clusters'], 
             ['align',     'align multiple queried genomes to a single reference'], 
-            ['phylo',     'infer phylogeny and ancestral states from genomic alignments or SNP matrix'], 
+            ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
             ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
             ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
-            ['EBEis',     'ab initio serotype prediction for Escherichia'],                             #
-            ['isCRISPOL', 'ab initio prediction of CRISPOL for Typhimurium assemblies'],                #
-            ['uberBlast', 'A merged BLAST-like results from Blastn, uBlastp, minimap2 and mmseqs'],     #
-            ['clust',     'cluster of short sequences using mmseqs linclust']]                          #
+            ['EBEis',     'ab initio serotype prediction for Escherichia coli and Shigella spp.'],                             #
+            ['isCRISPOL', 'ab initio prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
+            ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
+            ['clust',     'linear-time clustering of short sequences using mmseqs linclust']]                          #
 
 
 def etoki():

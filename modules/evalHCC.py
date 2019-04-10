@@ -1,8 +1,12 @@
 import pandas as pd, numpy as np, sys, os, gzip
-from configure import uopen
 from sklearn.metrics.cluster import adjusted_rand_score
 from sklearn.metrics import v_measure_score, silhouette_score, f1_score
 import matplotlib.pyplot as plt
+try:
+    from configure import uopen
+except :
+    from .configure import uopen
+    
 
 def shannon_index(cls) :
     h = np.zeros(cls.shape[0])
