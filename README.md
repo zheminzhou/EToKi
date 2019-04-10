@@ -71,7 +71,7 @@ python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/t
 ~~~~~~~~~~
   
 
-# Quick Start (with examples)
+# QUICK START (with examples)
 
 ### Trim genomic reads
 ~~~~~~~~~~~
@@ -138,7 +138,7 @@ And to see the parameters for each command, use:
 > EToKi.py \<command\> -h
 
 ## configure - install and/or configure 3rd party programs
-See the INSTALL section or the help page below.
+See the INSTALLATION section or the help page below.
 ~~~~~~~~~~~~~~
 usage: EToKi.py configure [-h] [--install] [--usearch USEARCH]
                           [--download_krakenDB]
