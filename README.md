@@ -4,18 +4,23 @@ all methods related to Enterobase
 # INSTALLATION:
 
 EToKi was developed and tested in both python 2.7 and 3.5. EToKi depends on several python libraries: 
->ete3
->numba
->numpy
->pandas
->sklearn
+~~~~~~~~~~
+ete3
+numba
+numpy
+pandas
+sklearn
+~~~~~~~~~~
 
 All libraries can be installed using pip: 
 
-> pip install ete3 numba numpy pandas sklearn
-
+~~~~~~~~~~
+pip install ete3 numba numpy pandas sklearn
+~~~~~~~~~~
 EToKi also calls many 3rd party programs for different pipelines. 
->raxml
+
+~~~~~~~~~~
+raxml
 fasttree
 rapidnj
 bbmap
@@ -33,26 +38,37 @@ minimap2
 kraken2 & minikraken2
 pilercr
 trf
+~~~~~~~~~~
 
 All 3rd party programs except for usearch can be automatically installed using *configure* command:
-> python EToKi.py configure --install --download_krakenDB
- 
- This has only been tested in Ubutu 16.06 but is expected to be run in other 64-bit Linux systems. 
+~~~~~~~~~~
+python EToKi.py configure --install --download_krakenDB
+~~~~~~~~~~
+
+NOTE: This has only been tested in Ubutu 16.06 but is expected to be run in other 64-bit Linux systems. 
  
 Usearch is a commercial program and allows free uses of 32-bit version for individuals. Please download it from [https://www.drive5.com/usearch/](https://www.drive5.com/usearch/)
 
 After it is downloaded. pass its executable file to EToKi using **--usearch**
 
-> python EToKi.py configure --usearch /path/to/usearch
+~~~~~~~~~~
+python EToKi.py configure --usearch /path/to/usearch
+~~~~~~~~~~
 
  You can also run both **--install** and **--usearch** at the same time:
- >python EToKi.py configure --install --download_krakenDB --usearch /path/to/usearch
+~~~~~~~~~~
+python EToKi.py configure --install --download_krakenDB --usearch /path/to/usearch
+~~~~~~~~~~
 
 Note that **--download_krakenDB** will download the minikraken2 database, which is about 8GB in size. Alternatively, you can use **--link_krakenDB** to pass a different database into EToKi
-> python EToKi.py configure --install --link_krakenDB /path/to/krakenDB --usearch /path/to/usearch
+~~~~~~~~~~
+python EToKi.py configure --install --link_krakenDB /path/to/krakenDB --usearch /path/to/usearch
+~~~~~~~~~~
 
 You can also use pre-installed 3rd party programs in EToKi, by passing their absolute paths into the program using **--path**. This argument can be specified multiple times:
-> python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/to/raxml
+~~~~~~~~~~
+python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/to/raxml
+~~~~~~~~~~
   
 
 # Quick Start (with examples)
