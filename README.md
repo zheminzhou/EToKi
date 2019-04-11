@@ -1,3 +1,4 @@
+
 # EToKi (Enterobase Tool Kit)
 all methods related to Enterobase
 
@@ -71,7 +72,7 @@ python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/t
 ~~~~~~~~~~
   
 
-# QUICK START (with examples)
+# Quick Start (with examples)
 
 ### Trim genomic reads
 ~~~~~~~~~~~
@@ -138,7 +139,7 @@ And to see the parameters for each command, use:
 > EToKi.py \<command\> -h
 
 ## configure - install and/or configure 3rd party programs
-See the INSTALLATION section or the help page below.
+See the INSTALL section or the help page below.
 ~~~~~~~~~~~~~~
 usage: EToKi.py configure [-h] [--install] [--usearch USEARCH]
                           [--download_krakenDB]
@@ -394,7 +395,7 @@ optional arguments:
                         [DEFAULT: 0.9 ] Maximum identities between resulting
                         refAlleles.
   -m MIN_IDEN, --min_iden MIN_IDEN
-                        [DEFAULT: 0.4 ] Minimum identities between refstrain
+                        [DEFAULT: 0.6 ] Minimum identities between refstrain
                         and resulting refAlleles.
   -p PARALOG, --paralog PARALOG
                         [DEFAULT: 0.1 ] Minimum differences between difference
@@ -464,6 +465,7 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## hierCC - generate hierarchical clusters from cgMLST profiles
+Almost all STs of cgMLST schemes contain some missing genes because they are called from draft genomes consisting of multiple contigs. As a result, almost every genome results in a unique cgST number, many of which only differ from other cgSTs by missing data. It is not obviously from the profiles to evaluate the genetic relationships of genomes. **EToKi hierCC** offers a finest clustering of cgMLST profiles into 1,000's of different levels, using single-linkage cluster algorithm. Clusters present natural populations can be extracted as sub-sets of the hierCC scheme later on. 
 ~~~~~~~~~~~
 usage: EToKi.py hierCC [-h] -p PROFILE -o OUTPUT [-i INCREMENTAL] [-d DELTA]
                        [--immutable]
@@ -490,7 +492,7 @@ usage: EToKi.py align [-h] -r REFERENCE [-p PREFIX] [-a] [-m] [-c CORE]
                       [-n N_PROC]
                       queries [queries ...]
 
-Alignment multiple genomes onto a single reference.
+Align multiple genomes onto a single reference.
 
 positional arguments:
   queries               queried genomes. Use <Tag>:<Filename> format to feed
@@ -520,7 +522,11 @@ usage: EToKi.py phylo [-h] [--tasks TASKS] --prefix PREFIX
                       [--alignment ALIGNMENT] [--snp SNP] [--tree TREE]
                       [--ancestral ANCESTRAL] [--core CORE] [--n_proc N_PROC]
 
-Parameters for phylogeny_workflow.py
+EToKi phylo runs to:
+(1) Generate SNP matrix from alignment (-t matrix)
+(2) Calculate ML phylogeny from SNP matrix using RAxML (-t phylogeny)
+(3) Workout the nucleotide sequences of internal nodes in the tree using ML estimation (-t ancestral or -t ancestral_proportion for ratio frequencies)
+(4) Place mutations onto branches of the tree (-t mutation)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -553,6 +559,13 @@ optional arguments:
 
 
 ## RecHMM -  identify recombination sketches from a SNP matrix
+**RecHMM** was initially implemented in R and described in supplementary material of [Zhou, Z. et al., PNAS, 2014](https://www.pnas.org/content/111/33/12199). RecHMM implements a modified version of Hidden Markov Model (HMM) to separates sites imported by recombination from those vertically inherited. 
+
+Here is a 2nd version of RecHMM implemented in EToKi package. The changes are:
+1. The phylogeny and mutation placement module is separated into **EToKi phylo**. 
+2. The codes are re-implemented in Python Numpy and much more efficient. 
+3. The EM procedure is distributed into multiple processes. 
+4. HMM model is redesigned to include two extra states (4 in total). The new implementation can identify not only recombination from external sources, but also intra-population transfers. 
 ~~~~~~~~~~~
 usage: EToKi.py RecHMM [-h] --data DATA [--model MODEL] [--task TASK]
                        [--init INIT] [--prefix PREFIX] [--cool_down COOL_DOWN]
@@ -602,6 +615,9 @@ optional arguments:
 
 
 ## RecFilter - Remove recombination sketches from a SNP matrix
+**EToKi RecFilter** automatically remove SNPs from an input matrix that were brought in by homologous recombinations, according to the results of recombination detection tool. It currently supports outputs of RecHMM, [ClonalFrameML](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1004041) and [Gubbins](https://academic.oup.com/nar/article/43/3/e15/2410982). It also accepts simulated results from [SimBac](https://www.ncbi.nlm.nih.gov/pubmed/27713837). 
+
+Traditionally, SNPs affected by recombination are removed from the SNP matrix straightly. This is fine when recombination only covers low proprotion of the core genome. However, when large proportion of the genome is covered by recombination, removing without counting the region as "missing" significantly shortens the branch lengths of the tree. **RecFilter** counts the removed recombinant sketches as missing data, and increases the weights of the remaining mutational SNPs of the same branch, and thus gets better estimation of its length. 
 ~~~~~~~~~~~
 usage: EToKi.py RecFilter [-h] --prefix PREFIX --snp MATRIX --tree TREE --rec
                           REC [--prob PROB] [--clonalframeml] [--simbac]
@@ -624,7 +640,10 @@ optional arguments:
 ~~~~~~~~~~~
 
 
-## EB*Eis* - *ab initio* serotype prediction for *Escherichia coli* & *Shigella spp.*
+## EB*Eis* - *in silico* serotype prediction for *Escherichia coli* & *Shigella spp.*
+**EB*Eis*** is a BLASTn based prediction tool for O and H antigens of *Escherichia coli* and *Shigella*. It uses essential genes (*wzx, wzy, wzt & wzm* for O; *fliC* for H) as markers. The database its using consists of two sources:
+1. [SeroTypeFinder ](https://bitbucket.org/genomicepidemiology/serotypefinder_db/src)
+2. O-antigen gene sequences reported in [DebRoy et al., PLoS ONE, 2016](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0147434#pone.0147434.ref011)
 ~~~~~~~~~~~
 usage: EToKi.py EBEis [-h] -q QUERY [-t TAXON] [-p PREFIX]
 
@@ -635,16 +654,18 @@ optional arguments:
   -q QUERY, --query QUERY
                         file name for the queried assembly in multi-FASTA format.
   -t TAXON, --taxon TAXON
-                        Taxon database to compare with. Only support Escherichia
+                        Taxon database to compare with. 
+                        Only support Escherichia (default) for the moment.
   -p PREFIX, --prefix PREFIX
-                        prefix for intermediate files.
+                        prefix for intermediate files. Default: EBEis
 ~~~~~~~~~~~
 
-## isCRISPOL - *ab initio* prediction of CRISPOL array for *Salmonella enterica* serovar Typhimurium
+## isCRISPOL - *in silico* prediction of CRISPOL array for *Salmonella enterica* serovar Typhimurium
+CRISPOL is an oligo based Typhimurium sub-typing method described in ([Fabre et al., PLoS ONE, 2012](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0036995)). We use the direct repeats (DRs) and spacers in the Typhimurium CPRISR array to predict CRISPOL types from genomic assemblies.
 ~~~~~~~~~~~
 usage: EToKi.py isCRISPOL [-h] [N [N ...]]
 
-EToKi.py isCRISPOL
+in silico Typhimurium subtyping using CRISPOL scheme (Fabre et al., PLoS ONE, 2012)
 
 positional arguments:
   N           FASTA files containing assemblies of S. enterica Typhimurium.
@@ -653,7 +674,13 @@ optional arguments:
   -h, --help  show this help message and exit
 ~~~~~~~~~~~
 
-## uberBlast - Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences
+## uberBlast - Use BLASTn, uBLASTp, minimap2 and/or mmseqs to identify similar sequences
+**EToKi uberBlast** is also internally called by **EToKi ortho** to align exemplar genes onto queried genomes, using both BLASTn and uSearch-uBLASTp. Amino acid alignments are converted back to its original nucleotide sequences, such that the coordinates are consistent across different methods. 
+
+* minimap2 --- Fastest alignment in nucleotide level. High accuracy in identities >= 90%, but lose sensitivity quickly for lower identities. 
+* blastn --- Fast alignment in nucleotide level.  Lose sensitivity for identities < 80%
+* mmseqs --- Amino acid based alignment for identities >= 70% (open source)
+* uBLASTp --- Amino acid based alignment for identities < 50% (commercial software)
 ~~~~~~~~~~~
 usage: EToKi.py uberBlast [-h] -r REFERENCE -q QUERY [-o OUTPUT] [--blastn]
                           [--ublast] [--ublastSELF] [--minimap] [--minimapASM]
@@ -729,17 +756,17 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## clust - linear-time clustering of short sequences using mmseqs linclust
+**EToKi clust** is also called by **EToKi ortho** internally to cluster seed genes into gene clusters. Given its linear-time complexity, it can cluster millions of gene sequences in minutes. 
 ~~~~~~~~~~~
 usage: EToKi.py clust [-h] -i INPUT -p PREFIX [-d IDENTITY] [-c COVERAGE]
                       [-t N_THREAD]
 
-Get clusters and exemplar sequences of the clusters. Run mmseqs linclust
-iteratively.
+Get clusters and exemplars of clusters from gene sequences using mmseqs linclust.
 
 optional arguments:
   -h, --help            show this help message and exit
   -i INPUT, --input INPUT
-                        [INPUT; REQUIRED] name of the gene fasta file.
+                        [INPUT; REQUIRED] name of the file containing gene sequneces in FASTA format.
   -p PREFIX, --prefix PREFIX
                         [OUTPUT; REQUIRED] prefix of the outputs.
   -d IDENTITY, --identity IDENTITY
