@@ -5,8 +5,8 @@ except :
     from .configure import externals, uopen, xrange, logger
 
 def clust(argv) :
-    parser = argparse.ArgumentParser(description='Get clusters and exemplar sequences of the clusters. Run mmseqs linclust iteratively. ')
-    parser.add_argument('-i', '--input', help='[INPUT; REQUIRED] name of the gene fasta file.', required=True)
+    parser = argparse.ArgumentParser(description='Get clusters and exemplars of clusters from gene sequences using mmseqs linclust.')
+    parser.add_argument('-i', '--input', help='[INPUT; REQUIRED] name of the file containing gene sequneces in FASTA format.', required=True)
     parser.add_argument('-p', '--prefix', help='[OUTPUT; REQUIRED] prefix of the outputs.', required=True)
     parser.add_argument('-d', '--identity', help='[PARAM; DEFAULT: 0.9] minimum intra-cluster identity.', default=0.9, type=float)
     parser.add_argument('-c', '--coverage', help='[PARAM; DEFAULT: 0.9] minimum intra-cluster coverage.', default=0.9, type=float)
