@@ -412,8 +412,8 @@ optional arguments:
 usage: EToKi.py MLSType [-h] -i GENOME -r REFALLELE -k UNIQUE_KEY
                         [-d DATABASE] [-o OUTPUT] [-q] [-f] [-m MIN_IDEN]
                         [-p MIN_FRAG_PROP] [-l MIN_FRAG_LEN] [-x INTERGENIC]
-                        [--merging_prop MERGING_PROP]
-                        [--merging_error MERGING_ERROR] [--max_dist MAX_DIST]
+                        [--overlap_prop OVERLAP_PROP]
+                        [--overlap_iden OVERLAP_IDEN] [--max_dist MAX_DIST]
                         [--diag_diff DIAG_DIFF] [--max_diff MAX_DIFF]
 
 MLSType. Find and designate MLST alleles from a queried assembly.
@@ -442,32 +442,35 @@ optional arguments:
   -l MIN_FRAG_LEN, --min_frag_len MIN_FRAG_LEN
                         [DEFAULT: 50 ] Minimum length of a fragment.
   -x INTERGENIC, --intergenic INTERGENIC
-                        [DEFAULT: 50,500] Call alleles in intergenic region
-                        if the distance between two closely located loci fall 
-                        within the range defined by the two numbers.
-  --merging_prop MERGING_PROP
-                        [DEFAULT: 0.5 ] Given two hits, if <merging_prop> of 
-                        their regions overlap, and the sequence identities of 
-                        one hits is <mergine_error> than the other. The hit 
-                        with lower identities will be removed.
-  --merging_error MERGING_ERROR
-                        [DEFAULT: 0.05 ] Given two hits, if <merging_prop> of 
-                        their regions overlap, and the sequence identities of 
-                        one hits is <mergine_error> than the other. The hit 
-                        with lower identities will be removed.
-  --max_dist MAX_DIST   [DEFAULT: 300 ] Consider two closely located hits as 
-                        a synteny block if their coordinates in both queried 
-                        genomes and reference genes are seperated by no more 
+                        [DEFAULT: -1,-1 ] Call alleles in intergenic region if
+                        the distance between two closely located loci fall
+                        within the range defined by the two numbers. Suggest
+                        to use 50,500. This is diabled by default with minus
+                        numbers.
+  --overlap_prop OVERLAP_PROP
+                        [DEFAULT: 0.5 ] Given two hits, if <overlap_prop> of
+                        their regions overlap, and the sequence identities of
+                        one hits is <overlap_iden> lower than the other. The
+                        hit with lower identities will be removed.
+  --overlap_iden OVERLAP_IDEN
+                        [DEFAULT: 0.05 ] Given two hits, if <overlap_prop> of
+                        their regions overlap, and the sequence identities of
+                        one hits is <overlap_iden> lower than the other. The
+                        hit with lower identities will be removed.
+  --max_dist MAX_DIST   [DEFAULT: 300 ] Consider two closely located hits as a
+                        synteny block if their coordinates in both queried
+                        genomes and reference gene are seperated by no more
                         than <max_dist> bps.
   --diag_diff DIAG_DIFF
-                        [DEFAULT: 1.2 ] Consider two closely located hits as
-                        a synteny block if, after merged, its covered region in
-                        the queried genome is no more than <diag_diff> folds of 
-                        the region in the reference gene.
-  --max_diff MAX_DIFF   [DEFAULT: 200 ] Consider two closely located hits as
-                        a synteny block if, after merged, the lengths of its 
-                        covered regions in the queried genome and in reference 
-                        gene are differed by no more than <max_diff> bps. 
+                        [DEFAULT: 1.2 ] Consider two closely located hits as a
+                        synteny block if, after merged, its covered region in
+                        the queried genome is no more than <diag_diff> folds
+                        of the region in the reference gene.
+  --max_diff MAX_DIFF   [DEFAULT: 200 ] Consider two closely located hits as a
+                        synteny block if, after merged, the lengths of its
+                        covered regions in the queried genome and the
+                        reference gene are differed by no more than <max_diff>
+                        bps.
  ~~~~~~~~~~
 
 ## hierCC - generate hierarchical clusters from cgMLST profiles
