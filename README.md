@@ -1,10 +1,10 @@
 
 # EToKi (Enterobase Tool Kit)
-all methods related to Enterobase
+All methods related to Enterobase data analysis pipelines.
 
 # INSTALLATION:
 
-EToKi was developed and tested in both python 2.7 and 3.5. EToKi depends on several python libraries: 
+EToKi was developed and tested in both Python 2.7 and Python 3.5. EToKi depends on several Python libraries: 
 ~~~~~~~~~~
 ete3
 numba
@@ -18,7 +18,7 @@ All libraries can be installed using pip:
 ~~~~~~~~~~
 pip install ete3 numba numpy pandas sklearn
 ~~~~~~~~~~
-EToKi also calls many 3rd party programs for different pipelines. 
+EToKi also calls the following 3rd party programs for different pipelines:
 
 ~~~~~~~~~~
 raxml
@@ -46,11 +46,11 @@ All 3rd party programs except for usearch can be automatically installed using *
 python EToKi.py configure --install --download_krakenDB
 ~~~~~~~~~~
 
-NOTE: This has only been tested in Ubutu 16.06 but is expected to be run in other 64-bit Linux systems. 
+NOTE: This has only been tested in Ubutu 16.06 but is expected to run on other 64-bit Linux systems. 
  
-Usearch is a commercial program and allows free uses of 32-bit version for individuals. Please download it from [https://www.drive5.com/usearch/](https://www.drive5.com/usearch/)
+Usearch is a commercial program and allows free use of the 32-bit version for individuals. Please download it from [https://www.drive5.com/usearch/](https://www.drive5.com/usearch/)
 
-After it is downloaded. pass its executable file to EToKi using **--usearch**
+After it is downloaded, pass its executable file to EToKi using **--usearch**
 
 ~~~~~~~~~~
 python EToKi.py configure --usearch /path/to/usearch
@@ -61,12 +61,12 @@ python EToKi.py configure --usearch /path/to/usearch
 python EToKi.py configure --install --download_krakenDB --usearch /path/to/usearch
 ~~~~~~~~~~
 
-Note that **--download_krakenDB** will download the minikraken2 database, which is about 8GB in size. Alternatively, you can use **--link_krakenDB** to pass a different database into EToKi
+Note that **--download_krakenDB** will download the minikraken2 database, which is about 8GB in size. Alternatively, you can use **--link_krakenDB** to pass a different Kraken database to EToKi.
 ~~~~~~~~~~
 python EToKi.py configure --install --link_krakenDB /path/to/krakenDB --usearch /path/to/usearch
 ~~~~~~~~~~
 
-You can also use pre-installed 3rd party programs in EToKi, by passing their absolute paths into the program using **--path**. This argument can be specified multiple times:
+You can also use pre-installed 3rd party programs in EToKi, by passing their absolute paths into the program using **--path**. This argument can be specified multiple times in the same command:
 ~~~~~~~~~~
 python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/to/raxml
 ~~~~~~~~~~
@@ -106,7 +106,7 @@ python EToKi.py MLSType -i examples/GCF_001566635.1_ASM156663v1_genomic.fna -r e
 ~~~~~~~~~~~
 python EToKi.py hierCC -p examples/Yersinia.cgMLST.profile.gz --o examples/Yersinia.cgMLST.hierCC
 ~~~~~~~~~~~
-### Run EBEis (EnteroBase Escherichia in silico Serotyping)
+### Run EBEis (EnteroBase Escherichia in silico serotyping)
 ~~~~~~~~~~~
 python EToKi.py EBEis -t Escherichia -q examples/GCF_000010485.1_ASM1048v1_genomic.fna -p SE15
 ~~~~~~~~~~~
@@ -122,7 +122,7 @@ python EToKi.py uberBlast -q examples/Escherichia.Achtman.alleles.fasta -r examp
 ~~~~~~~~~~~
 python EToKi.py phylo -t all -p phylo_out -m examples/phylo_rec.fasta
 ~~~~~~~~~~~
-### Identify recombination sketches from the SNP matrix, and revise the branch lengths of the tree
+### Identify recombination sketches from the SNP matrix, and revise the branch lengths of a tree
 ~~~~~~~~~~~
 python EToKi.py RecHMM -d phylo_out.mutations.gz -p examples/rec_out
 ~~~~~~~~~~~
@@ -132,10 +132,10 @@ python EToKi.py RecFilter -s phylo_out.matrix.gz -t phylo_out.labelled.nwk -r ex
 ~~~~~~~~~~~
 
 # USAGE:
-The first argument passed into EToKi specifies the command to be called and the rests are the parameters for each command. To see all the commands available in EToKi, use
+The first argument passed into EToKi specifies the command to be called and the rest are the parameters for that command. To see all the commands available in EToKi, use
 > python EToKi.py -h
 
-And to see the parameters for each command, use:
+And to see the parameters for an individual command, use:
 > EToKi.py \<command\> -h
 
 ## configure - install and/or configure 3rd party programs
@@ -203,10 +203,10 @@ optional arguments:
 ~~~~~~~~~~~~~~~~
 
 ## assemble - *de novo* or reference-guided assembly for genomic or metagenomic reads
-**EToKi assemble** is a joint methods for both *de novo* assembly and reference-guided assembly. 
-* *de novo* assembly approach calls either SPAdes (default) or MEGAHIT (default for metagenomic data) on the short reads that have been cleaned up using **EToKi prepare**, and uses Pilon to polish the assembled scaffolds and evaluate the reliability of consensus bases of the scaffolds. 
+**EToKi assemble** is a joint method for both *de novo* assembly and reference-guided assembly. 
+* *de novo* assembly approach calls either SPAdes (default) or MEGAHIT (default for metagenomic data) on short reads that have been cleaned up using **EToKi prepare**, and uses Pilon to polish the assembled scaffolds and evaluate the reliability of consensus bases of the scaffolds. 
 
-* Reference-guided assembly is also called as "reference mapping". The short reads are aligned onto a user-specified reference genome using minimap2. The nucleotide bases of the reference genome are updated using Pilon, according to the consensus base callings of the covered reads. Non-specific metagenomic reads of closely related species can sometimes also align onto the reference genome and confuse the consensus callings. Two arguments, **--outgroup** and **--ingroup**, are given to pre-filter these non-specific reads and obtain clean SNP callings. 
+* Reference-guided assembly is also called "reference mapping". Short reads are aligned to a user-specified reference genome using minimap2. Nucleotide bases of the reference genome are updated using Pilon, according to the consensus base calls of the covered reads. Non-specific metagenomic reads of closely related species can sometimes also align to the reference genome and confuse consensus calling. Two arguments, **--outgroup** and **--ingroup**, are given to pre-filter these non-specific reads and obtain clean SNP calls. 
 ~~~~~~~~~~~~~~~~~
 usage: EToKi.py assemble [-h] [--pe PE] [--se SE] [-p PREFIX] [-a ASSEMBLER]
                          [-k KMERS] [-m MAPPER] [-d MAX_DIFF] [-r REFERENCE]
@@ -268,16 +268,16 @@ optional arguments:
   --kraken              Run kmer based species prediction on contigs.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## ortho  - pan-genome (and wgMLST scheme) prediction
-**EToKi ortho** aligns reference genes onto genomic sequences, to generate similarity-based gene predictions on these genomes. Genes that are similar to the same reference gene are assigned as an orthologous group, which is further refined using a phylogeny-aware algorithm. The workflow is:
-1. Retrieve **seed genes** from genome annotations of GFF format. These can be from published annotations or *ab initio* predictions using prodigal or prokka. 
+**EToKi ortho** aligns reference genes to genomes or genome assemblies, to generate similarity-based gene predictions for these genomes. Genes that are similar to the same reference gene are assigned to a single orthologous group, which is further refined using a phylogeny-aware algorithm. The workflow is:
+1. Retrieve **seed genes** from genome annotations of GFF format. These can be from published annotations or *ab initio* predictions created by, eg, prodigal or prokka. 
 2. Cluster seed genes into groups using MMseqs linclust. A collection of **exemplar genes** is assembled by selecting the centroid sequence of each group. 
-3. exemplar genes are aligned onto queried genomes using both BLASTn and uSearch (optional), to identify homologous regions that are similar to each exemplar gene. 
-4.  The sets of homologous regions with potential paralogs are identified if there are at duplicate matched within any single genome. These regions are iteratively sub-clustered based on phylogenetic topology. 
+3. Align exemplar genes to queried genomes using both BLASTn and uSearch (optional), to identify homologous regions that are similar to each exemplar gene. 
+4. Identify and process putative paralogs. Sets of homologous regions containing potential paralogs are identified if there are duplicate matches to a single genome. These regions are iteratively sub-clustered based on their phylogenetic topology: 
     * Firstly, each set of sets of homologous regions are aligned together. 
-    * The resulting alignment are used to generate a neighbor-joining tree (RapidNJ; default) or Maximum likelihood tree (FastTree). 
-    * The ETE3 package are used to bipartition the tree to maximise the nucleotide diversity (at least 5%) between the subtrees. Each of the resulted subtrees was evaluated iteratively until no two regions came from the same genome in the same subtree, or the maximum inter-subtree diversity is less than 5%. 
-    * Then we replace the original set of homolog regions with all of its sub-trees.
-6. After the division process, all the homolog sets were scored and ranked according to the summarised alignment scores of their homolog regions. Homolog sets were discarded if they had regions which overlapped with the regions within other sets that had greater scores.
+    * Second, the resulting alignment is used to generate a neighbor-joining tree (RapidNJ; default) or Maximum likelihood tree (FastTree). 
+    * Third, the ETE3 package is used to partition this tree into a set of subtrees that maximises the nucleotide diversity (at least 5%) between subtrees. Each resulting subtree is evaluated iteratively until no two regions from the same genome are included in a single subtree, or until the maximum inter-subtree diversity is less than 5%. 
+    * Finally, the original set of homologous regions is replaced by all of its sub-trees.
+5. After the division process, all the homolog sets are scored and ranked according to the summarised alignment scores of their homolog regions. Homolog sets are discarded if they have regions which overlap with the regions within other sets that had greater scores.
 
 ~~~~~~~~~~~~~
 usage: EToKi.py ortho [-h] [-g GENES] [-P PRIORITY] [-p PREFIX] [-o ORTHOLOGY]
@@ -365,11 +365,11 @@ optional arguments:
 ~~~~~~~~~~~~~
 
 ## MLSTdb - Set up exemplar alleles and database for MLST schemes
-**EToKi MLSTdb** converts existing allelic sequences into two files: (1) multi-fasta file of exemplar allelic sequences and (2) a lookup table for **EToKi MLSType** method. 
+**EToKi MLSTdb** converts existing allelic sequences into two files: (1) a multi-fasta file of exemplar allelic sequences and (2) a lookup table for the **EToKi MLSType** method. 
 * The exemplar alleles are defined as: 
-   1. Over 40% identities to the allelic sequences of a reference genome specified by **--refstrain**
-   2. Less than 90% identities between different exemplar sequences of the same locus
-   3. Identities to sequences of any different locus are at least 10% less than the similarity to sequences of the same locus
+   1. Over 40% identity to the allelic sequences of a reference genome specified by **--refstrain**
+   2. Less than 90% identity between different exemplar sequences of the same locus
+   3. Identity to sequences of any different locus that is at least 10% less than the similarity to sequences of the same locus.
 ~~~~~~~~~~~
 usage: EToKi.py MLSTdb [-h] -i ALLELEFASTA [-r REFSET] [-d DATABASE]
                        [-s REFSTRAIN] [-x MAX_IDEN] [-m MIN_IDEN] [-p PARALOG]
@@ -407,7 +407,7 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## MLSType - MLST nomenclature using a local set of references
-**EToKi MLSType** identities allelic sequences in a queried genome, by comparing it with the exemplar alleles generated by **MLSTdb**. Allelic designations are also assigned when the sequences are known.
+**EToKi MLSType** identities allelic sequences in a queried genome, by comparing it with the exemplar alleles generated by **MLSTdb**. Allelic designations are also assigned when sequences are known.
 
 ~~~~~~~~~~~
 usage: EToKi.py MLSType [-h] -i GENOME -r REFALLELE -k UNIQUE_KEY
@@ -465,7 +465,7 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## hierCC - generate hierarchical clusters from cgMLST profiles
-Almost all STs of cgMLST schemes contain some missing genes because they are called from draft genomes consisting of multiple contigs. As a result, almost every genome results in a unique cgST number, many of which only differ from other cgSTs by missing data. It is not obviously from the profiles to evaluate the genetic relationships of genomes. **EToKi hierCC** offers a finest clustering of cgMLST profiles into 1,000's of different levels, using single-linkage cluster algorithm. Clusters present natural populations can be extracted as sub-sets of the hierCC scheme later on. 
+Almost all STs called from cgMLST schemes contain some missing genes because they are called from draft genomes consisting of multiple contigs. As a result, almost every new genome results in a unique cgST number, many of which only differ from other cgSTs by missing data. It is therefore not obvious how to evaluate the genetic relationships of genomes using cgMLST profiles. **EToKi hierCC** offers hierarchical clustering of cgMLST profiles into thousands of different levels, using a single-linkage cluster algorithm. Clusters representing natural divisions of bacterial population structure can be extracted as sub-sets of the hierCC scheme later on. 
 ~~~~~~~~~~~
 usage: EToKi.py hierCC [-h] -p PROFILE -o OUTPUT [-i INCREMENTAL] [-d DELTA]
                        [--immutable]
@@ -559,13 +559,13 @@ optional arguments:
 
 
 ## RecHMM -  identify recombination sketches from a SNP matrix
-**RecHMM** was initially implemented in R and described in supplementary material of [Zhou, Z. et al., PNAS, 2014](https://www.pnas.org/content/111/33/12199). RecHMM implements a modified version of Hidden Markov Model (HMM) to separates sites imported by recombination from those vertically inherited. 
+**RecHMM** was initially implemented in R and described in supplementary material of [Zhou, Z. et al., PNAS, 2014](https://www.pnas.org/content/111/33/12199). RecHMM implements a modified version of Hidden Markov Model (HMM) to separate sites imported by recombination from those which are vertically inherited. 
 
-Here is a 2nd version of RecHMM implemented in EToKi package. The changes are:
+Here we have implemented RecHMM in EToKi. The changes are:
 1. The phylogeny and mutation placement module is separated into **EToKi phylo**. 
-2. The codes are re-implemented in Python Numpy and much more efficient. 
-3. The EM procedure is distributed into multiple processes. 
-4. HMM model is redesigned to include two extra states (4 in total). The new implementation can identify not only recombination from external sources, but also intra-population transfers. 
+2. The code is re-implemented in Python Numpy and are much more efficient. 
+3. The EM procedure is distributed across multiple processes. 
+4. The HMM model is redesigned to include two extra states (4 in total). This new implementation can identify not only recombination from external sources, but also intra-population transfers. 
 ~~~~~~~~~~~
 usage: EToKi.py RecHMM [-h] --data DATA [--model MODEL] [--task TASK]
                        [--init INIT] [--prefix PREFIX] [--cool_down COOL_DOWN]
@@ -614,10 +614,10 @@ optional arguments:
 ~~~~~~~~~~~
 
 
-## RecFilter - Remove recombination sketches from a SNP matrix
-**EToKi RecFilter** automatically remove SNPs from an input matrix that were brought in by homologous recombinations, according to the results of recombination detection tool. It currently supports outputs of RecHMM, [ClonalFrameML](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1004041) and [Gubbins](https://academic.oup.com/nar/article/43/3/e15/2410982). It also accepts simulated results from [SimBac](https://www.ncbi.nlm.nih.gov/pubmed/27713837). 
+## RecFilter - Remove recombinant regions from a SNP matrix
+**EToKi RecFilter** automatically remove tracts of SNPs from an input matrix that are identified as having been imported by homologous recombinations. It currently supports as input outputs from RecHMM, [ClonalFrameML](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1004041) and [Gubbins](https://academic.oup.com/nar/article/43/3/e15/2410982). It also accepts simulated results from [SimBac](https://www.ncbi.nlm.nih.gov/pubmed/27713837). 
 
-Traditionally, SNPs affected by recombination are removed from the SNP matrix straightly. This is fine when recombination only covers low proprotion of the core genome. However, when large proportion of the genome is covered by recombination, removing without counting the region as "missing" significantly shortens the branch lengths of the tree. **RecFilter** counts the removed recombinant sketches as missing data, and increases the weights of the remaining mutational SNPs of the same branch, and thus gets better estimation of its length. 
+Traditionally, SNPs affected by recombination are removed from the SNP matrix straight away. This is fine when recombination only affects a low proprotion of the core genome. However, when a large proportion of the genome is affected by recombination, removing sites without counting the region as "missing" significantly shortens the branch lengths of a downstream phylogeny. **RecFilter** counts removed recombinant regions as missing data and increases the weights of the remaining mutational SNPs on the same branch, thus improving branch-length estimation. 
 ~~~~~~~~~~~
 usage: EToKi.py RecFilter [-h] --prefix PREFIX --snp MATRIX --tree TREE --rec
                           REC [--prob PROB] [--clonalframeml] [--simbac]
@@ -641,7 +641,7 @@ optional arguments:
 
 
 ## EB*Eis* - *in silico* serotype prediction for *Escherichia coli* & *Shigella spp.*
-**EB*Eis*** is a BLASTn based prediction tool for O and H antigens of *Escherichia coli* and *Shigella*. It uses essential genes (*wzx, wzy, wzt & wzm* for O; *fliC* for H) as markers. The database its using consists of two sources:
+**EB*Eis*** is a BLASTn based prediction tool for the O and H antigens of *Escherichia coli* and *Shigella*. It uses essential genes (*wzx, wzy, wzt & wzm* for O; *fliC* for H) as markers. **EB*Eis*** uses a database built from two sources:
 1. [SeroTypeFinder ](https://bitbucket.org/genomicepidemiology/serotypefinder_db/src)
 2. O-antigen gene sequences reported in [DebRoy et al., PLoS ONE, 2016](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0147434#pone.0147434.ref011)
 ~~~~~~~~~~~
@@ -675,7 +675,7 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## uberBlast - Use BLASTn, uBLASTp, minimap2 and/or mmseqs to identify similar sequences
-**EToKi uberBlast** is also internally called by **EToKi ortho** to align exemplar genes onto queried genomes, using both BLASTn and uSearch-uBLASTp. Amino acid alignments are converted back to its original nucleotide sequences, such that the coordinates are consistent across different methods. 
+**EToKi uberBlast** is also internally called by **EToKi ortho** to align exemplar genes to queried genomes, using both BLASTn and uSearch-uBLASTp. Amino acid alignments are converted back to nucleotide sequences, meaning that genome coordinates remain consistent across different methods. 
 
 * minimap2 --- Fastest alignment in nucleotide level. High accuracy in identities >= 90%, but lose sensitivity quickly for lower identities. 
 * blastn --- Fast alignment in nucleotide level.  Lose sensitivity for identities < 80%
@@ -756,7 +756,7 @@ optional arguments:
 ~~~~~~~~~~~
 
 ## clust - linear-time clustering of short sequences using mmseqs linclust
-**EToKi clust** is also called by **EToKi ortho** internally to cluster seed genes into gene clusters. Given its linear-time complexity, it can cluster millions of gene sequences in minutes. 
+**EToKi clust** is called internally by **EToKi ortho** to cluster seed genes into gene clusters. Given its linear-time complexity, it can cluster millions of gene sequences in minutes. 
 ~~~~~~~~~~~
 usage: EToKi.py clust [-h] -i INPUT -p PREFIX [-d IDENTITY] [-c COVERAGE]
                       [-t N_THREAD]
