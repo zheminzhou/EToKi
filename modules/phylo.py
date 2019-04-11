@@ -313,7 +313,13 @@ def read_states(fname) :
 
 
 def add_args(a) :
-    parser = argparse.ArgumentParser(description='Parameters for phylogeny_workflow.py', formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description='''
+EToKi phylo runs to:
+(1) Generate SNP matrix from alignment (-t matrix)
+(2) Calculate ML phylogeny from SNP matrix using RAxML (-t phylogeny)
+(3) Workout the nucleotide sequences of internal nodes in the tree using ML estimation (-t ancestral or -t ancestral_proportion for ratio frequencies)
+(4) Place mutations onto branches of the tree (-t mutation)
+''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--tasks', '-t', help='''Tasks to call. Allowed tasks are:
 matrix: generate SNP matrix from alignment.
 phylogeny: generate phylogeny from SNP matrix.

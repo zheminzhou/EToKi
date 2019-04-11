@@ -16,8 +16,8 @@ commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
             ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
             ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
-            ['EBEis',     'ab initio serotype prediction for Escherichia coli and Shigella spp.'],                             #
-            ['isCRISPOL', 'ab initio prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
+            ['EBEis',     'in silico serotype prediction for Escherichia coli and Shigella spp.'],                             #
+            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
             ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
             ['clust',     'linear-time clustering of short sequences using mmseqs linclust']]                          #
 

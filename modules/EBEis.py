@@ -85,8 +85,8 @@ def EBEis(args):
     import argparse
     parser = argparse.ArgumentParser(description='''EnteroBase Escherichia in silico serotyping''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-q', '--query', help='file name for the queried assembly in multi-FASTA format.', required=True)
-    parser.add_argument('-t', '--taxon', help='Taxon database to compare with. Only support Escherichia', default='Escherichia')
-    parser.add_argument('-p', '--prefix', help='prefix for intermediate files.', default='EBEis')
+    parser.add_argument('-t', '--taxon', help='Taxon database to compare with. \nOnly support Escherichia (default) for the moment.', default='Escherichia')
+    parser.add_argument('-p', '--prefix', help='prefix for the intermediate files. Default: EBEis', default='EBEis')
     args = parser.parse_args(args)
     
     db = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'EBEis.{0}.fas'.format(args.taxon))

@@ -140,7 +140,7 @@ def blast2region(qry, method='blastn', minIdentity=92, minCover=19) :
 def isCRISPOL(args) :
     import argparse
     parser = argparse.ArgumentParser(description='''
-EToKi.py isCRISPOL
+in silico Typhimurium subtyping using CRISPOL scheme (Fabre et al., PLoS ONE, 2012)
 ''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('assemblies', metavar='N', help='FASTA files containing assemblies of S. enterica Typhimurium.', nargs='*')
     params = parser.parse_args(args)

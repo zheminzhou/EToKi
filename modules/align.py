@@ -9,7 +9,7 @@ except :
     xrange = range
 
 def parseArgs(argv) :
-    parser = argparse.ArgumentParser(description='''Alignment multiple genomes onto a single reference. ''')
+    parser = argparse.ArgumentParser(description='''Align multiple genomes onto a single reference. ''')
     parser.add_argument('-r', '--reference', help='[REQUIRED; INPUT] reference genomes to be aligned against. Use <Tag>:<Filename> format to assign a tag to the reference.', required=True)
     parser.add_argument('-p', '--prefix', help='[OUTPUT] prefix for all outputs.', default='Enlign')
     parser.add_argument('-a', '--alignment', help='[OUTPUT] Generate core genomic alignments in FASTA format', default=False, action='store_true')
