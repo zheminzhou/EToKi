@@ -395,7 +395,7 @@ optional arguments:
                         [DEFAULT: 0.9 ] Maximum identities between resulting
                         refAlleles.
   -m MIN_IDEN, --min_iden MIN_IDEN
-                        [DEFAULT: 0.6 ] Minimum identities between refstrain
+                        [DEFAULT: 0.4 ] Minimum identities between refstrain
                         and resulting refAlleles.
   -p PARALOG, --paralog PARALOG
                         [DEFAULT: 0.1 ] Minimum differences between difference
