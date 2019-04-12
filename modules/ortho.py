@@ -696,6 +696,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn) :
                 conn.commit()
         conn.commit()
         os.unlink(bsnPrefix + '.bsn.npz')
+        logger('Merged {0}'.format(bsnPrefix))
     overlaps = np.vstack(overlaps)
     return overlaps
 
