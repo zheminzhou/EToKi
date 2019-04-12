@@ -19,33 +19,40 @@ class MapBsn(object) :
                 os.unlink(db)
         self.conn = sqlite3.connect(db)
         if rebuild :        
-            self.conn.execute('CREATE TABLE map_bsn (gene integer, score float, bsn blob)')
-            self.conn.execute('CREATE UNIQUE INDEX map_bsn_idx ON map_bsn (gene)')
+            self.conn.execute('CREATE TABLE map_bsn (gene integer, genome integer, score float, bsn blob)')
+            self.conn.execute('CREATE INDEX map_bsn_idx ON map_bsn (gene)')
+            self.conn.execute('CREATE INDEX map_bsn_idx2 ON map_bsn (genome)')
             self.conn.commit()        
         return
     def __enter__(self) :
         return self
     def __exit__(self, type, value, traceback) :
         self.conn.close()
-    def get(self, gene, default=None) :
-        d = self.conn.execute('SELECT bsn FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchone()
-        return np.loads(zlib.decompress(d[0])) if d else default
+    def get(self, gene, genome=None) :
+        if genome is None :
+            d = self.conn.execute('SELECT bsn FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchall()
+        else :
+            d = self.conn.execute('SELECT bsn FROM map_bsn WHERE gene = ? AND genome = ? AND score >= 0', (gene, genome)).fetchall()
+        return np.vstack([ np.loads(zlib.decompress(dd[0])) for dd in d]) if d else []
     def __getitem__(self, gene) :
         return self.get(gene)
 
-    def exists(self, gene) :
-        d = self.conn.execute('SELECT 1 FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchone()
+    def exists(self, gene, genome = None) :
+        if genome is None :
+            d = self.conn.execute('SELECT 1 FROM map_bsn WHERE gene = ? AND score >= 0', (gene, )).fetchone()
+        else :
+            d = self.conn.execute('SELECT 1 FROM map_bsn WHERE gene = ? AND genome = ? AND score >= 0', (gene, genome)).fetchone()
         return True if d else False
     def keys(self) :
-        for g in self.conn.execute('SELECT gene FROM map_bsn WHERE score >= 0') :
+        for g in self.conn.execute('SELECT distinct(gene) FROM map_bsn WHERE score >= 0') :
             yield g[0]
     def items(self) :
-        for gene, data in self.conn.execute('SELECT gene, bsn FROM map_bsn WHERE score >= 0') :
-            bsn = np.loads(zlib.decompress(data))
+        for gene in self.keys() :
+            bsn = self.get(gene)
             yield gene, bsn
     def values(self) :
-        for data in self.conn.execute('SELECT bsn FROM map_bsn WHERE score >= 0') :
-            bsn = np.loads(zlib.decompress(data[0]))
+        for gene in self.keys() :
+            bsn = self.get(gene)
             yield bsn
     def delete(self, gene) :
         self.conn.execute('UPDATE map_bsn SET score = -1 WHERE gene = ?', (gene,))
@@ -54,18 +61,18 @@ class MapBsn(object) :
         self.conn.execute('UPDATE map_bsn SET score = -1 WHERE gene = ?', (gene,))
         return data
     def size(self) :
-        r = self.conn.execute('SELECT SUM(1) FROM map_bsn WHERE score >= 0').fetchone()[0]
+        r = self.conn.execute('SELECT count(distinct(gene)) FROM map_bsn WHERE score >= 0').fetchone()[0]
         return r if r else 0
         
-    def save(self, gene, bsn) :
-        exist = self.exists(gene)
+    def save(self, gene, genome, bsn) :
+        exist = self.exists(gene, genome)
         d = zlib.compress(bsn.dumps())
         if sys.version_info[0] < 3 :
             d = buffer(d)
         if exist :
-            self.conn.execute('UPDATE map_bsn SET bsn = ? WHERE gene = ?', (d, gene))
+            self.conn.execute('UPDATE map_bsn SET bsn = ? WHERE gene = ? AND genome = ?', (d, gene, genome))
         else :
-            self.conn.execute('INSERT INTO map_bsn (gene, score, bsn) VALUES (?, 1, ?)', (gene, d))
+            self.conn.execute('INSERT INTO map_bsn (gene, genome, score, bsn) VALUES (?, ?, 1, ?)', (gene, genome, d))
     def commit(self) :
         return self.conn.commit()
 
@@ -279,7 +286,7 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     return pd.DataFrame(list(global_differences.items())).values
 
 def filt_per_group(data) :
-    mat, ref, global_file = data
+    mat, ref, global_file, _, _ = data
     global_differences = dict(np.load(global_file))
     nMat = mat.shape[0]
     seqs = np.vstack([np.vstack(mat.T[4]), np.array(list(ref)).view(asc2int).astype(np.uint8)[np.newaxis, :]])
@@ -409,7 +416,7 @@ def get_gene(groups, first_classes, cnt=1) :
         scores = {}
         for gene, score in ranking.items() :
             if score == min_rank :
-                matches = groups.get(gene, [])
+                matches = groups.get(gene)
                 s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
                 scores[gene] = s
     else :
@@ -419,11 +426,13 @@ def get_gene(groups, first_classes, cnt=1) :
     if len(genes) <= 0 :
         for gene in scores :
             groups.delete(gene)
+        groups.commit()
         return []
     elif min(scores.values()) <= 0 :
         for gene, score in scores.items() :
             if score <= 0 :
                 groups.delete(gene)
+        groups.commit()
     return genes
 
 def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, encodes = None) :
@@ -445,15 +454,17 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
             genes = get_gene(groups, first_classes, cnt=50)
             if len(genes) <= 0 :
                 continue
-            to_run, to_run_id, min_score, min_rank = [], [], genes[-1][1], genes[0][2]
+            to_run, min_score, min_rank = [], genes[-1][1], genes[0][2]
             genes = {gene:score for gene, score, min_rank in genes}
             if params['orthology'] in ('ml', 'nj') :
                 for gene, score in genes.items() :
                     if gene not in run :
+                        modified = 0
                         mat = groups.get(gene)
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         if region_score.size >= bestPerGenome.size * 2 :
+                            modified = 1
                             used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
                             for id, m in enumerate(mat) :
                                 if m[5] in used2 :
@@ -464,18 +475,20 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                             _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                             region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         if region_score.size > bestPerGenome.size * 3 and len(region_score) > 500 :
+                            modified = 1
                             region_score2 = sorted(region_score, reverse=True)
                             cut = region_score2[bestPerGenome.size*3-1]
                             if cut >= params['clust_identity'] :
                                 cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], 1.0 - 0.6*(1.0-params['clust_identity']))
                             mat = mat[region_score>=cut]
     
-                        to_run.append([mat, clust_ref[ mat[0][0] ], global_file])
-                        to_run_id.append(gene)
+                        to_run.append([mat, clust_ref[ mat[0][0] ], global_file, gene, modified])
                 working_groups = pool2.map(filt_per_group, to_run)
                 #working_groups = [filt_per_group(d) for d in to_run]
-                for gene, working_group in zip(to_run_id, working_groups) :
-                    groups.save(gene, working_group)
+                for (mat, _, _, gene, modified), working_group in zip(to_run, working_groups) :
+                    if modified or len(mat) != len(working_group) :
+                        for d in np.split(working_group, np.cumsum(np.unique(working_group.T[1], return_counts=True)[1])[:-1]) :
+                            groups.save(gene, d[0,1], d)
                     run[gene] = 1
             else :
                 for gene, score in genes.items() :
@@ -490,8 +503,11 @@ def filt_genes(prefix, groups, global_file, conflicts, first_classes = None, enc
                                 kept[id] = False
                             else :
                                 used2.update(conflicts.get(m[5], {}))
-                        groups.save(gene, mat[kept])
-
+                        genomes = np.unique(mat[~kept, 1])
+                        mat = mat[kept]
+                        for genome in genomes :
+                            groups.save(gene, genome, mat[mat.T[1] == genome])
+            groups.commit()
             while len(genes) :
                 tmp = []
                 for gene in genes :
@@ -663,7 +679,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn) :
         bsn.T[5] += ids
         ovl += ids
         ids += bsn.shape[0]
-        bsn.T[1] = np.vectorize(lambda x:genomes.get(x, [-1])[0])(bsn.T[1])
+        bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         overlaps.append(ovl)
 
         bsn = bsn[np.argsort(-bsn.T[2])]
@@ -671,12 +687,12 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn) :
         bsn = np.split(bsn, np.cumsum(np.unique(bsn.T[0], return_counts=True)[1])[:-1])
         
         for i, tab in enumerate(bsn) :
-            key = tab[0][0]
-            old_data = conn.get(key)
-            if old_data is not None :
+            key = tab[0][:2]
+            old_data = conn.get(key[0], key[1])
+            if len(old_data) < 0 :
                 tab = np.vstack([old_data, tab])
-            conn.save(key, tab)
-            if i > 0 and i % 3000 == 0 :
+            conn.save(key[0], key[1], tab)
+            if i > 0 and i % 10000 == 0 :
                 conn.commit()
         conn.commit()
         os.unlink(bsnPrefix + '.bsn.npz')
@@ -752,7 +768,9 @@ def precluster2(data) :
             else :
                 break
     if np.any(ingroup == False) :
-        return [gene, matches[ingroup]]
+        genomes = np.unique(matches[~ingroup, 1])
+        matches = matches[ingroup]
+        return [ [gene, genome, matches[matches.T[1] == genome] ] for genome in genomes ]
     return []
 
 def precluster(bsn_file, global_file) :
@@ -761,10 +779,13 @@ def precluster(bsn_file, global_file) :
     
         toUpdate = pool2.map(precluster2, [(bsn_file, gene, global_file) for gene in genes])
         #toUpdate = list(map(precluster2, [(bsn_file, gene, global_file) for gene in genes]))
-        for i, (g, d) in enumerate([d for d in toUpdate if len(d)>0]) :
-            conn.save(g, d)
-            if i > 0 and i % 1000 == 0 :
-                conn.commit()
+        cnt = 0
+        for data in toUpdate :
+            for gene, genome, d in data :
+                cnt += 1
+                conn.save(gene, genome, d)
+                if cnt > 0 and cnt % 1000 == 0 :
+                    conn.commit()
         conn.commit()
     return
 

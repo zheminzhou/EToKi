@@ -348,19 +348,19 @@ class blastParser(object) :
                 s, e = sorted([q_start, q_end])
                 for id, region in enumerate( alleles[part[20]] ):
                     if region[0] == '' : continue
-                    if region[2] == part[1] and (min(e, region[4]) - max(s, region[3]) + 1) >= parameters['merging_prop']*(e-s+1) :
-                        if region[1] < part[2] and (min(e, region[4]) - max(s, region[3]) + 1) >= parameters['merging_prop']*(region[4]-region[3]+1) :
-                            if region[1] < parameters['min_iden'] or (part[22] >= 0 and part[2] - region[1] >= parameters['merging_error']):
+                    if region[2] == part[1] and (min(e, region[4]) - max(s, region[3]) + 1) >= parameters['overlap_prop']*(e-s+1) :
+                        if region[1] < part[2] and (min(e, region[4]) - max(s, region[3]) + 1) >= parameters['overlap_prop']*(region[4]-region[3]+1) :
+                            if region[1] < parameters['min_iden'] or (part[22] >= 0 and part[2] - region[1] >= parameters['overlap_iden']):
                                 to_move.append(id)
                                 continue
                             else :
                                 region[1] = part[2]
                         overlap = id
 
-                    elif region[1] - part[2] >= parameters['merging_error'] :
+                    elif region[1] - part[2] >= parameters['overlap_iden'] :
                         overlap = 999999999
                         break
-                    elif part[2] - region[1] >= parameters['merging_error'] :
+                    elif part[2] - region[1] >= parameters['overlap_iden'] :
                         to_move.append(id)
                 if overlap < 999999999 :
                     for id in reversed(to_move) :
@@ -395,8 +395,8 @@ class blastParser(object) :
                 if regi[2] != regj[2] or regj[3] > regi[4] :
                     break
                 overlap = min(regi[4], regj[4]) - regj[3] + 1
-                if (regi[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regi[4]-regi[3]+1)) or \
-                   (regj[-1] != '' and float(overlap) >= parameters['merging_prop'] * (regj[4]-regj[3]+1)) :
+                if (regi[-1] != '' and float(overlap) >= parameters['overlap_prop'] * (regi[4]-regi[3]+1)) or \
+                   (regj[-1] != '' and float(overlap) >= parameters['overlap_prop'] * (regj[4]-regj[3]+1)) :
                     delta = regi[1] - regj[1]
                     if delta > 0.05 :
                         todel.append(jd)
@@ -514,6 +514,8 @@ class blastParser(object) :
                     alleles.pop(locus, None)
         return alleles
     def intergenic(self, regions, lenRange) :
+        if lenRange[0] == -1 :
+            return sorted(regions, key=lambda r:r['coordinates'])
         inter_blocks = []
         regions.sort(key=lambda r:r['coordinates'])
         prev = regions[0]
@@ -612,7 +614,7 @@ def nomenclature(genome, refAllele, parameters) :
         blasttab = blasttab_parser.linear_merge(blasttab, **parameters)
         loci = blasttab_parser.parse_blast(blasttab, parameters)
         regions = blasttab_parser.inter_loci_overlap(loci, parameters)
-        #regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[30,600]))
+        regions = blasttab_parser.intergenic(regions, parameters.get('intergenic',[30,600]))
     
         # submission
         qrySeq, qryQual = dualBlast().readFastq(qry)
@@ -662,14 +664,14 @@ def getParams(args) :
     parser.add_argument('-p', '--min_frag_prop', help='[DEFAULT: 0.6 ] Minimum covereage of a fragment. ', type=float, default=0.6)
     parser.add_argument('-l', '--min_frag_len',  help='[DEFAULT: 50 ] Minimum length of a fragment. ', type=float, default=50)
     
-    parser.add_argument('-x', '--intergenic',  help='[DEFAULT: 50,500 ] Call alleles in intergenic region if to closely located loci differ by a distance between two numbers. ', default='50,500')
+    parser.add_argument('-x', '--intergenic',  help='[DEFAULT: -1,-1 ] Call alleles in intergenic region if the distance between two closely located loci fall within the range defined by the two numbers. Suggest to use 50,500. This is diabled by default with minus numbers.', default='-1,-1')
 
-    parser.add_argument('--merging_prop',  help='[DEFAULT: 0.5 ] Two hits are conflicted if they cover by this proportion. ', type=float, default=0.5)
-    parser.add_argument('--merging_error',  help='[DEFAULT: 0.05 ] Remove a secondary hit if its similarity is lower than another overlapped region by this value. ', type=float, default=0.05)
+    parser.add_argument('--overlap_prop',  help='[DEFAULT: 0.5 ] Given two hits, if <overlap_prop> of their regions overlap, and the sequence identities of one hits is <overlap_iden> lower than the other. The hit with lower identities will be removed. ', type=float, default=0.5)
+    parser.add_argument('--overlap_iden',  help='[DEFAULT: 0.05 ] Given two hits, if <overlap_prop> of their regions overlap, and the sequence identities of one hits is <overlap_iden> lower than the other. The hit with lower identities will be removed. ', type=float, default=0.05)
     
-    parser.add_argument('--max_dist',  help='[DEFAULT: 300 ] Synteny block: Ignore if two alignments seperate by at least this value. ', type=float, default=300)
-    parser.add_argument('--diag_diff',  help='[DEFAULT: 1.2 ] Synteny block: Ignore if the lengths of the resulted block differ by X fold between qry and ref. ', type=float, default=1.2)
-    parser.add_argument('--max_diff',  help='[DEFAULT: 200 ] Synteny block: Ignore if the lengths of the resulted block differ by this value between qry and ref. ', type=float, default=200)
+    parser.add_argument('--max_dist',  help='[DEFAULT: 300 ] Consider two closely located hits as a synteny block if their coordinates in both queried genomes and reference gene are seperated by no more than <max_dist> bps. ', type=float, default=300)
+    parser.add_argument('--diag_diff',  help='[DEFAULT: 1.2 ] Consider two closely located hits as a synteny block if, after merged, its covered region in the queried genome is no more than <diag_diff> folds of the region in the reference gene. ', type=float, default=1.2)
+    parser.add_argument('--max_diff',  help='[DEFAULT: 200 ] Consider two closely located hits as a synteny block if, after merged, the lengths of its covered regions in the queried genome and the reference gene are differed by no more than <max_diff> bps. ', type=float, default=200)
     args = parser.parse_args(args).__dict__
     args['intergenic'] = [float(d) for d in args['intergenic'].split(',')]
     
