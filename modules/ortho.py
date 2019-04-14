@@ -685,7 +685,6 @@ def iter_map_bsn(data) :
                 group[4][tab[6]-1:tab[7]] = x
             except :
                 logger('ERROR: {0}'.format(str(group)))
-                group[4][tab[6]-1:tab[6]+x.size-1] = x
             max_sc += max(sc[0], sc[f])
         group[2] = max_sc
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
