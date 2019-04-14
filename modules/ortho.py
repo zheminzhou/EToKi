@@ -51,6 +51,14 @@ class MapBsn(object) :
 
     def delete(self, gene) :
         self.namelist -= set([str(gene)])
+
+    def delete_real(self, gene) :
+        gene =str(gene)
+        if gene in self.namelist :
+            self.namelist -= set([gene])
+            self.conn.close()
+            subprocess.Popen(['zip', '-d', self.fname, gene]).wait()
+            self.conn = zipfile.ZipFile(self.fname, mode='w', compression=zipfile.ZIP_DEFLATED,allowZip64=True)
         
     def pop(self, gene, default=None) :
         bsn = self.get(gene)
@@ -62,7 +70,7 @@ class MapBsn(object) :
         
     def save(self, gene, bsn) :
         gene =str(gene)
-        self.delete(gene)
+        self.delete_real(gene)
         self._save(self.conn, gene, bsn)
         self.namelist |= set([gene])
     def _save(self, db, gene, data) :
@@ -300,10 +308,10 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     genes = grp_order[:counts]
 
     global_differences = {}
-    for iter in xrange(0, len(genes), 100) :
+    for iter in xrange(0, len(genes), 300) :
         logger('finding ANIs between genomes. {0}/{1}'.format(iter, len(genes)))
         #for diff_file in map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])]) :
-        for diff_file in pool2.imap_unordered(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])]) :
+        for diff_file in pool2.imap_unordered(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+300])]) :
             diff ={ tuple(a):b for a, b in np.load(diff_file).tolist()}
             os.unlink(diff_file)
             for pair, (mut, aln) in diff.items() :
@@ -549,13 +557,10 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                 score, gene = max(tmp)
                 if score < min_score :
                     break
-                groups.delete(gene)
                 mat = new_groups.get(gene)
-                genes.pop(gene)
 
                 paralog, paralog2 = 0, 0
                 supergroup = {}
-                used2 = {}
                 for m in mat :
                     gid = m[5]
                     conflict = used.get(gid, None) 
@@ -570,27 +575,33 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                             else :
                                 paralog2 += 1
                         m[3] = -1
-                    else :
-                        for g2, gs in conflicts.get(gid, {}).items() :
-                            if gs == 1 :
-                                if g2 not in used :
-                                    used2[g2] = str(m[0])
-                            elif gs == 2 :
-                                used2[g2] = 1
-                            else :
-                                used[g2] = 0
                 if paralog or paralog2*3 >= mat.shape[0] :
+                    groups.delete(gene)                
+                    genes.pop(gene)
+                    continue
+                mat = mat[mat.T[3] > 0]
+                if mat.shape[0] == 0 :
+                    continue
+                (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
+                if pid*2 >= mat.shape[0] or (pid*4 >= mat.shape[0] and pid>1) :
+                    pangene = pg
+                elif paralog2 > 0 :
+                    new_groups.save(gene, mat)
                     continue
                 else :
-                    used.update(used2)
-
-                pangene = mat[0][0]
-                if len(supergroup) :
-                    pg, pid = max(supergroup.items(), key=itemgetter(1))
-                    if pid*3 >= mat.shape[0] or (pid*5 >= mat.shape[0] and pid>1) :
-                        pangene = pg
-
+                    pangene = mat[0][0]
+                groups.delete(gene)                
+                genes.pop(gene)                    
                 results[mat[0][0]] = pangene
+
+                for m in mat :
+                    for g2, gs in conflicts.get(gid, {}).items() :
+                        if gs == 1 :
+                            if g2 not in used :
+                                used[g2] = str(m[0])
+                        else  :
+                            used[g2] = 1 if gs == 2 else 0
+
                 if len(results) % 100 == 0 :
                     logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score, encodes[pangene], len(results), groups.size()+len(results)))
 
@@ -684,6 +695,7 @@ def iter_map_bsn(data) :
             try :
                 group[4][tab[6]-1:tab[7]] = x
             except :
+                group[4][tab[6]-1:tab[6]+len(x)-1] = x
                 logger('ERROR: {0}'.format(str(group)))
             max_sc += max(sc[0], sc[f])
         group[2] = max_sc
@@ -721,7 +733,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, conn2) :
         ovl = np.hstack([ovl, ovl_score[:, np.newaxis]])
 
         bsn.T[5] += ids
-        ovl += ids
+        ovl[:, :2] += ids
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         overlaps.append(ovl)
