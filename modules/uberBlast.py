@@ -263,6 +263,9 @@ class RunBlast(object) :
             for method in methods :
                 if method.lower() in tools :
                     blastab.append(tools[method.lower()](ref, qry))
+        except :
+            import traceback
+            print(traceback.print_exc())
         finally :
             shutil.rmtree(self.dirPath)
             if blastab :
