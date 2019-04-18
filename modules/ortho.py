@@ -614,7 +614,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                             else  :
                                 used2[g2] = 1 if gs == 2 else 0
                         
-                if paralog or paralog2*3 >= mat.shape[0] or idens[1]/idens[0] < params['clust_identity'] :
+                if paralog or paralog2*3 >= mat.shape[0] or idens[1] < params['clust_identity']*idens[0] :
                     groups.delete(gene)
                     genes.pop(gene)
                     continue
