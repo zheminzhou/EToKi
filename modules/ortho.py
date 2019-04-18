@@ -614,15 +614,11 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                             else  :
                                 used2[g2] = 1 if gs == 2 else 0
                         
-                if paralog or paralog2*3 >= mat.shape[0] or idens[1] < params['clust_identity']*idens[0] :
+                if paralog or paralog2*3 >= mat.shape[0] or idens[1] == 0 or idens[1] < params['clust_identity']*idens[0] :
                     groups.delete(gene)
                     genes.pop(gene)
                     continue
                 mat = mat[mat.T[3] > 0]
-                if mat.shape[0] == 0 :
-                    groups.delete(gene)
-                    genes.pop(gene)                    
-                    continue
                 (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
                 if pid*2 >= mat.shape[0] or (pid*4 >= mat.shape[0] and pid>1) :
                     pangene = pg
