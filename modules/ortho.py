@@ -288,7 +288,7 @@ def global_difference2(data) :
     np.save(fname, np.array(list(res.items()), dtype=object))
     return fname
 
-def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
+def global_difference(bsn_file, prefix, orthoGroup, counts=2000) :
     genes = []
     with MapBsn(bsn_file+'.tab.npz') as conn :
         for gene, g in conn.items() : 
@@ -308,10 +308,10 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=3000) :
     genes = grp_order[:counts]
 
     global_differences = {}
-    for iter in xrange(0, len(genes), 300) :
+    for iter in xrange(0, len(genes), 250) :
         logger('finding ANIs between genomes. {0}/{1}'.format(iter, len(genes)))
         #for diff_file in map(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+100])]) :
-        for diff_file in pool2.imap_unordered(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+300])]) :
+        for diff_file in pool2.imap_unordered(global_difference2, [['{0}.{1}.npy'.format(prefix, i2), bsn_file, i] for i2, i in enumerate(genes[iter:iter+250])]) :
             diff ={ tuple(a):b for a, b in np.load(diff_file).tolist()}
             os.unlink(diff_file)
             for pair, (mut, aln) in diff.items() :
@@ -499,15 +499,41 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
     group_id = 0
     with open('{0}.Prediction'.format(prefix), 'w') as fout :
         while groups.size() > 0 :
+            # get top 50 genes
             genes = get_gene(groups, new_groups, scores, first_classes, cnt=50)
             if len(genes) <= 0 :
                 continue
             to_run, min_score, min_rank = [], genes[-1][1], genes[0][2]
             genes = {gene:score for gene, score, min_rank in genes}
+            # first, check whether it overlaps with existing regions
+            minSet = len(genes) * 0.5
+            tmpSet = {}
+            for gene, score in list(genes.items()) :
+                presence = 0
+                if gene not in new_groups :
+                    mat = groups.get(gene)
+                    for m in mat :
+
+                        conflict = used.get(m[5], None)
+                        if conflict is not None :
+                            if isinstance(conflict, int) and conflict > 0 and m[6].shape[0] <= 1 and m[3] >= params['clust_identity'] :
+                                presence = 0
+                                break
+                        else :
+                            presence = 1
+                    if not presence :
+                        genes.pop(gene)
+                        groups.delete(gene)
+                        new_groups.pop(gene, None)
+                    else :
+                        tmpSet[gene] = mat
+            if len(genes) < minSet :
+                continue
+            # second, remove paralogs
             if params['orthology'] in ('ml', 'nj') :
                 for gene, score in genes.items() :
                     if gene not in new_groups :
-                        mat = groups.get(gene)
+                        mat = tmpSet.get(gene)
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         if region_score.size >= bestPerGenome.size * 2 :
@@ -535,7 +561,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
             else :
                 for gene, score in genes.items() :
                     if gene not in new_groups :
-                        mat = groups.get(gene)
+                        mat = tmpSet.get(gene)
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                         mat = mat[region_score>=params['clust_identity']]
@@ -548,6 +574,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                         genomes = np.unique(mat[~kept, 1])
                         mat = mat[kept]
                         new_groups[gene] = mat
+            
             while len(genes) :
                 tmp = []
                 for gene in genes :
@@ -558,11 +585,14 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                 if score < min_score :
                     break
                 mat = new_groups.pop(gene)
-
+                
+                # third, check its overlapping again
                 paralog, paralog2 = 0, 0
                 supergroup, used2 = {}, {}
+                idens = [0., 0.]
                 for m in mat :
                     gid = m[5]
+                    if idens[0] < m[3] : idens[0] = m[3]
                     conflict = used.get(gid, None) if gid in used else used2.get(gid, None)
                     if conflict is not None :
                         if not isinstance(conflict, int) :
@@ -576,6 +606,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                                 paralog2 += 1
                         m[3] = -1
                     else :
+                        if idens[1] < m[3] : idens[1] = m[3]
                         for g2, gs in conflicts.get(gid, {}).items() :
                             if gs == 1 :
                                 if g2 not in used :
@@ -583,7 +614,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                             else  :
                                 used2[g2] = 1 if gs == 2 else 0
                         
-                if paralog or paralog2*3 >= mat.shape[0] :
+                if paralog or paralog2*3 >= mat.shape[0] or idens[1]/idens[0] < params['clust_identity'] :
                     groups.delete(gene)
                     genes.pop(gene)
                     continue
@@ -603,6 +634,7 @@ def filt_genes(prefix, groups, new_groups, global_file, conflicts, first_classes
                 groups.delete(gene)
                 genes.pop(gene)
                 results[mat[0][0]] = pangene
+                # finally tag the regions that are covered by this group
                 used.update(used2)
 
                 if len(results) % 100 == 0 :
@@ -1110,7 +1142,7 @@ def ortho(args) :
         if params.get('orthology', 'rapid') != 'rapid' :
             if params.get('global', None) is None :
                 params['global'] = params['prefix']+'.global.npy'
-                global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 3000)
+                global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 2000)
                 np.save(params['global'], global_differences)
                 del global_differences
             
