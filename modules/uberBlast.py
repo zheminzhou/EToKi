@@ -58,7 +58,7 @@ def _linearMerge(data) :
                     continue
                 rLen = m2[7] - m1[6] + 1
                 g1 = -m1[9]-1 if m1[9] < 0 else m1[13] - m1[9]
-                g2 =  m1[8]-1 if m1[8] > 0 else m1[13] + m1[8]
+                g2 =  m2[8]-1 if m2[8] > 0 else m2[13] + m2[8]
                 qLen = m1[9]-m1[8]+1 + m2[9]-m2[8]+1 + g1 + g2
                 if g1+g2 >= gapDist or min(rLen, qLen)*lenDiff < max(rLen, qLen) :
                     continue
@@ -91,7 +91,7 @@ def _linearMerge(data) :
                 edges[0].append([id, m1])
             for jd in xrange(id+1, nSave) :
                 m2 = matches[jd]
-                if m1[1] != m2[2] or (m1[8] < 0 and m2[8] > 0) or m2[8] - m1[9] -1 >= gapDist :    # maximum 300bps between two continuous hits in the same scaffold
+                if m1[1] != m2[1] or (m1[8] < 0 and m2[8] > 0) or m2[8] - m1[9] -1 >= gapDist :    # maximum 300bps between two continuous hits in the same scaffold
                     break
                 rLen, qLen = m2[7]-m1[6]+1, m2[9]-m1[8]+1
                 if abs(m1[2]-m2[2]) > 0.3 or m1[9] >= m2[9] or m1[6] >= m2[6] or m1[7] >= m2[7] or m2[6] - m1[7] -1 >= gapDist \
@@ -216,7 +216,10 @@ gtable = np.array(list('KNXKNTTXTTXXXXXRSXRSIIXMIQHXQHPPXPPXXXXXRRXRRLLXLLXXXXXX
 
 def poolBlast(params) :
     def parseBlast(fin, min_id, min_cov, min_ratio) :
-        blastab = pd.read_csv(fin, sep='\t',header=None)
+        try:
+            blastab = pd.read_csv(fin, sep='\t',header=None)
+        except :
+            return None
         blastab[2] /= 100.
         blastab = blastab[(blastab[2] >= min_id) & (blastab[7]-blastab[6]+1 >= min_cov) & (blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) ]
         blastab.loc[:, 14] = np.array(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
@@ -227,6 +230,8 @@ def poolBlast(params) :
     blast_cmd = '{blastn} -db {refDb} -query {qry} -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
         blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
     blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov, min_ratio)
+    if blastab is None :
+        return None
     blastab.to_msgpack(qry + '.match.msg')
     return qry + '.match.msg'
 
@@ -404,14 +409,14 @@ class RunBlast(object) :
         else :
             refNA = ref
         Popen('{makeblastdb} -dbtype nucl -in {refNA} -out {refDb}'.format(makeblastdb=makeblastdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
-        qrys = [ os.path.join(self.dirPath, 'qryNA.{0}'.format(id)) for id in range(self.n_thread)]
         qrySeq = sorted(list(self.qrySeq.items()), key=lambda s:-len(s[1]))
+        qrys = [ os.path.join(self.dirPath, 'qryNA.{0}'.format(id)) for id in range(min(len(qrySeq), self.n_thread))]
         for id, q in enumerate(qrys) :
             with open(q, 'w') as fout :
                 for n, s in qrySeq[id::self.n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         res = self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ])
-        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res ]))
+        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res if r is not None]))
         blastab[14] = [ [ list(t) for t in tab ] for tab in blastab[14].tolist()]
         for r in res :
             os.unlink(r)
@@ -457,10 +462,11 @@ class RunBlast(object) :
         logger('Run uBLAST starts')        
         def parseUBlast(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
             blastab = pd.read_csv(fin, sep='\t',header=None)
+            if blastab.shape[0] == 0 : return None
             blastab[2] /= 100.
             blastab = blastab[blastab[2] >= min_id]
             blastab[3], blastab[4] = blastab[3]*3, blastab[4]*3
-            
+            if blastab.shape[0] == 0 : return None
             qf, rf = blastab[0].str.rsplit(':', 1, expand=True), blastab[1].str.rsplit(':', 1, expand=True)
             if np.all(qf[0].str.isdigit()) :
                 qf[0] = qf[0].astype(int)
@@ -518,7 +524,9 @@ class RunBlast(object) :
                 usearch=usearch, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio)
             p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
             if os.path.getsize(aaMatch) > 0 :
-                blastab.append(parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio))
+                tab = parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
+                if tab is not None:
+                    blastab.append(tab)
         blastab = pd.concat(blastab)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
