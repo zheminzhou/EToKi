@@ -1,68 +1,101 @@
-import pandas as pd, numpy as np, sys, os, gzip
+import sys, os, pandas as pd, numpy as np, numba as nb
 from sklearn.metrics.cluster import adjusted_rand_score
-from sklearn.metrics import v_measure_score, silhouette_score, f1_score
-import matplotlib.pyplot as plt
+from sklearn.metrics import silhouette_score, normalized_mutual_info_score
+
 try:
-    from configure import uopen
+    from configure import uopen, logger
 except :
-    from .configure import uopen
+    from .configure import uopen, logger
     
 
-def shannon_index(cls) :
-    h = np.zeros(cls.shape[0])
-    for cid, c in enumerate(cls) :
+def shannon_index(cluster) :
+    logger('Calculating Shannon Index...')
+    h = np.zeros(cluster.shape[1])
+    for cid, c in enumerate(cluster.T) :
         cls_cnt = np.unique(c, return_counts=True)[1]/float(c.size)
         h[cid] = -np.sum(cls_cnt*np.log(cls_cnt))/np.log(c.size)
     return h
 
-def cluster_distance_AR(cluster) :
-    dist = np.ones([cluster.shape[1], cluster.shape[1]], dtype=np.float64)
+def get_similarity2(data) :
+    method, cc1, cc2 = data
+    return eval(method)(cc1, cc2)
+
+def get_similarity(method, cluster, stepwise) :
+    logger('Calculating similarities...')
+    similarity = np.ones([cluster.shape[1], cluster.shape[1]], dtype=np.float64)
     for i1, cc1 in enumerate(cluster.T) :
-        for i2 in np.arange(i1+1, cluster.shape[1]) :
-            cc2 = cluster.T[i2]
-            dist[i2, i1] = dist[i1, i2] = adjusted_rand_score(cc1, cc2)
-    return dist
+        if i1 % 10 == 0 :
+            logger('    similarities between level {0} and greater levels'.format(i1 * stepwise))
+        similarity[i1, i1+1:] = pool.map(get_similarity2, [ [method, cc1, cc2] for cc2 in cluster.T[i1+1:] ])
+        similarity[i1+1:, i1] = similarity[i1, i1+1:]
+    similarity[similarity>1.] = 1.
+    similarity[similarity<0.001] = 0.001
+    return similarity
 
-def cluster_distance_V(cluster) :
-    dist = np.zeros([cluster.shape[1], cluster.shape[1]], dtype=np.float64)
-    for i1, cc1 in enumerate(cluster.T) :
-        for i2 in np.arange(i1+1, cluster.shape[1]) :
-            cc2 = cluster.T[i2]
-            dist[i2, i1] = dist[i1, i2] = 1-f1_score(cc1, cc2, average='micro')
-    return dist
+def get_silhouette(profile, cluster, stepwise, ave_gene_length=1.) :
+    logger('Calculating Silhouette score ...')
+    np.save('evalHCC.profile.npy', profile)
+    indices = np.array([[profile.shape[0]*(v/10.)**2+0.5, profile.shape[0]*((v+1)/10.)**2+0.5] for v in np.arange(10, dtype=float)], dtype=int)
+    subfiles = pool.map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices])
+    prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
+    prof_dist += prof_dist.T
+    np.save('evalHCC.dist.npy', prof_dist)
+    silhouette = np.array(pool.map(get_silhouette2, [ ['evalHCC.dist.npy', tag] for tag in cluster.T ]))
+    for subfile in subfiles + ['evalHCC.profile.npy', 'evalHCC.dist.npy'] :
+        os.unlink(subfile)
+    return silhouette
 
-def profile_distance(profile, genes=None) :
-    if genes is None :
-        genes = np.ones(profile.shape[1], dtype=bool)
-    dist = np.zeros([ profile.shape[0], profile.shape[0] ], dtype=np.float64)
-    pp = (profile[:, genes] > 0)
-    for id, p in enumerate(profile[:, genes]) :
-        ppp = pp[id]
-        d = (p != profile[:id][:, genes]) * (pp[:id] * ppp)
-        dist[:id, id] = dist[id, :id] = (1 - (1 - (np.sum(d, 1).astype(float)+.5)/(np.sum(pp[:id] * ppp, 1)+1.))**0.001)*1000.
-        #dist[:id, id] = dist[id, :id] = np.sum(d, 1).astype(float)/np.sum(pp[:id] * ppp, 1)
-    return dist
+def get_silhouette2(data) :
+    dist_file, tag = data
+    s = np.unique(tag).size
+    if 2 <= s < tag.shape[0] :
+        return silhouette_score(np.load(dist_file), tag, metric = 'precomputed')
+    else :
+        return 0.
 
-options = 'shannon,f1,silhouette'
-if __name__ == '__main__' :
-    options, profile, cluster = sys.argv[1:4]
-    options = options.split(',')
-    stepwise = int(sys.argv[4])
+
+def parallel_distance(callup) :
+    prof_file, sub_prefix, ave_gene_length, index_range = callup
+    profiles = np.load(prof_file)
+    res = profile_distance(profiles, ave_gene_length, index_range)
+    subfile = sub_prefix.format(index_range[0])
+    np.save(subfile, res)
+    return subfile
+
+def profile_distance(profiles, ave_gene_length, index_range=None) :
+    if index_range is None :
+        index_range = [0, profiles.shape[0]]
+
+    presences = (profiles > 0)
+    distances = np.zeros(shape=[profiles.shape[0], index_range[1] - index_range[0]])
+    for i2, id in enumerate(np.arange(*index_range)) :
+        profile, presence = profiles[id], presences[id]
+        comparable = (presences[id+1:] * presence)
+        diffs = (np.sum((profiles[id+1:] != profile) & comparable, axis=1).astype(float) + .5) / (np.sum(comparable, axis=1) + 1.)
+        distances[id+1:, i2] = diffs
+        #distances[id, :i2] = diffs[index_range[0]:index_range[0]+id]
+    distances = (1-(1-distances)**(1./ave_gene_length))*ave_gene_length
+    return distances
+
+
+def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
     with uopen(profile) as fin :
+        logger('Loading profiles ...')                
         profile_header = fin.readline().strip().split('\t')
         cols = [0] + np.where([not h.startswith('#') for h in profile_header])[0].tolist()
         profile = pd.read_csv(fin, sep='\t', header=None, index_col=0, usecols=cols)
         profile_names = profile.index.values
-        profile = profile.values#.astype(int)
+        profile = profile.values
     
     with uopen(cluster) as fin :
+        logger('Loading hierCC ...')                        
         cluster_header = fin.readline().strip().split('\t')
         cols = [0] + np.where([not h.startswith('#') for h in cluster_header])[0].tolist()
         cluster = pd.read_csv(fin, sep='\t', header=None, index_col=0, usecols=cols)
         cluster_names = cluster.index.values
-        cluster = cluster.values#.astype(int)
-        stepwise = np.arange(0, cluster.shape[1], stepwise)
-        cluster = cluster[:, stepwise]
+        cluster = cluster.values
+        s = np.arange(0, cluster.shape[1], stepwise)
+        cluster = cluster[:, s]
 
     presence = np.in1d(cluster_names, profile_names)
     cluster, cluster_names = cluster[presence], cluster_names[presence]
@@ -72,32 +105,17 @@ if __name__ == '__main__' :
     profile_names = profile_names[profile_order]
     profile = profile[profile_order]
     
-    np.save('source_profile', profile)
-    np.save('source_cluster', cluster)
-    np.save('names', profile_names)
-    prof_dist = None
-    if 'shannon' in options :
-        plt.figure()
-        h = shannon_index(cluster.T)
-        np.save('shannon', h)
-        plt.scatter(stepwise, h, lw=2)
-    if 'f1' in options :
-        plt.figure()
-        dist = cluster_distance_V(cluster)
-        np.save('f1_dist', dist)
-        dist[dist>1.] = 1.
-        dist[dist<0.001] = 0.001
-        dist2 = np.log10(dist)
-        heatmap = plt.imshow(dist2, cmap='hot')
-        plt.colorbar(heatmap)
-    if 'silhouette' in options :
-        prof_dist = profile_distance(profile)
-        silhouette = []
-        for s, tag in zip(stepwise, cluster.T) :
-            if np.unique(tag).size < profile.shape[0] and np.unique(tag).size > 1 :
-                silhouette.append([s, silhouette_score(prof_dist, tag, metric='precomputed')])
-        np.save('silhouette', silhouette)
-        plt.figure()
-        silhouette = np.array(silhouette)
-        plt.scatter(silhouette.T[0], silhouette.T[1], lw=2)
-    plt.show()
+    shannon = shannon_index(cluster)
+
+    similarity = get_similarity('adjusted_rand_score', cluster, stepwise)
+
+    silhouette = get_silhouette(profile, cluster, stepwise, ave_gene_length)
+
+    np.savez_compressed('evalHCC.npz', shannon=shannon, similarity=similarity, silhouette=silhouette)
+
+
+import multiprocessing
+pool = multiprocessing.Pool(10)
+if __name__ == '__main__' :
+    profile, cluster, stepwise = sys.argv[1:]
+    evaluate(profile, cluster, int(stepwise))
