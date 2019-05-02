@@ -250,14 +250,24 @@ def install_externals() :
         logger('Done\n')
 
     if not checkExecutable(externals['kraken2'].split()) :
-        gatk_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
-        logger('Downloading kraken2 package from {0}'.format(gatk_url))
-        subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
+        kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
+        logger('Downloading kraken2 package from {0}'.format(kraken2_url))
+        subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(kraken2_url).split(), stderr=subprocess.PIPE).wait()
         logger('Unpackaging kraken2 package')
         subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
         os.unlink('v2.0.7-beta.tar.gz')
         subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).wait()
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).wait()
+        logger('Done\n')
+
+    if not checkExecutable(externals['diamond'].split()) :
+        diamond_url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.24/diamond-linux64.tar.gz'
+        logger('Downloading diamond package from {0}'.format(diamond_url))
+        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).wait()
+        logger('Unpackaging kraken2 package')
+        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        os.unlink('diamond-linux64.tar.gz')
+        os.unlink('diamond_manual.pdf')
         logger('Done\n')
 
     if not checkExecutable([externals['usearch']]) :

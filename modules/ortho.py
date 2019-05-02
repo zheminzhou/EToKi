@@ -177,9 +177,9 @@ def readGFF(fnames) :
 
         for n in cc :
             c = cc[n]
-            if len(c[6]) > 0 :
-                c[1] = '{0}:{1}'.format(fprefix, c[1])
-                cds['{0}:{1}'.format(fprefix, n)] = c[:]
+            #if len(c[6]) > 0 :
+            c[1] = '{0}:{1}'.format(fprefix, c[1])
+            cds['{0}:{1}'.format(fprefix, n)] = c[:]
     return seq, cds
 
 
@@ -821,12 +821,13 @@ def writeGenes(fname, genes, priority) :
         for n in sorted(priority.items(), key=itemgetter(1)) :
             s = genes[n[0]][6]
             len_s, hcode = len(s), genes[n[0]][5]
-            if len_s not in uniques :
-                uniques = { len_s:{hcode:1} }
-            elif hcode in uniques[ len_s ] :
-                continue
-            uniques[ len_s ][ hcode ] = 1
-            fout.write( '>{0}\n{1}\n'.format(n[0], s) )
+            if len_s :
+                if len_s not in uniques :
+                    uniques = { len_s:{hcode:1} }
+                elif hcode in uniques[ len_s ] :
+                    continue
+                uniques[ len_s ][ hcode ] = 1
+                fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname
 
 def precluster2(data) :
@@ -894,7 +895,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         else :
             rr = (part[12] - part[8]) % 3
             if rr > 0 :
-                part[8], part[10] = part[8]-3+rr, part[10]-(3+rr)*d
+                part[8], part[10] = part[8]-3+rr, part[10]-(3-rr)*d
 
         if part[9] < part[10] :
             part[9:12] = part[9], part[10], '+'
@@ -919,20 +920,21 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
         for gid, (g, predict) in enumerate(predictions.items()) :
             for pid, pred in enumerate(predict) :
-                if pred[1] == -1 or (pred[10]-pred[9]+1) <= 0.8 * pred[12] :
+                allowed_vary = pred[12]*0.2
+                if pred[1] == -1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
                     cds, allele_id = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), 'uncertain'
                     start, stop = pred[9:11]
                 else :
                     s, e = pred[9:11]
                     if pred[11] == '+' :
-                        s2, e2 = s - min(int(3*((s - 1)/3)), 60), e + min(3*int((pred[13] - e)/3), 600)
+                        s2, e2 = s - min(3*int((s - 1)/3), 60), e + min(3*int((pred[13] - e)/3), 600)
                         seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
                         lp, rp = s - s2, e2 - e
                     else :
-                        s2, e2 = s - min(int(3*((s - 1)/3)), 600), e + min(3*int((pred[13] - e)/3), 60)
+                        s2, e2 = s - min(3*int((s - 1)/3), 600), e + min(3*int((pred[13] - e)/3), 60)
                         seq = rc(genomes[encodes[pred[5]]][1][(s2-1):e2])
                         rp, lp = s - s2, e2 - e
-                        
+                    
                     seq2 = seq[(lp):(len(seq)-rp)]
                     if seq2 not in alleles[pred[0]] :
                         if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
@@ -946,20 +948,25 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     
                     frames = sorted(set([0, len(seq)%3]))
                     for frame, aa_seq in zip(frames, transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in frames]))['n']) :
+                        if (len(seq) - frame) % 3 > 0 :
+                            aa_seq = aa_seq[:-1]
                         cds = 'CDS'
-                        s0, s1 = aa_seq.find('M', int(lp/3), int(lp/3+30)), aa_seq.rfind('M', 0, int(lp/3))
+                        
+                        s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
                         start = s0 if s0 >= 0 else s1
                         if start < 0 :
                             cds, start = 'nostart', int(lp/3)
                         stop = aa_seq.find('X', start)
-                        if 0 <= stop < lp/3+30 :
-                            s0 = aa_seq.find('M', stop, int(lp/3+30))
+                        while 0 <= stop < int((lp+allowed_vary)/3) :
+                            s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
                             if s0 >= 0 :
                                 start = s0
                                 stop = aa_seq.find('X', start)
+                            else :
+                                break
                         if stop < 0 :
                             cds = 'nostop'
-                        elif (stop - start + 1)*3 <= 0.8 * pred[12] :
+                        elif (stop - start + 1)*3 < pred[12] - allowed_vary :
                             cds = 'premature stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
                             
                         if cds == 'CDS' :
@@ -991,7 +998,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
 
                 fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog group:{6},allele ID:{7},matched region:{8}-{9}{10}{11}\n'.format(
                     pred[5], 'CDS' if cds == 'CDS' else 'pseudogene', start, stop, pred[11], 
-                    '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, s, e, 
+                    '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, pred[9], pred[10], 
                     '' if pred[0] == pred[4] else ',structure variant group:' + pred[4], 
                     '' if cds == 'CDS' else ';pseudogene=' + cds, 
                     '' if len(old_tag) == 0 else 'old_locus_tag={0};'.format(','.join(old_tag)), 

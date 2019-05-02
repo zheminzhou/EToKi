@@ -11,6 +11,7 @@ except :
 makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
 usearch = externals['usearch']
+diamond = externals['diamond']
 mmseqs = externals['mmseqs']
 minimap2 = externals['minimap2']
 
@@ -222,7 +223,10 @@ def poolBlast(params) :
             return None
         blastab[2] /= 100.
         blastab = blastab[(blastab[2] >= min_id) & (blastab[7]-blastab[6]+1 >= min_cov) & (blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) ]
-        blastab.loc[:, 14] = np.array(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
+        if blastab.shape[0] <= 0 :
+            return None
+        else :
+            blastab.loc[:, 14] = pd.Series(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
         blastab = blastab.drop(columns=[15])
         return blastab
     
@@ -253,7 +257,7 @@ class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
     def run(self, ref, qry, methods, min_id, min_cov, min_ratio, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
-        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseq=self.runMMseq)
+        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseqs=self.runMMseq, diamond=self.runDiamond, diamondSELF=self.runDiamondSELF)
         self.min_id = min_id
         self.min_cov = min_cov
         self.min_ratio = min_ratio
@@ -327,7 +331,7 @@ class RunBlast(object) :
             tabs = blastab[bId:bId+perBatch]
             #scores = np.array([ cigar2score([t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1]) for t in tabs ])
             scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
-            tabs.T[2], tabs.T[11] = scores.T
+            tabs.T[2], tabs.T[11] = np.round(scores.T, 3)
         return blastab
 
     def ovlFilter(self, blastab, params) :
@@ -416,7 +420,9 @@ class RunBlast(object) :
                 for n, s in qrySeq[id::self.n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
         res = self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ])
-        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res if r is not None]))
+        #res = list(map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ]))
+        res = [r for r in res if r is not None]
+        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res]))
         blastab[14] = [ [ list(t) for t in tab ] for tab in blastab[14].tolist()]
         for r in res :
             os.unlink(r)
@@ -474,15 +480,20 @@ class RunBlast(object) :
                 rf[0] = rf[0].astype(int)
             blastab[0], qf = qf[0], qf[1].astype(int)
             blastab[1], rf = rf[0], rf[1].astype(int)
-            blastab[6], blastab[7] = blastab[6]*3+qf-3, blastab[7]*3+qf-1
-            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
             
+            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
             blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[str(x)])), blastab[1].apply(lambda x:len(refseq[str(x)]))
             
             rf3 = (rf <= 3)
             blastab.loc[rf3, 8], blastab.loc[rf3, 9] = blastab.loc[rf3, 8]*3+rf[rf3]-3, blastab.loc[rf3, 9]*3+rf[rf3]-1
             blastab.loc[~rf3, 8], blastab.loc[~rf3, 9] = blastab.loc[~rf3, 13]-(blastab.loc[~rf3, 8]*3+rf[~rf3]-3-3)+1, blastab.loc[~rf3, 13]-(blastab.loc[~rf3, 9]*3+rf[~rf3]-3-1)+1
-            d = np.max([blastab[7] - blastab[12], blastab[9] - blastab[13], 1-blastab[9], np.zeros(blastab.shape[0], dtype=int)], axis=0)
+            qf3 = (qf <= 3)
+            blastab.loc[qf3, 6], blastab.loc[qf3, 7] = blastab.loc[qf3, 6]*3+qf[qf3]-3, blastab.loc[qf3, 7]*3+qf[qf3]-1
+            blastab.loc[~qf3, 6], blastab.loc[~qf3, 7] = blastab.loc[~qf3, 12]-(blastab.loc[~qf3, 6]*3+qf[~qf3]-3-3)+1, blastab.loc[~qf3, 12]-(blastab.loc[~qf3, 7]*3+qf[~qf3]-3-1)+1
+            blastab.loc[~qf3, 6], blastab.loc[~qf3, 7], blastab.loc[~qf3, 8], blastab.loc[~qf3, 9] = blastab.loc[~qf3, 7], blastab.loc[~qf3, 6], blastab.loc[~qf3, 9], blastab.loc[~qf3, 8]
+            blastab.loc[~qf3, 14] = [ list(reversed(cigar)) for cigar in blastab.loc[~qf3, 14] ]
+
+            d = np.max([(blastab[7] - blastab[12]).values, (blastab[9] - blastab[13]).values, (1-blastab[9]).values, np.zeros(blastab.shape[0], dtype=int)], axis=0)
             blastab[7] -= d
 
             def ending(x, y) :
@@ -517,7 +528,7 @@ class RunBlast(object) :
         blastab = []
         for id in xrange(5) :
             with open(refAA, 'w') as fout :
-                for line in toWrite[id::4] :
+                for line in toWrite[id::5] :
                     fout.write(line)
         
             ublast_cmd = '{usearch} -self -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -query_cov {min_ratio} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
@@ -530,14 +541,101 @@ class RunBlast(object) :
         blastab = pd.concat(blastab)
         logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
-    
+
+    def runDiamondSELF(self, ref, qry) :
+        return self.runDiamond(ref, qry, nhits=200, frames='F')
+    def runDiamond(self, ref, qry, nhits=10, frames='7') :
+        logger('Run diamond starts')
+        def parseDiamond(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
+            blastab = []
+            for line in fin :
+                if line.startswith('@') :
+                    continue
+                part = line.strip().split('\t')
+                if part[2] == '*' : continue
+                qn, qf = part[0].rsplit(':')
+                rn, rf = part[2].rsplit(':')
+                ql, rl = len(qryseq[str(qn)]), len(refseq[str(rn)])
+                qm = len(part[9])
+                if qm*3 < min_cov : continue
+                cov_ratio = qm*3./ql
+                if cov_ratio < min_ratio : continue
+                cigar = [[int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', part[5])]
+                cl = np.sum([c[0] for c in cigar])
+                variation = float(part[12][5:])*3 if part[12].startswith('NM:') else float(re.findall('NM:i:(\d+)', line)[0])*3
+                
+                iden = 1-round(variation/cl, 3)
+                if iden < min_id : continue
+                qf, rf = int(qf), int(rf)
+                qs = int(part[18][5:]) if part[18].startswith('ZS:') else int(re.findall('ZS:i:(\d+)', line)[0])
+                rs = int(part[3])
+                
+                rm = int(np.sum([c[0] for c in cigar if c[1] in {'M', 'D'}])/3)
+                if rf <= 3 :
+                    rs, r_e = rs*3+rf-3, (rs+rm-1)*3 + rf -1
+                else :
+                    rs, r_e = rl-(rs*3+rf-6)+1, rl-((rs+rm-1)*3 + rf -4)+1
+                if qf <= 3 :
+                    qs, qe = qs*3+qf-3, (qs+qm-1)*3 + qf -1
+                else :
+                    qs, qe = ql-(qs*3+qf-6)+1, ql-((qs+qm-1)*3 + qf -4)+1
+                    qs, qe, rs, r_e = qe, qs, r_e, rs
+                    cigar = list(reversed(cigar))
+                
+                cd = [c[0] for c in cigar if c[1] != 'M']
+                score = int(part[14][5:]) if part[14].startswith('ZR:') else int(re.findall('ZR:i:(\d+)', line)[0])
+                blastab.append([qn, rn, iden, cl, int(variation-sum(cd)), len(cd), qs, qe, rs, r_e, 0.0, score, ql, rl, cigar ])
+            return pd.DataFrame(blastab)
+        
+        refAA = os.path.join(self.dirPath, 'refAA')
+        qryAA = os.path.join(self.dirPath, 'qryAA')
+        #aaMatch = os.path.join(self.dirPath, 'aaMatch')
+        
+        if not self.qrySeq :
+            self.qrySeq, self.qryQual = readFastq(qry)
+        if not self.refSeq :
+            self.refSeq, self.refQual = readFastq(ref)
+
+        qryAASeq = transeq(self.qrySeq, frame='F')
+        with open(qryAA, 'w') as fout :
+            for n, ss in sorted(qryAASeq.items()) :
+                _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
+                fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
+        
+        diamond_fmt = '{diamond} makedb --db {qryAA} --in {qryAA}'.format(
+            diamond=diamond, qryAA=qryAA)
+        p = Popen(diamond_fmt.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
+        
+        refAASeq = transeq(self.refSeq, frames)
+        toWrite = []
+        for n, ss in sorted(refAASeq.items()) :
+            for id, s in enumerate(ss) :
+                toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
+        
+        blastab = []
+        for id in xrange(5) :
+            with open(refAA, 'w') as fout :
+                for line in toWrite[id::5] :
+                    fout.write(line)
+        
+            diamond_cmd = '{diamond} blastp --no-self-hits --threads {n_thread} --db {refAA} --query {qryAA} --id {min_id} --query-cover {min_ratio} --evalue 1 -k {nhits} --dbsize 5000000 --outfmt 101'.format(
+                diamond=diamond, refAA=refAA, qryAA=qryAA, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio*100.)
+            p = Popen(diamond_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True)
+            #if os.path.getsize(aaMatch) > 0 :
+            tab = parseDiamond(p.stdout, self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
+            if tab is not None:
+                blastab.append(tab)
+        blastab = pd.concat(blastab)
+        logger('Run diamond finishes. Got {0} alignments'.format(blastab.shape[0]))
+        return blastab
+
     def runMMseq(self, ref, qry) :
         logger('Run MMSeqs starts')
         def parseMMSeq(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
             blastab = pd.read_csv(fin, sep='\t', header=None)
             blastab = blastab[blastab[2] >= min_id]
-            qlen = blastab[0].apply(lambda r:len(qryseq[r]))
-            rlen = blastab[1].apply(lambda r:len(refseq[r]))
+            qlen = blastab[0].apply(lambda r:len(qryseq[str(r)]))
+            rlen = blastab[1].apply(lambda r:len(refseq[str(r)]))
             cigar = blastab[14].apply( lambda x: [ [int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', x)] )
             ref_sites = pd.concat([ 3*(blastab[6]-1)+1, 3*blastab[7] ], keys=[0,1], axis=1)
             d = ref_sites[1] - qlen
@@ -568,14 +666,14 @@ class RunBlast(object) :
         for ite in range(9) :
             if os.path.isdir(tmpDir) :
                 shutil.rmtree(tmpDir)
-            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
+            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 7.5 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
                 mmseqs, qryAA, refNA, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
             p.communicate()
             if p.returncode == 0 :
                 break
             if ite > 2 :
                 Popen('{0} extractorfs {2} {3}'.format(mmseqs, qryAA, refNA, refCDS).split(), stdout=PIPE).communicate()
-                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 6 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
+                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 7.5 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
                     mmseqs, qryAA, refCDS, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
                 p.communicate()
                 if p.returncode == 0 :
@@ -600,11 +698,13 @@ def uberBlast(args) :
     parser.add_argument('-q', '--query',  help='[INPUT; REQUIRED] filename for the query. This can be short-reads or genes or genomic assemblies. ', required=True)
     parser.add_argument('-o', '--output', help='[OUTPUT; Default: None] save result to a file or to screen (stdout). Default do nothing. ', default=None)
     parser.add_argument('--blastn',       help='Run BLASTn. Slowest. Good for identities between [70, 100]', action='store_true', default=False)
+    parser.add_argument('--diamond',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
+    parser.add_argument('--diamondSELF',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--ublast',       help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--ublastSELF',   help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--minimap',      help='Run minimap. Fast. Good for identities between [90-100]', action='store_true', default=False)
     parser.add_argument('--minimapASM',   help='Run minimap on assemblies. Fast. Good for identities between [90-100]', action='store_true', default=False)
-    parser.add_argument('--mmseq',        help='Run mmseq2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
+    parser.add_argument('--mmseqs',        help='Run mmseqs2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
     
     parser.add_argument('--min_id', help='[DEFAULT: 0.3] Minimum identity before reScore for an alignment to be kept', type=float, default=0.3)
     parser.add_argument('--min_cov', help='[DEFAULT: 40] Minimum length for an alignment to be kept', type=float, default=40.)
@@ -626,7 +726,7 @@ def uberBlast(args) :
     
     args = parser.parse_args(args)
     methods = []
-    for method in ('blastn', 'ublast', 'ublastSELF', 'minimap', 'minimapASM', 'mmseq') :
+    for method in ('blastn', 'ublast', 'ublastSELF', 'minimap', 'minimapASM', 'mmseqs', 'diamond', 'diamondSELF') :
         if args.__dict__[method] :
             methods.append(method)
     for opt in ('fix_end',) :
