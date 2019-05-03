@@ -86,8 +86,8 @@ class MapBsn(object) :
         tmp = zipfile.ZipFile(tmpName, mode='w', compression=zipfile.ZIP_DEFLATED,allowZip64=True)
         for blastab in blastabs :
             gene = str(blastab[0][0])
-            newList |= set([gene])
-            
+            #newList |= set([gene])
+            newList.add(gene)
             oldData = self.get(gene)
             if len(oldData) :
                 data = np.vstack([oldData, blastab])
@@ -99,7 +99,7 @@ class MapBsn(object) :
             if gene not in newList :
                 data = self.get(gene)
                 if len(data) :
-                    newList |= set([gene])
+                    newList.add(gene) # newList |= set([gene])
                     self._save(tmp, gene, data)
         tmp.close()
         self.conn.close()
@@ -208,10 +208,11 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                     s_i += s
                 else :
                     s_j += s
-    if params['skipUBLAST'] :
+    if params['noDiamond'] :
         self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
     else :
-        self_bsn = uberBlast('-r {0} -q {0} --blastn --ublastSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+    self_bsn.T[:2] = self_bsn.T[:2].astype(int)
     presence, ortho_pairs = {}, {}
     save = []
     for part in self_bsn :
@@ -222,6 +223,15 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         iden, qs, qe, ss, se, ql, sl = float(part[2]), float(part[6]), float(part[7]), float(part[8]), float(part[9]), float(part[12]), float(part[13])
         if presence.get(part[1], 1) == 0 or ss > se :
             continue
+        if part[0] != part[1] and iden > params['clust_identity'] :
+            if ql <= sl :
+                if qe - qs + 1 >= params['clust_match_prop'] * ql and priorities[(part[0])][0] <= priorities[(part[1])][0] :
+                    presence[part[0]] = 0
+                    continue
+            elif se - ss + 1 >= params['clust_match_prop'] * sl and priorities[(part[0])][0] >= priorities[(part[1])][0] :
+                presence[part[1]] = 0
+                continue
+                
         if len(save) > 0 and np.any(save[0][:2] != part[:2]) :
             if len(save) >= 50 :
                 presence[save[0][1]] = 0
@@ -288,7 +298,7 @@ def global_difference2(data) :
     np.save(fname, np.array(list(res.items()), dtype=object))
     return fname
 
-def global_difference(bsn_file, prefix, orthoGroup, counts=2000) :
+def global_difference(bsn_file, prefix, orthoGroup, counts=500) :
     genes = []
     with MapBsn(bsn_file+'.tab.npz') as conn :
         for gene, g in conn.items() : 
@@ -298,13 +308,13 @@ def global_difference(bsn_file, prefix, orthoGroup, counts=2000) :
                 genes.append([score, int(gene)])
         genes = sorted(genes, reverse=True)
     
-    og = np.array(list(orthoGroup.keys()))
+    og = np.load(orthoGroup)
+    
     grp_order, all_useds = [], set([])
     for score, gene in genes :
         if gene not in all_useds :
             grp_order.append(gene)
-            used = og[og.T[0] == gene, 1]
-            all_useds |= set(used.tolist())
+            all_useds |= set(og[og.T[0] == gene, 1].tolist()) | set(og[og.T[1] == gene, 0].tolist()) | set([gene])
     genes = grp_order[:counts]
 
     global_differences = {}
@@ -343,7 +353,7 @@ def filt_per_group(data) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
             if aln >= params['match_frag_len'] :
-                gd = global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.01, 4))
+                gd = (0.01, 4) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4))
                 distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
                 difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
             else :
@@ -659,17 +669,18 @@ def writeGenomes(fname, seqs) :
     return fname
 
 def iter_map_bsn(data) :
-    prefix, clust, id, taxon, seq, params = data
+    prefix, clust, id, taxon, seq, orthoGroup, params = data
     gfile, out_prefix = '{0}.{1}.genome'.format(prefix, id), '{0}.{1}'.format(prefix, id)
     with open(gfile, 'w') as fout :
         for n, s in seq :
             fout.write('>{0}\n{1}\n'.format(n, s) )
 
-    if params['skipUBLAST'] :
+    if params['noDiamond'] :
         blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     else :
-        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --ublast --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     os.unlink(gfile)
+    blastab.T[:2] = blastab.T[:2].astype(int)
     
     groups = []
     groups2 = {}
@@ -731,6 +742,13 @@ def iter_map_bsn(data) :
     bsn=np.array(groups, dtype=object)
     size = np.ceil(np.vectorize(lambda n:len(n))(bsn.T[4])/3).astype(int)
     bsn.T[4] = np.array([ b[:s]*25+b[s:2*s]*5 + b[2*s:] for b, s in zip(bsn.T[4], size) ], dtype=object)
+    bsn = bsn[np.argsort(-bsn.T[2])]
+    
+    orthoGroup = np.load(orthoGroup)
+    orthoGroup = dict([[tuple(g),1] for g in orthoGroup] + [[(g[1], g[0]),1] for g in orthoGroup])
+    ovl_score = np.vectorize(lambda m,n:0 if m == n else orthoGroup.get((m,n), 2))(bsn[overlap.T[0], 0], bsn[overlap.T[1], 0])
+    overlap = np.hstack([overlap, ovl_score[:, np.newaxis]])
+    
     np.savez_compressed(out_prefix+'.bsn.npz', bsn=bsn, ovl=overlap)
     return out_prefix
 
@@ -751,33 +769,34 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, conn2) :
     ids = 0
     
     blastab = []
-    #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
-    for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
+    #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
+    for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
         tmp = np.load(bsnPrefix + '.bsn.npz')
         bsn, ovl = tmp['bsn'], tmp['ovl']
-        ovl_score = np.vectorize(lambda m,n:orthoGroup.get((m,n), 2))(bsn[ovl.T[0], 0], bsn[ovl.T[1], 0])
-        ovl = np.hstack([ovl, ovl_score[:, np.newaxis]])
 
         bsn.T[5] += ids
         ovl[:, :2] += ids
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         overlaps.append(ovl)
-        bsn = bsn[np.argsort(-bsn.T[2])]
         
         for b in bsn :
             conn2.save(b[5], b[4])
         bsn.T[4] = 0
         blastab.append(bsn)
+        del b, bsn
 
         os.unlink(bsnPrefix + '.bsn.npz')
         logger('Merged {0}'.format(bsnPrefix))
-        if bId % 100 == 99 or bId == len(taxa) - 1 :
+        if bId % 200 == 199 or bId == len(taxa) - 1 :
             blastab = np.vstack(blastab)
             blastab = blastab[np.argsort(blastab.T[0], kind='mergesort')]
             blastab = np.split(blastab, np.cumsum(np.unique(blastab.T[0], return_counts=True)[1])[:-1])
             conn.update(blastab)
+            del blastab
             blastab = []
+    pool.close()
+    pool.join()
     overlaps = np.vstack(overlaps)
     return overlaps
 
@@ -846,7 +865,7 @@ def precluster2(data) :
         if ingroup[m1[2]] :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2].astype(int)] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2:global_differences.get(tuple(sorted([g1, g2])), (0.01, 4.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.01, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
                 sc = -(m2.T[1] - m1[1])/gs[0]/gs[1]/params['allowed_variation']
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1035,7 +1054,7 @@ EToKi.py ortho
     parser.add_argument('--clust_identity', help='minimum identities of mmseqs clusters. Default: 0.95', default=0.95, type=float)
     parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.85', default=0.85, type=float)
 
-    parser.add_argument('--fast', dest='skipUBLAST', help='disable uBLAST search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
+    parser.add_argument('--fast', dest='noDiamond', help='disable Diamond search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
@@ -1062,7 +1081,7 @@ EToKi.py ortho
 
     params = parser.parse_args(a)
     if params.metagenome :
-        params.skipUBLAST = True
+        params.noDiamond = True
         params.incompleteCDS = 'sife'
         params.clust_identity = 0.99
         params.clust_match_prop = 0.8
@@ -1128,15 +1147,13 @@ def ortho(args) :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'
             orthoGroup = get_similar_pairs(params['prefix'], params['clust'], first_classes, params)
             np.save(params['self_bsn'], orthoGroup)
-        else :
-            orthoGroup = np.load(params['self_bsn'])
-        orthoGroup = dict([[tuple(g),1] for g in orthoGroup] + [[(g[1], g[0]),1] for g in orthoGroup] + [[(g, g), 0] for g in genes])
+            del orthoGroup
 
         if params.get('map_bsn', None) is None :
             params['map_bsn']= params['prefix']+'.map_bsn'
             
             with MapBsn(params['map_bsn']+'.tab.npz', 'w') as conn, MapBsn(params['map_bsn']+'.seq.npz', 'w') as conn2  :
-                conflicts = get_map_bsn(params['prefix'], params['clust'], genomes, orthoGroup, conn, conn2)
+                conflicts = get_map_bsn(params['prefix'], params['clust'], genomes, params['self_bsn'], conn, conn2)
             np.savez_compressed(params['map_bsn']+'.conflicts.npz', conflicts=conflicts)
             del conflicts
         pool.close()
@@ -1145,7 +1162,7 @@ def ortho(args) :
         if params.get('orthology', 'rapid') != 'rapid' :
             if params.get('global', None) is None :
                 params['global'] = params['prefix']+'.global.npy'
-                global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', orthoGroup, 2000)
+                global_differences = global_difference(params['map_bsn'], params['prefix']+'.global', params['self_bsn'], 500)
                 np.save(params['global'], global_differences)
                 del global_differences
             

@@ -226,14 +226,20 @@ def poolBlast(params) :
         if blastab.shape[0] <= 0 :
             return None
         else :
-            blastab.loc[:, 14] = pd.Series(list(map(getCIGAR, zip(blastab[15], blastab[14]))))
+            blastab[14] = list(map(getCIGAR, zip(blastab[15], blastab[14])))
         blastab = blastab.drop(columns=[15])
+        blastab[[0, 1]] = blastab[[0, 1]].astype(str)
         return blastab
     
     blastn, refDb, qry, min_id, min_cov, min_ratio = params
-    blast_cmd = '{blastn} -db {refDb} -query {qry} -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
+    outfile = '{0}.bsn'.format(qry)
+    blast_cmd = '{blastn} -db {refDb} -query {qry} -out {qry}.bsn -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
         blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
-    blastab = parseBlast(Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).stdout, min_id, min_cov, min_ratio)
+    Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).communicate()
+    if os.path.getsize(outfile) > 0 :
+        blastab = parseBlast(open(outfile), min_id, min_cov, min_ratio)
+    else :
+        blastab = None
     if blastab is None :
         return None
     blastab.to_msgpack(qry + '.match.msg')
@@ -257,7 +263,7 @@ class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
     def run(self, ref, qry, methods, min_id, min_cov, min_ratio, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
-        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseqs=self.runMMseq, diamond=self.runDiamond, diamondSELF=self.runDiamondSELF)
+        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseqs=self.runMMseq, diamond=self.runDiamond, diamondself=self.runDiamondSELF)
         self.min_id = min_id
         self.min_cov = min_cov
         self.min_ratio = min_ratio
@@ -282,7 +288,7 @@ class RunBlast(object) :
                 blastab = np.hstack([blastab.values, np.arange(blastab.shape[0], dtype=int)[:, np.newaxis]])
         
         if re_score :
-            blastab=self.reScore(ref, qry, blastab, re_score)
+            blastab=self.reScore(ref, qry, blastab, re_score, self.min_id)
         if filter[0] :
             blastab=self.ovlFilter(blastab, filter)
         if linear_merge[0] :
@@ -315,7 +321,7 @@ class RunBlast(object) :
         logger('Identified {0} overlaps.'.format(len(res)))
         return res
     
-    def reScore(self, ref, qry, blastab, mode, perBatch=10000) :
+    def reScore(self, ref, qry, blastab, mode, min_id, perBatch=10000) :
         if not self.qrySeq :
             self.qrySeq, self.qryQual = readFastq(qry)
         if not self.refSeq :
@@ -332,6 +338,7 @@ class RunBlast(object) :
             #scores = np.array([ cigar2score([t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1]) for t in tabs ])
             scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
             tabs.T[2], tabs.T[11] = np.round(scores.T, 3)
+        blastab = blastab[blastab.T[2] >= min_id]
         return blastab
 
     def ovlFilter(self, blastab, params) :
@@ -502,6 +509,7 @@ class RunBlast(object) :
             d[~rf3] *= -1
             blastab[9] -= d
             blastab = blastab[(blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) & (blastab[7]-blastab[6]+1 >= min_cov)]
+            blastab[[0, 1]] = blastab[[0, 1]].astype(str)
             return blastab.drop(columns=[15,16])
         
         refAA = os.path.join(self.dirPath, 'refAA')
@@ -553,8 +561,9 @@ class RunBlast(object) :
                     continue
                 part = line.strip().split('\t')
                 if part[2] == '*' : continue
-                qn, qf = part[0].rsplit(':')
-                rn, rf = part[2].rsplit(':')
+                qn, qf = part[0].rsplit(':', 1)
+                rn, rf, rx = part[2].rsplit(':', 2)
+                rs = int(part[3])+int(rx)
                 ql, rl = len(qryseq[str(qn)]), len(refseq[str(rn)])
                 qm = len(part[9])
                 if qm*3 < min_cov : continue
@@ -568,7 +577,7 @@ class RunBlast(object) :
                 if iden < min_id : continue
                 qf, rf = int(qf), int(rf)
                 qs = int(part[18][5:]) if part[18].startswith('ZS:') else int(re.findall('ZS:i:(\d+)', line)[0])
-                rs = int(part[3])
+                
                 
                 rm = int(np.sum([c[0] for c in cigar if c[1] in {'M', 'D'}])/3)
                 if rf <= 3 :
@@ -585,11 +594,13 @@ class RunBlast(object) :
                 cd = [c[0] for c in cigar if c[1] != 'M']
                 score = int(part[14][5:]) if part[14].startswith('ZR:') else int(re.findall('ZR:i:(\d+)', line)[0])
                 blastab.append([qn, rn, iden, cl, int(variation-sum(cd)), len(cd), qs, qe, rs, r_e, 0.0, score, ql, rl, cigar ])
-            return pd.DataFrame(blastab)
+            blastab = pd.DataFrame(blastab)
+            blastab[[0,1]] = blastab[[0,1]].astype(str)
+            return blastab
         
         refAA = os.path.join(self.dirPath, 'refAA')
         qryAA = os.path.join(self.dirPath, 'qryAA')
-        #aaMatch = os.path.join(self.dirPath, 'aaMatch')
+        aaMatch = os.path.join(self.dirPath, 'aaMatch')
         
         if not self.qrySeq :
             self.qrySeq, self.qryQual = readFastq(qry)
@@ -610,19 +621,25 @@ class RunBlast(object) :
         toWrite = []
         for n, ss in sorted(refAASeq.items()) :
             for id, s in enumerate(ss) :
-                toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
+                cdss = re.findall('.{1000,}?X|.{1,1000}$', s + 'X')
+                cdss[-1] = cdss[-1][:-1]
+                cdsi = np.cumsum([0]+list(map(len, cdss[:-1])))
+                for ci, cs in zip(cdsi, cdss) :
+                    if len(cs) :
+                        toWrite.append('>{0}:{1}:{2}\n{3}\n'.format(n, id+1, ci, cs))
         
         blastab = []
         for id in xrange(5) :
+            #logger('{0}'.format(id))
             with open(refAA, 'w') as fout :
                 for line in toWrite[id::5] :
                     fout.write(line)
-        
-            diamond_cmd = '{diamond} blastp --no-self-hits --threads {n_thread} --db {refAA} --query {qryAA} --id {min_id} --query-cover {min_ratio} --evalue 1 -k {nhits} --dbsize 5000000 --outfmt 101'.format(
-                diamond=diamond, refAA=refAA, qryAA=qryAA, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio*100.)
-            p = Popen(diamond_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True)
-            #if os.path.getsize(aaMatch) > 0 :
-            tab = parseDiamond(p.stdout, self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
+            diamond_cmd = '{diamond} blastp --no-self-hits --threads {n_thread} --db {refAA} --query {qryAA} --out {aaMatch} --id {min_id} --query-cover {min_ratio} --evalue 1 -k {nhits} --dbsize 5000000 --outfmt 101'.format(
+                diamond=diamond, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio*100.)
+            p = Popen(diamond_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+            if os.path.getsize(aaMatch) > 0 :
+                tab = parseDiamond(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
+                os.unlink(aaMatch)
             if tab is not None:
                 blastab.append(tab)
         blastab = pd.concat(blastab)
@@ -650,6 +667,7 @@ class RunBlast(object) :
             qry_sites[~direction] = pd.concat([ blastab[8]-d, blastab[9] ], axis=1)[~direction]
             
             blastab = pd.DataFrame(np.hstack([ blastab[[0, 1, 2]], np.apply_along_axis(lambda x:x[1]-x[0]+1, 1, ref_sites.values)[:, np.newaxis], pd.DataFrame(np.zeros([blastab.shape[0], 2], dtype=int)), ref_sites, qry_sites, blastab[[10, 11]], qlen[:, np.newaxis], rlen[:, np.newaxis], cigar[:, np.newaxis] ]))
+            blastab[[0,1]] = blastab[[0,1]].astype(str)
             return blastab[(blastab[3] >= min_cov) & (blastab[3] >= blastab[12]*min_ratio)]
 
         tmpDir = os.path.join(self.dirPath, 'tmp')
