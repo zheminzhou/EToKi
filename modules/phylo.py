@@ -1,21 +1,38 @@
 from ete3 import Tree
-import sys, numpy as np, os, glob, math, re, argparse, pandas as pd
+import sys, numpy as np, os, glob, math, re, argparse
 from subprocess import Popen, PIPE
 from multiprocessing import Pool
 import random
+import pandas as pd
 
 rint = random.randint(0, 262144)
 
 try :
-    from configure import externals, uopen
+    from configure import externals, uopen, asc2int
 except :
-    from .configure import externals, uopen
+    from .configure import externals, uopen, asc2int
 
 raxml = externals['raxml']
 
-def readXFasta(fasta_file) :
-    seqs = [[]]
+def fillMissingSeq(seqs, block_id) :
+    check = False
+    for s in seqs :
+        if len(s) > 2 :
+            s[2] = ''.join(s[2]).upper()
+            check = True
+    if not check :
+        return False
+    alnSize = max([ len(s[2]) for s in seqs ])
+    for s in seqs :
+        if len(s) == 1 :
+            s.extend(['s{0}'.format(block_id), ''])
+        s[2] += '-' * (alnSize - len(s[2]))
+    return True
     
+
+def xFasta2Matrix(prefix, fasta_file, core=0.95) :
+    seqs = []
+    snp_data = []
     nameMap = {}
     with uopen(fasta_file) as fin :
         for line in fin :
@@ -25,72 +42,97 @@ def readXFasta(fasta_file) :
                 contName = name.split(':', 1)[-1]
                 if seqName in nameMap :
                     seqId = nameMap[seqName]
-                    seqs[-1][seqId] = [seqName, contName, []]
+                    seqs[seqId] = [seqName, contName, []]
                 else :
-                    seqId = nameMap[seqName] = len(seqs[-1])
-                    seqs[-1].append([seqName, contName, []])
+                    seqId = nameMap[seqName] = len(seqs)
+                    seqs.append([seqName, contName, []])
             elif line.startswith('=') :
-                seqs.append([[seqName, str(len(seqs)), []] for seqName, contName, _ in seqs[0] ])
+                if fillMissingSeq(seqs, len(snp_data)) :
+                    snp_data.append(parse_snps(prefix, len(snp_data), seqs, core))
+                seqs = [ [n] for n,i in sorted(nameMap.items(), key=lambda x:x[1]) ]
             else :
-                seqs[-1][seqId][2].extend(line.strip().split())
-    res = []
-    for blocks in seqs:
-        seqLen = 0
-        for block in blocks :
-            block[2] = ''.join(block[2])
-            seqLen = max(seqLen, len(block[2]))
-        for block in blocks :
-            if len(block[2]) < seqLen :
-                block[2] += '-' * (seqLen - len(block[2]))
-        if seqLen > 0 :
-            res.append(blocks)
-    return res
-
-def parse_snps(seq, core=0.95) :
-    names = np.array([ s[0] for s in seq[0] ])
+                seqs[seqId][2].extend(line.strip().split())
+    if fillMissingSeq(seqs, len(snp_data)) :
+        snp_data.append(parse_snps(prefix, len(snp_data), seqs, core))
+    
+    const_sites = np.sum([ snp[2] for snp in snp_data ], axis=0)
+    names = [n for n,i in sorted(nameMap.items(), key=lambda x:x[1])]
+    with uopen(prefix+'.matrix.gz', 'w') as fout :
+        fout.write('## Constant_bases: ' + ' '.join(const_sites.astype(str)) + '\n')
+        for snp in snp_data :
+            fout.write('## Sequence_length: {0} {1}\n'.format(*snp[:2]))
+        for snp in snp_data :
+            for s, e in snp[3] :
+                fout.write('## Missing_region: {0} {1} {2}\n'.format(snp[0], s, e))
+        fout.write('#seq\t#site\t' + '\t'.join(names) + '\n')
+        for snp in snp_data :
+            d = np.load(snp[4])
+            sites, sv = d['sites'], d['snps']
+            for s in sites :
+                fout.write('{0}\t{1}\t{2}\n'.format(snp[0], s[0], '\t'.join(sv[s[1]].astype(str))))
+            os.unlink(snp[4])
+    return prefix+'.matrix.gz'
+    
+def parse_snps(prefix, id, seq, core=0.95) :
+    #names = np.array([ s[0] for s in seq ])
     missing = []
-    contNames = []
     snps, sites ={}, []
 
     const_sites = {
-        b'A' : tuple([b'A' for b in names]),
-        b'C' : tuple([b'C' for b in names]),
-        b'G' : tuple([b'G' for b in names]),
-        b'T' : tuple([b'T' for b in names]),
+        b'A' : 0., b'C' : 0.,
+        b'G' : 0., b'T' : 0.,
     }
+    type_id = 0
 
-    for ss in seq :
-        contName = ss[0][1]
-        contNames.append([contName, len(ss[0][2])])
-        seqs = np.array([ (re.sub(r'[^ACGT]', r'-', s[2].upper())) for s in ss ], dtype='c')
-    
-        for ref_site, bases in enumerate(seqs.T) :
-            b_key = tuple(bases)
-            if b_key in snps :
-                snps[b_key][2] += 1
-                if snps[b_key][1] > 0 :
-                    sites.append([contName, ref_site+1, snps[b_key][0]])
-                continue
-            
-            types, counts = np.unique(bases, return_counts=True)
-            types, counts = types[types != b'-'], counts[types != b'-']
-    
-            if types.size > 0 and np.sum(counts) >= core * bases.size :
-                if types.size == 1 :
-                    b_key = const_sites[types[0]]
-    
-                if b_key not in snps :
-                    snps[b_key] = [len(snps), types.size-1, 1.]
-                else :
-                    snps[b_key][2] += 1.
-                if types.size > 1 :
-                    sites.append([contName, ref_site+1, snps[b_key][0]])
+    contName = seq[0][1]
+    seqs = np.array([ (re.sub(r'[^ACGT]', r'-', s[2].upper())) for s in seq ], dtype='c', order='F')
+
+    for ref_site, bases in enumerate(seqs.T) :
+        b_key = tuple(bases)
+        if b_key in snps :
+            s = snps[b_key]
+            if s[0] == -2 :
+                missing.append(ref_site+1)
+            elif s[0] == -1 :
+                const_sites[s[2]] += s[3]
             else :
-                if len(missing) and missing[-1][0] == contName and missing[-1][2] == ref_site :
-                    missing[-1][2] = ref_site+1
-                else :
-                    missing.append([contName, ref_site+1, ref_site+1])
-    return names, sites, { tuple([s.decode('utf-8') for s in snp]): info for snp,info in snps.items()}, contNames, missing
+                s[1] += 1
+                sites.append([ref_site+1, s[0]])
+            continue
+        
+        types, counts = np.unique(bases, return_counts=True)
+        pType = (types != b'-')
+        types, counts = types[pType], counts[pType]
+        countSum = np.sum(counts)/bases.size
+
+        if types.size > 0 and countSum >= core :
+            if types.size == 1 :
+                snps[b_key] = [-1, 0., types[0], 1]  #countSum]
+                const_sites[types[0]] += 1  #countSum
+            else :
+                snps[b_key] = [type_id, 1.]
+                sites.append([ref_site+1, type_id])
+                type_id += 1
+        else :
+            snps[b_key] = [-2]
+            missing.append(ref_site+1)
+    if len(missing) : 
+        missing2 = [[missing[0], missing[0]]]
+        for m in missing[1:] :
+            if missing2[-1][1] +1 == m :
+                missing2[-1][1] = m
+            else :
+                missing2.append([m, m])
+        missing = []
+        del missing
+    else :
+        missing2 = []
+    snps = np.array([ k for k,v in sorted([[k,v] for k,v in snps.items() if v[0]>=0], key=lambda v:v[1][0]) ])
+    #snps = pd.DataFrame([ [k, v[1]] for k,v in sorted([[k,v] for k,v in snps.items() if v[0]>=0], key=lambda v:v[1][0]) ]).values
+    const_sites = np.array([const_sites[b'A'],const_sites[b'C'],const_sites[b'G'],const_sites[b'T']])
+    outputs = dict(sites = np.array(sites), snps = snps)
+    np.savez_compressed('{0}.{1}.npz'.format(prefix, id), **outputs)
+    return contName, seqs.shape[1], const_sites, missing2, '{0}.{1}.npz'.format(prefix, id)
 
 def write_phylip(prefix, names, snp_list) :
     invariants = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
@@ -161,23 +203,6 @@ def get_root(prefix, tree_file) :
     tree.write(outfile='{0}.rooted.nwk'.format(prefix), format=1)
     return '{0}.rooted.nwk'.format(prefix)
 
-def write_matrix(fname, names, sites, snps, seqNames, missing) :
-    invariants = { snp[0]:[base, snp[2]] for base, snp in snps.items() if snp[1] == 0 and base[0] != '-' }
-    bases = {}
-    for inv in invariants.values() :
-        bases[inv[0]] = bases.get(inv[0], 0) + inv[1]
-    sv = {ss[0]:'\t'.join(s) for s, ss in snps.items()}
-    with uopen(fname, 'w') as fout :
-        fout.write('## Constant_bases: ' + ' '.join([str(inv[1]) for inv in sorted(bases.items())]) + '\n')
-        for n, l in seqNames :
-            fout.write('## Sequence_length: {0} {1}\n'.format(n, l))
-        for n, s, e in missing :
-            fout.write('## Missing_region: {0} {1} {2}\n'.format(n, s, e))
-        fout.write('#seq\t#site\t' + '\t'.join(names) + '\n')
-        for site in sites :
-            fout.write('{1}\t{2}\t{0}\n'.format(sv[site[2]], *site[:2]))
-    return fname
-
 def read_matrix(fname) :
     sites, snps = [], {}
     invariant = []
@@ -208,7 +233,7 @@ def read_matrix(fname) :
                 names = part[cols]
                 break
         mat = pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1]).values
-        
+    
     val = {'A':'A', 'C':'C', 'G':'G', 'T':'T', '-':'-', 'N':'-', '.':'.'}
     validate = np.vectorize(lambda b: b if len(b) > 1 else val.get(b, '-'))
     
@@ -459,18 +484,13 @@ def phylo(args) :
     
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
-        seq = readXFasta( args.alignment )
-        names, sites, snps, seqLens, missing = parse_snps(seq, args.core)
-        args.snp = write_matrix(args.prefix+'.matrix.gz', names, sites, snps, seqLens, missing)
-        if len(names) < 4 :
-            raise ValueError('Taxa too few.')
-        snp_list = sorted([[info[0], int(math.ceil(info[2])), list(line), info[1]] for line, info in snps.items() ])
-    elif 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
-        assert os.path.isfile( args.snp )
-        names, sites, snps, seqLens, missing = read_matrix(args.snp)
-        if len(names) < 4 :
-            raise ValueError('Taxa too few.')
-        snp_list = sorted([[info[0], int(math.ceil(info[2])), list(line), info[1]] for line, info in snps.items() ])
+        args.snp = xFasta2Matrix( args.prefix, args.alignment )
+
+    assert os.path.isfile( args.snp )
+    names, sites, snps, seqLens, missing = read_matrix(args.snp)
+    if len(names) < 4 :
+        raise ValueError('Taxa too few.')
+    snp_list = sorted([[info[0], int(math.ceil(info[2])), list(line), info[1]] for line, info in snps.items() ])
 
 
     # build tree
