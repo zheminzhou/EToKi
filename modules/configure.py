@@ -87,14 +87,14 @@ class uopen(object) :
         return self.fstream
 
 
-def readFasta(fasta) :
+def readFasta(fasta, headOnly=False) :
     sequence = {}
     with uopen(fasta) as fin :
         for line in fin :
             if line.startswith('>') :
                 name = line[1:].strip().split()[0]
                 sequence[name] = []
-            elif len(line) > 0 and not line.startswith('#') :
+            elif len(line) > 0 and not line.startswith('#') and not headOnly :
                 sequence[name].extend(line.strip().split())
     for s in sequence :
         sequence[s] = (''.join(sequence[s])).upper()
