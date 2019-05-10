@@ -491,7 +491,7 @@ def phylo(args) :
     
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
-        args.snp = xFasta2Matrix( args.prefix, args.alignment )
+        args.snp = xFasta2Matrix( args.prefix, args.alignment, args.core )
 
     assert os.path.isfile( args.snp )
     names, sites, snps, seqLens, missing = read_matrix(args.snp)
