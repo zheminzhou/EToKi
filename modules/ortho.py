@@ -901,39 +901,49 @@ def writeGenes(fname, genes, priority) :
                 fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname
 
-def precluster2(data) :
-    bsn_file, gene, global_file = data
-    with MapBsn(bsn_file+'.tab.npz') as conn :
-        matches = conn.get(gene)
-    if len(matches) <= 1 :
-        return gene, matches
-    matches = matches[np.argsort(-matches.T[2])]
-    global_differences = dict(np.load(global_file))
-    gIden = np.hstack([matches[:, [1, 3]], np.arange(matches.shape[0])[:, np.newaxis]])
-    ingroup = np.zeros(matches.shape[0], dtype=bool)
+def determineGroup(gIden, ingroup, global_differences, variation) :
     ingroup[0] = True
 
     for i1, m1 in enumerate(gIden) :
         if ingroup[m1[2]] :
-            m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2].astype(int)] != True]
+            m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
                 gs = np.vectorize(lambda g1, g2: (0.01, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
-                sc = -(m2.T[1] - m1[1])/10000./gs[0]/gs[1]/params['allowed_variation']
+                sc = -(m2.T[1] - m1[1])/10000./gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
-    return gene, matches[ingroup]
+    return ingroup    
+
+def precluster2(data) :
+    bsn_file, genes, global_file = data
+
+    global_differences = dict(np.load(global_file))
+    outputs = []
+    with MapBsn(bsn_file+'.tab.npz') as conn :
+        for gene in genes :
+            matches = conn.get(gene)
+            if len(matches) <= 1 :
+                outputs.append( [gene, matches] )
+                continue
+            matches = matches[np.argsort(-matches.T[2])]
+            gIden = np.hstack([matches[:, [1, 3]], np.arange(matches.shape[0])[:, np.newaxis]])
+            ingroup = np.zeros(matches.shape[0], dtype=bool)
+            ingroup = determineGroup(gIden, ingroup, global_differences, params['allowed_variation'])
+            outputs.append([ gene, matches[ingroup] ])
+    return outputs
 
 def precluster(bsn_file, global_file) :
     with MapBsn(bsn_file + '.tab.npz') as conn, MapBsn(bsn_file + '.tmp.npz', 'w') as conn2 :
-        genes = sorted(conn.keys())
-        for ite in xrange(0, len(genes), 500) :
+        genes = np.array(sorted(conn.keys()))
+        for ite in xrange(0, len(genes), 10000) :
             logger('Prefiltering: {0}/{1}'.format(ite, len(genes)))
-            
-            toUpdate = pool2.map(precluster2, [(bsn_file, gene, global_file) for gene in genes[ite:ite+500] ])
-            #toUpdate = list(map(precluster2, [(bsn_file, gene, global_file) for gene in genes[ite:ite+300] ]))
-            for gene, data in toUpdate :
-                conn2.save(gene, data)
+            genes2 = genes[ite:ite+10000]
+            toUpdates = pool2.imap_unordered(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
+            #toUpdates = map(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
+            for toUpdate in toUpdates :
+                for gene, data in toUpdate :
+                    conn2.save(gene, data)
     os.rename(bsn_file + '.tmp.npz', bsn_file + '.tab.npz')
     return
 
