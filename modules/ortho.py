@@ -888,8 +888,8 @@ def precluster(bsn_file, global_file) :
         for ite in xrange(0, len(genes), 10000) :
             logger('Prefiltering: {0}/{1}'.format(ite, len(genes)))
             genes2 = genes[ite:ite+10000]
-            #toUpdates = pool2.imap_unordered(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
-            toUpdates = map(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
+            toUpdates = pool2.imap_unordered(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
+            #toUpdates = map(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
             for toUpdate in toUpdates :
                 for gene, data, score in toUpdate :
                     gene_scores[int(gene)] = score
