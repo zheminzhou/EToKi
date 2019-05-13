@@ -202,7 +202,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                         matched_aa.update({ (s_i+x): part[2] for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
-                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) or len(matched_aa)*3 >= (min(params['match_prop'], params['match_prop1'], params['match_prop2'])-0.1) * int(bsn[0][12]) :
+                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= (min(params['match_prop'], params['match_prop1'], params['match_prop2'])-0.1) * int(bsn[0][12]) :
                         if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
                                                     max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
                                                     max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
@@ -229,15 +229,15 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         elif presence[part[0]] == 0 :
             continue
         iden, qs, qe, ss, se, ql, sl = float(part[2]), float(part[6]), float(part[7]), float(part[8]), float(part[9]), float(part[12]), float(part[13])
-        if presence.get(part[1], 1) == 0 or ss > se :
+        if presence.get(part[1], 1) == 0 or ss >= se :
             continue
-        if part[0] != part[1] and iden > params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
+        if ss < se and part[0] != part[1] and iden > params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
             if ql <= sl :
-                if qe - qs + 1 >= params['clust_match_prop'] * ql and priorities[(part[0])][0] <= priorities[(part[1])][0] :
+                if qe - qs + 1 >= params['clust_match_prop'] * ql and priorities[(part[0])][0] >= priorities[(part[1])][0] :
                     cluGroups.append([int(part[1]), int(part[0]), int(iden*10000.)])
                     presence[part[0]] = 0
                     continue
-            elif se - ss + 1 >= params['clust_match_prop'] * sl and priorities[(part[0])][0] >= priorities[(part[1])][0] :
+            elif se - ss + 1 >= params['clust_match_prop'] * sl and priorities[(part[0])][0] <= priorities[(part[1])][0] :
                 cluGroups.append([int(part[0]), int(part[1]), int(iden*10000.)])
                 presence[part[1]] = 0
                 continue
@@ -466,9 +466,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 conflicts[k1] = []
             if k2 not in conflicts :
                 conflicts[k2] = []
-            conflicts[k1].append([k2, v])
-            conflicts[k2].append([k1, v])
-    #conflicts = np.vstack(list(conflicts.values()))
+            conflicts[k1].append(k2*10 + v)
+            conflicts[k2].append(k1*10 + v)
     
     new_groups = {}
     encodes = np.array([n for i, n in sorted([[i, n] for n, i in encodes.items()])])
@@ -477,7 +476,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
     
     used, results = {}, {}
     group_id = 0
-    #with open('{0}.Prediction'.format(prefix), 'w') as fout :
     while groups.size() > 0 :
         # get top 50 genes
         genes = get_gene(groups, new_groups, scores, first_classes, ortho_groups, cnt=50)
@@ -525,8 +523,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                             if m[5] in used2 :
                                 kept[id] = False
                             else :
-                                used2.update( dict(conflicts.get(m[5],[])) ) #conflicts[conflicts.T[0] == m[5], 1:].tolist() + \
-                                                   #conflicts[conflicts.T[1] == m[5]][:, (0, 2)].tolist()) )
+                                used2.update( { int(k/10):k%10 for k in conflicts.get(m[5],[]) } )
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
@@ -555,8 +552,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         if m[5] in used2 :
                             kept[id] = False
                         else :
-                            used2.update( dict(conflicts.get(m[5], [])) ) # dict(conflicts[conflicts.T[0] == m[5], 1:].tolist() + \
-                                               # conflicts[conflicts.T[1] == m[5]][:, (0, 2)].tolist()) )
+                            used2.update( { int(k/10):k%10 for k in conflicts.get(m[5],[]) } )
                             
                     genomes = np.unique(mat[~kept, 1])
                     mat = mat[kept]
@@ -587,7 +583,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         superC = results[int(conflict)]
                         supergroup[superC] = supergroup.get(superC, 0) + 1
                     elif conflict >0 :
-                        if m[6].shape[0] <= 1 and m[4] >= params['clust_identity']*10000 :
+                        if m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
                             paralog = 1
                             break
                         else :
@@ -595,7 +591,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     m[3] = -1
                 else :
                     if idens < m[4] : idens = m[4]
-                    for g2, gs in conflicts.get(gid, []) : #conflicts[conflicts.T[0] == gid, 1:].tolist() + conflicts[conflicts.T[1] == gid][:, (0, 2)].tolist() :
+                    for gg in conflicts.get(gid, []) : 
+                        g2, gs = int(gg/10), gg % 10
                         if gs == 1 :
                             if g2 not in used :
                                 used2[g2] = str(m[0])
@@ -624,13 +621,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             #if len(results) % 100 == 0 :
             logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score/10000., encodes[pangene], len(results), groups.size()+len(results)))
             mat_out.append([pangene, min_rank, mat])
-            #for grp in mat :
-                #group_id += 1
-                #m = mat_conn.get(int(grp[5]/1000))[grp[5]%1000]
-                #m.T[:2] = encodes[m.T[:2].astype(int)]
-                #for g in m :
-                    #gg = g[outPos].astype(str).tolist()
-                    #fout.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(encodes[pangene], min_rank, group_id, encodes[grp[1]], '\t'.join(gg)))
     mat_out.append([0, 0, []])
     return 
 
@@ -841,18 +831,20 @@ def addGenes(genes, gene_file) :
 
 def writeGenes(fname, genes, priority) :
     uniques = {}
+    groups = []
     with open(fname, 'w') as fout :
         for n in sorted(priority.items(), key=itemgetter(1)) :
             s = genes[n[0]][6]
             len_s, hcode = len(s), genes[n[0]][5]
             if len_s :
-                #if len_s not in uniques :
-                    #uniques = { len_s:{hcode:1} }
-                #elif hcode in uniques[ len_s ] :
-                    #continue
-                #uniques[ len_s ][ hcode ] = 1
+                if len_s not in uniques :
+                    uniques = { len_s:{ hcode:n } }
+                elif hcode in uniques[ len_s ] :
+                    groups.append([ uniques[len_s][hcode], n, 10000 ])
+                    continue
+                uniques[ len_s ][ hcode ] = n
                 fout.write( '>{0}\n{1}\n'.format(n[0], s) )
-    return fname
+    return fname, groups
 
 def determineGroup(gIden, ingroup, global_differences, variation) :
     ingroup[0] = True
@@ -1201,7 +1193,7 @@ params = dict(
 )
 
 
-def iterClust(prefix, genes, params) :
+def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
     geneGroup = []
@@ -1288,10 +1280,10 @@ def ortho(args) :
         first_classes = load_priority( params.get('priority', ''), genes, encodes )
 
         if params.get('clust', None) is None :
-            params['genes'] = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
+            params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
             logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop']))
-            params['clust'] = iterClust(params['prefix'], params['genes'], dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread']))
+            params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread']))
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'
