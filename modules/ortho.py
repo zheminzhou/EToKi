@@ -521,7 +521,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                             if m[5] in used2 :
                                 kept[id] = False
                             else :
-                                used2.update( { int(k/10):k%10 for k in conflicts.get(m[5],[]) } )
+                                used2.update( { int(k/10) for k in conflicts.get(m[5],[]) + [m[5]*10] } )
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
@@ -550,7 +550,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         if m[5] in used2 :
                             kept[id] = False
                         else :
-                            used2.update( { int(k/10):k%10 for k in conflicts.get(m[5],[]) } )
+                            used2.update( { int(k/10) for k in conflicts.get(m[5],[]) + [m[5]*10] } )
                             
                     genomes = np.unique(mat[~kept, 1])
                     mat = mat[kept]
@@ -589,6 +589,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     m[3] = -1
                 else :
                     if idens < m[4] : idens = m[4]
+                    used2[gid] = 0
                     for gg in conflicts.get(gid, []) : 
                         g2, gs = int(gg/10), gg % 10
                         if gs == 1 :
@@ -597,13 +598,13 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         else  :
                             used2[g2] = 1 if gs == 2 else 0
                     
-            if paralog or paralog2*3 >= mat.shape[0] or idens < params['clust_identity']*10000 :
+            if paralog or (paralog2*2 > mat.shape[0] and paralog2>1) or idens < params['clust_identity']*10000 :
                 groups.delete(gene)
                 genes.pop(gene)
                 continue
             mat = mat[mat.T[3] > 0]
             (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
-            if pid*2 >= mat.shape[0] or (pid*3 >= mat.shape[0] and pid>1) :
+            if pid >= mat.shape[0] or (pid*2 >= mat.shape[0] and pid>1) :
                 pangene = pg
             elif paralog2 > 0 :
                 new_groups[gene] = mat
@@ -751,7 +752,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         ovl[:, :2] += ids
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
-        clf_conn.save(bId, ovl) #overlaps.append(ovl)
+        clf_conn.save(bId, ovl)
         
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
@@ -843,18 +844,21 @@ def writeGenes(fname, genes, priority) :
                 fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname, groups
 
-def determineGroup(gIden, ingroup, global_differences, variation) :
+def determineGroup(gIden, global_differences, min_iden, variation) :
+    ingroup = np.zeros(gIden.shape[0], dtype=bool)
     ingroup[0] = True
 
     for i1, m1 in enumerate(gIden) :
-        if ingroup[m1[2]] :
+        if ingroup[m1[2]] and m1[1] >= min_iden*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
                 gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
-                sc = -(m2.T[1] - m1[1])/10000./gs[0]/gs[1]/variation
+                sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
+    #if np.sum(ingroup) != ingroup.size :
+        #print('aa')
     return ingroup    
 
 def precluster2(data) :
@@ -869,9 +873,9 @@ def precluster2(data) :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
             matches = matches[np.argsort(-matches.T[2])]
-            gIden = np.hstack([matches[:, [1, 3]], np.arange(matches.shape[0])[:, np.newaxis]])
-            ingroup = np.zeros(matches.shape[0], dtype=bool)
-            ingroup = determineGroup(gIden, ingroup, global_differences, params['allowed_variation'])
+            matches.T[4] = (10000 * matches.T[3].astype(float)/matches[0, 3]).astype(int)
+            gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
+            ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             
             matches = matches[ingroup]
             s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
@@ -1099,14 +1103,15 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
             g1 = geneInGenomes[r2]
             for q2 in qq :
                 g2 = geneInGenomes[q2]
-                key = tuple(sorted([g1, g2]))
-                if key in global_differences :
-                    global_differences[key].append(i)
-                else :
-                    global_differences[key] = [i]
+                if g1 != g2 : 
+                    key = tuple(sorted([g1, g2]))
+                    if key in global_differences :
+                        global_differences[key].append(i)
+                    else :
+                        global_differences[key] = [i]
     for pair, data in global_differences.items() :
-        diff = np.log(1.0025-np.array(data)/10000.)
-        mean_diff = max(np.mean(diff), -5.298)
+        diff = np.log(1.005-np.array(data)/10000.)
+        mean_diff = max(np.mean(diff), -4.605)
         sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, 0.693), 1.386)
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
@@ -1190,13 +1195,14 @@ def iterClust(prefix, genes, geneGroup, params) :
     geneGroup = []
     for iden in np.arange(1., identity_target-0.005, -0.01) :
         params['identity'] = iden
+        iden2 = min(1. iden+0.005)
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
         gp = pd.read_csv(clust, sep='\t').values
         logger('Iterative clustering. {0} exemplars left with identity = {1}'.format(len(exemplarNames), iden))
         for g1, g2 in gp[gp.T[0]!=gp.T[1]] :
             r, q = (g1, g2) if str(g1) in exemplarNames else (g2, g1)
-            geneGroup.append([r, q, int(iden*10000)])
+            geneGroup.append([r, q, int(iden2*10000)])
     np.save('{0}.clust.npy'.format(prefix), np.array(geneGroup, dtype=int))
     return g
 
