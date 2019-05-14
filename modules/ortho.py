@@ -201,7 +201,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                 s = int(s)
                 if t == 'M' :
                     if frame_i == frame_j or 'f' in params['incompleteCDS'] :
-                        matched_aa.update({ (s_i+x): part[2] for x in xrange( (3 - (frame_i - 1))%3, s )})
+                        matched_aa.update({ (s_i+x): (2.*part[2]+part[2]**3)/3. for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
                     if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= min(params['match_prop'], params['match_prop1'], params['match_prop2']) * int(bsn[0][12]) :
@@ -305,27 +305,25 @@ def filt_per_group(data) :
     seqs = np.vstack([s, np.array(list(ref)).view(asc2int).astype(np.uint8)[np.newaxis, :]])
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
     diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int)).astype(float)
-    incompatible, distances = {}, np.zeros(shape=[seqs.shape[0], seqs.shape[0]], dtype=float)
+    distances = np.zeros(shape=[seqs.shape[0], seqs.shape[0]], dtype=float)
     for i1, m1 in enumerate(mat) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
+            gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.3, 4.))
+            
             if aln >= params['match_frag_len'] :
-                gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4.))
-                distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
-                difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
+                distances[i1, i2] = mut/aln/gd[0]/gd[1]/params['allowed_variation']
             else :
-                distances[i1, i2] = distances[i2, i1] = 0.8
-                difference = 1.5
-            if difference > 1. :
-                incompatible[(i1, i2)] = 1
+                distances[i1, i2] = 2.
 
-    if len(incompatible) > 0 :
+    if np.max(distances) > 1 :
+        distances[:, :] = distances.T + distances
         groups = []
         for j, m in enumerate(mat) :
             novel = 1
             for g in groups :
-                if diff[g[0], j, 0] <= 0.6*(1.0-params['clust_identity'])*diff[g[0], j, 1] :
+                if diff[g[0], j, 0] <= (1. - np.sqrt(params['clust_identity']))*diff[g[0], j, 1] :
                     g.append(j)
                     novel = 0
                     break
@@ -339,16 +337,14 @@ def filt_per_group(data) :
             
         tags.update({'REF':ref})
 
-        ic2 = {}
-        for i1, i2 in incompatible :
-            t1, t2 = group_tag[i1], group_tag[i2]
-            if t1 != t2 :
-                t1, t2 = str(t1), str(t2)
-                if t1 not in ic2 : ic2[t1] = {}
-                if t2 not in ic2 : ic2[t2] = {}
-                ic2[t1][t2] = ic2[t2][t1] = 1
-        incompatible = ic2
-        if len(incompatible) == 0 :
+        incompatible = np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=float)
+        for i1, g1 in enumerate(groups) :
+            for i2 in range(i1+1, len(groups)) :
+                g2 = groups[i2]
+                incompatible[g2[0], g1[0], 0] = incompatible[g1[0], g2[0], 0] = np.sum(distances[g1].T[g2])
+                incompatible[g2[0], g1[0], 1] = incompatible[g1[0], g2[0], 1] = len(g1) * len(g2)
+        
+        if np.all(incompatible[:,:,0] <= incompatible[:,:,1]) :
             return mat
 
         for ite in xrange(3) :
@@ -375,23 +371,25 @@ def filt_per_group(data) :
             gene_phy.set_outgroup(node)
 
         for ite in xrange(3000) :
-            gene_phy.ic, gene_phy.dist = {}, 0.
+            all_tips = {int(t) for t in gene_phy.get_leaf_names() if t != 'REF'}
+            if np.all(incompatible[list(all_tips)].T[0, list(all_tips)] <= incompatible[list(all_tips)].T[1, list(all_tips)]) :
+                break
             rdist = sum([c.dist for c in gene_phy.get_children()])
             for c in gene_phy.get_children() :
                 c.dist = rdist
             for node in gene_phy.iter_descendants('postorder') :
                 if node.is_leaf() :
-                    node.ic = {tuple(sorted([node.name, n2])):1 for n2 in incompatible.get(node.name, {}) }
+                    node.leaves = { int(node.name) } if node.name != 'REF' else set([])
                 else :
-                    node.ic = {}
-                    for c in node.get_children() :
-                        for x in c.ic :
-                            if x in node.ic :
-                                node.ic.pop(x)
-                            else :
-                                node.ic[x] = 1
-            cut_node = max([[len(n.ic), n.dist, n] for n in gene_phy.iter_descendants('postorder')], key=lambda x:(x[0], x[1]))
-            if cut_node[0] > 0 :
+                    node.leaves = { n  for child in node.get_children() for n in child.leaves }
+                if len(node.leaves) :
+                    oleaves = all_tips - node.leaves
+                    ic = np.sum(incompatible[list(node.leaves)].T[:, list(oleaves)], (1,2))
+                    node.ic = ic[0]/ic[1]
+                else :
+                    node.ic = 0.
+            cut_node = max([[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder')], key=lambda x:(x[0], x[1]))
+            if cut_node[0] > 1 :
                 cut_node = cut_node[2]
                 prev_node = cut_node.up
                 cut_node.detach()
@@ -401,18 +399,6 @@ def filt_per_group(data) :
                     gene_phy = gene_phy.get_children()[0]
                 else :
                     prev_node.delete(preserve_branch_length=True)
-                
-                tips = set(gene_phy.get_leaf_names())
-                for r1 in list(incompatible.keys()) :
-                    if r1 not in tips :
-                        rr = incompatible.pop(r1, None)
-                        for r2 in rr :
-                            incompatible.get(r2, {}).pop(r1, None)
-                for r1 in list(incompatible.keys()) :
-                    if len(incompatible[r1]) == 0 :
-                        incompatible.pop(r1, None)
-                if len(incompatible) == 0 :
-                    break
             else :
                 break
         if len(gene_phy.get_leaf_names()) < len(tags) :
@@ -489,7 +475,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             presence = 0
             if gene not in new_groups :
                 mat = groups.get(gene)
-                mat.T[4] = (mat.T[3]*10000/np.max(mat.T[3])).astype(int)
+                mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**3.)/100000000.)/3./mat[0, 3]).astype(int)
+                #mat.T[4] = (mat.T[3]*10000/np.max(mat.T[3])).astype(int)
                 for m in mat :
                     conflict = used.get(m[5], None)
                     if conflict is not None :
@@ -534,8 +521,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
 
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
             logger(' {0} Genes send for ortholog checking'.format(len(to_run)))
-            working_groups = pool2.map(filt_per_group, to_run)
-            #working_groups = [filt_per_group(d) for d in to_run]
+            #working_groups = pool2.map(filt_per_group, to_run)
+            working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
                 new_groups[gene] = working_group
         else :
@@ -873,7 +860,7 @@ def precluster2(data) :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
             matches = matches[np.argsort(-matches.T[2])]
-            matches.T[4] = (10000 * matches.T[3].astype(float)/matches[0, 3]).astype(int)
+            matches.T[4] = (10000 * (2* matches.T[3] + (matches.T[3]**3.)/100000000.)/3./matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             
