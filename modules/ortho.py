@@ -311,7 +311,7 @@ def filt_per_group(data) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
             if aln >= params['match_frag_len'] :
-                gd = (0.01, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4.))
+                gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4.))
                 distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
                 difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
             else :
@@ -850,7 +850,7 @@ def determineGroup(gIden, ingroup, global_differences, variation) :
         if ingroup[m1[2]] :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.01, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
                 sc = -(m2.T[1] - m1[1])/10000./gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1105,8 +1105,8 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
                 else :
                     global_differences[key] = [i]
     for pair, data in global_differences.items() :
-        diff = np.log(1.005-np.array(data)/10000.)
-        mean_diff = max(np.mean(diff), -4.605)
+        diff = np.log(1.0025-np.array(data)/10000.)
+        mean_diff = max(np.mean(diff), -5.298)
         sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, 0.693), 1.386)
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
