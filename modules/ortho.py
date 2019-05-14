@@ -1195,7 +1195,7 @@ def iterClust(prefix, genes, geneGroup, params) :
     geneGroup = []
     for iden in np.arange(1., identity_target-0.005, -0.01) :
         params['identity'] = iden
-        iden2 = min(1. iden+0.005)
+        iden2 = min(1., iden+0.005)
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
         gp = pd.read_csv(clust, sep='\t').values
