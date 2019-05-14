@@ -382,10 +382,10 @@ def filt_per_group(data) :
                     node.leaves = { int(node.name) } if node.name != 'REF' else set([])
                 else :
                     node.leaves = { n  for child in node.get_children() for n in child.leaves }
-                if len(node.leaves) :
+                if len(node.leaves) and len(node.leaves) < len(all_tips):
                     oleaves = all_tips - node.leaves
                     ic = np.sum(incompatible[list(node.leaves)].T[:, list(oleaves)], (1,2))
-                    node.ic = ic[0]/ic[1]
+                    node.ic = ic[0]/ic[1] if ic[1] > 0 else 0.
                 else :
                     node.ic = 0.
             cut_node = max([[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder')], key=lambda x:(x[0], x[1]))
@@ -691,7 +691,7 @@ def iter_map_bsn(data) :
                     f = (f+s)%3
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
-            max_sc += (max(sc[0], sc[f])**2) * tab[2]/tab[12]
+            max_sc += (max(sc[0], sc[f])**2) * tab[2]/np.sqrt(tab[12])
         group[2] = max_sc
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])

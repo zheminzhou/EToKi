@@ -95,7 +95,7 @@ def _linearMerge(data) :
                 if m1[1] != m2[1] or (m1[8] < 0 and m2[8] > 0) or m2[8] - m1[9] -1 >= gapDist :    # maximum 300bps between two continuous hits in the same scaffold
                     break
                 rLen, qLen = m2[7]-m1[6]+1, m2[9]-m1[8]+1
-                if abs(m1[2]-m2[2]) > 0.3 or m1[9] >= m2[9] or m1[6] >= m2[6] or m1[7] >= m2[7] or m2[6] - m1[7] -1 >= gapDist \
+                if abs(m1[2]-m2[2]) > 0.3 or m1[8]+3 >= m2[8] or m1[9]+3 >= m2[9] or m1[6]+3 >= m2[6] or m1[7]+3 >= m2[7] or m2[6] - m1[7] -1 >= gapDist \
                    or min(rLen, qLen)*lenDiff < max(rLen, qLen) :
                     continue
                 rLen2 = m2[7] - m2[6] + 1
