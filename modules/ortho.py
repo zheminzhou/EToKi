@@ -14,10 +14,15 @@ except :
     from .clust import getClust
     from .uberBlast import uberBlast
 
+params = dict(
+    ml = '{fasttree} {0} -nt -gtr -pseudo', 
+    nj = '{rapidnj} -i fa -t d {0}', 
+)
+    
 
 class MapBsn(object) :
     def __init__(self, fname, mode='r') :
-        self.fname = fname # + '.npz'
+        self.fname = fname
         self.mode = mode
         self.conn = zipfile.ZipFile(self.fname, mode=mode, compression=zipfile.ZIP_DEFLATED,allowZip64=True)
         self.namelist = set(self.conn.namelist())
@@ -87,7 +92,6 @@ class MapBsn(object) :
         tmp = zipfile.ZipFile(tmpName, mode='w', compression=zipfile.ZIP_DEFLATED,allowZip64=True)
         for blastab in blastabs :
             gene = str(blastab[0][0])
-            #newList |= set([gene])
             newList.add(gene)
             oldData = self.get(gene)
             if len(oldData) :
@@ -100,7 +104,7 @@ class MapBsn(object) :
             if gene not in newList :
                 data = self.get(gene)
                 if len(data) :
-                    newList.add(gene) # newList |= set([gene])
+                    newList.add(gene)
                     self._save(tmp, gene, data)
         tmp.close()
         self.conn.close()
@@ -178,13 +182,11 @@ def readGFF(fnames) :
 
         for n in cc :
             c = cc[n]
-            #if len(c[6]) > 0 :
             c[1] = '{0}:{1}'.format(fprefix, c[1])
             cds['{0}:{1}'.format(fprefix, n)] = c[:]
     return seq, cds
 
 
-    
 def get_similar_pairs(prefix, clust, priorities, params) :
     def get_similar(bsn, ortho_pairs) :
         key = tuple(sorted([bsn[0][0], bsn[0][1]]))
@@ -202,7 +204,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                         matched_aa.update({ (s_i+x): part[2] for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
-                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= (min(params['match_prop'], params['match_prop1'], params['match_prop2'])-0.1) * int(bsn[0][12]) :
+                    if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= min(params['match_prop'], params['match_prop1'], params['match_prop2']) * int(bsn[0][12]) :
                         if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
                                                     max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
                                                     max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
@@ -309,7 +311,7 @@ def filt_per_group(data) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
             if aln >= params['match_frag_len'] :
-                gd = (0.01, 4) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4))
+                gd = (0.01, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.4, 4.))
                 distances[i1, i2] = distances[i2, i1] = max(0., 1-(aln - mut)/aln/(1 - gd[0]) )
                 difference = mut/aln/gd[0]/gd[1]/params['allowed_variation']
             else :
@@ -409,7 +411,6 @@ def filt_per_group(data) :
                 for r1 in list(incompatible.keys()) :
                     if len(incompatible[r1]) == 0 :
                         incompatible.pop(r1, None)
-#                logger('     Iteration {0}. Remains {1} tips with {2} conflicts.'.format(ite+1, len(gene_phy.get_leaf_names()), len(incompatible)))
                 if len(incompatible) == 0 :
                     break
             else :
@@ -448,13 +449,11 @@ def get_gene(groups, new_groups, allScores, first_classes, ortho_groups, cnt=1) 
     if len(genes) <= 0 :
         for gene in scores :
             groups.delete(gene)
-        groups.commit()
         return []
     elif min(scores.values()) <= 0 :
         for gene, score in scores.items() :
             if score <= 0 :
                 groups.delete(gene)
-        groups.commit()
     return genes
 
 def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classes = None, scores = None, encodes = None) :
@@ -474,11 +473,10 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
     
     clust_ref = { int(n):s for n, s in readFasta(params['clust']).items()}
     
-    used, results = {}, {}
-    group_id = 0
+    used, pangenome = {}, {}
     while groups.size() > 0 :
-        # get top 50 genes
-        genes = get_gene(groups, new_groups, scores, first_classes, ortho_groups, cnt=50)
+        # get top 100 genes
+        genes = get_gene(groups, new_groups, scores, first_classes, ortho_groups, cnt=100)
         logger('Selected {0} genes'.format(len(genes)))
         if len(genes) <= 0 :
             continue
@@ -495,7 +493,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 for m in mat :
                     conflict = used.get(m[5], None)
                     if conflict is not None :
-                        if isinstance(conflict, int) and conflict > 0 and m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
+                        if conflict > 0 and m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
                             presence = 0
                             break
                     else :
@@ -527,11 +525,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
-                    if region_score.size > bestPerGenome.size * 3 and len(region_score) > 500 :
+                    if region_score.size > bestPerGenome.size * 3 and len(region_score) > 1000 :
                         region_score2 = sorted(region_score, reverse=True)
                         cut = region_score2[bestPerGenome.size*3-1]
-                        if cut >= params['clust_identity']*10000 :
-                            cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity']*10000, 10000*(1.0 - 0.6*(1.0-params['clust_identity'])))
+                        if cut >= params['clust_identity'] :
+                            cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
 
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
@@ -546,7 +544,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     mat = tmpSet.get(gene)
                     _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                     region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
-                    mat = mat[region_score>=params['clust_identity']*10000]
+                    mat = mat[region_score>=params['clust_identity']]
                     used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
                     for id, m in enumerate(mat) :
                         if m[5] in used2 :
@@ -579,8 +577,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 gid = m[5]
                 conflict = used.get(gid, None) if gid in used else used2.get(gid, None)
                 if conflict is not None :
-                    if not isinstance(conflict, int) :
-                        superC = results[int(conflict)]
+                    if conflict < 0 :
+                        superC = pangenome[-(conflict+1)]
                         supergroup[superC] = supergroup.get(superC, 0) + 1
                     elif conflict >0 :
                         if m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
@@ -595,7 +593,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         g2, gs = int(gg/10), gg % 10
                         if gs == 1 :
                             if g2 not in used :
-                                used2[g2] = str(m[0])
+                                used2[g2] = -(m[0]+1)
                         else  :
                             used2[g2] = 1 if gs == 2 else 0
                     
@@ -605,7 +603,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 continue
             mat = mat[mat.T[3] > 0]
             (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
-            if pid*2 >= mat.shape[0] or (pid*4 >= mat.shape[0] and pid>1) :
+            if pid*2 >= mat.shape[0] or (pid*3 >= mat.shape[0] and pid>1) :
                 pangene = pg
             elif paralog2 > 0 :
                 new_groups[gene] = mat
@@ -614,12 +612,12 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 pangene = mat[0][0]
             groups.delete(gene)
             genes.pop(gene)
-            results[mat[0][0]] = pangene
+            pangenome[mat[0][0]] = pangene
             # finally tag the regions that are covered by this group
             used.update(used2)
 
-            #if len(results) % 100 == 0 :
-            logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score/10000., encodes[pangene], len(results), groups.size()+len(results)))
+            #if len(pangenome) % 100 == 0 :
+            logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score/10000., encodes[pangene], len(pangenome), groups.size()+len(pangenome)))
             mat_out.append([pangene, min_rank, mat])
     mat_out.append([0, 0, []])
     return 
@@ -788,12 +786,11 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
             blastab = []
     pool.close()
     pool.join()
-    if seqs.shape[0] :
+    if saveSeq and seqs.shape[0] :
         seq_conn.save(seq_cnts, seqs)
     if mats.shape[0] :
         mat_conn.save(mat_cnts, mats)
-    #overlaps = np.vstack(overlaps)
-    return #overlaps
+    return 
 
 def checkCDS(n, s) :
     if len(s) < params['min_cds'] :
@@ -1180,18 +1177,12 @@ def encodeNames(genomes, genes, geneFiles, prefix, labelFile=None) :
     if labelFile :
         labels = dict(pd.read_csv(labelFile, header=None, na_filter=False).values.tolist())
     else :
-        labels = {label:labelId for labelId, label in enumerate(sorted(set(list(taxon) + list(genomes.keys()) + list(genes.keys()) + geneFiles.split(','))))}
-        pd.DataFrame(list(labels.items())).to_csv(prefix + '.encode.csv', header=False, index=False)
+        labels = {label:labelId for labelId, label in enumerate( sorted(set(list(taxon) + list(genomes.keys()) + list(genes.keys()) + geneFiles.split(',')) ) )}
+        pd.DataFrame(sorted(labels.items(), key=lambda v:v[1])).to_csv(prefix + '.encode.csv', header=False, index=False)
         labelFile = prefix + '.encode.csv'
     genes = { labels[gene]:[labels.get(info[0], -1), labels.get(info[1], -1)] + info[2:] for gene, info in genes.items() }
     genomes = { labels[genome]:[labels[info[0]]] + info[1:] for genome, info in genomes.items() }
     return genomes, genes, labels, labelFile
-
-params = dict(
-    ml = '{fasttree} {0} -nt -gtr -pseudo', 
-    nj = '{rapidnj} -i fa -t d {0}', 
-)
-
 
 def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
@@ -1240,7 +1231,7 @@ def async_writeOut(mat_out, matFile, outFile, labelFile) :
                         return
                     for grp in mat :
                         group_id += 1
-                        m = gids[int(grp[5])] #mat_conn.get(int(grp[5]/1000))[grp[5]%1000]
+                        m = gids[int(grp[5])]
                         m.T[:2] = encodes[m.T[:2].astype(int)]
                         for g in m :
                             gg = g[outPos].astype(str).tolist()
@@ -1300,8 +1291,8 @@ def ortho(args) :
         if params.get('map_bsn', None) is None :
             params['map_bsn']= params['prefix']+'.map_bsn'
             
-            with MapBsn(params['map_bsn']+'.tab.npz', 'w') as conn, MapBsn(params['map_bsn']+'.seq.npz', 'w') as seq_conn, MapBsn(params['map_bsn']+'.mat.npz', 'w') as mat_conn, MapBsn(params['map_bsn']+'.conflicts.npz', 'w') as clf_conn :
-                get_map_bsn(params['prefix'], params['clust'], genomes, params['self_bsn'], conn, seq_conn, mat_conn, clf_conn, params.get('orthology', 'rapid') != 'rapid')
+            with MapBsn(params['map_bsn']+'.tab.npz', 'w') as tab_conn, MapBsn(params['map_bsn']+'.seq.npz', 'w') as seq_conn, MapBsn(params['map_bsn']+'.mat.npz', 'w') as mat_conn, MapBsn(params['map_bsn']+'.conflicts.npz', 'w') as clf_conn :
+                get_map_bsn(params['prefix'], params['clust'], genomes, params['self_bsn'], tab_conn, seq_conn, mat_conn, clf_conn, params.get('orthology', 'rapid') != 'rapid')
         pool.close()
         pool.join()
         
