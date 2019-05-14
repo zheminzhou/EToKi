@@ -475,7 +475,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             presence = 0
             if gene not in new_groups :
                 mat = groups.get(gene)
-                mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**3.)/100000000.)/3./mat[0, 3]).astype(int)
+                mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**5.)/100000000.)/3./mat[0, 3]).astype(int)
                 #mat.T[4] = (mat.T[3]*10000/np.max(mat.T[3])).astype(int)
                 for m in mat :
                     conflict = used.get(m[5], None)
@@ -521,8 +521,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
 
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
             logger(' {0} Genes send for ortholog checking'.format(len(to_run)))
-            #working_groups = pool2.map(filt_per_group, to_run)
-            working_groups = [filt_per_group(d) for d in to_run]
+            working_groups = pool2.map(filt_per_group, to_run)
+            #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
                 new_groups[gene] = working_group
         else :
@@ -860,7 +860,7 @@ def precluster2(data) :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
             matches = matches[np.argsort(-matches.T[2])]
-            matches.T[4] = (10000 * (2* matches.T[3] + (matches.T[3]**3.)/100000000.)/3./matches[0, 3]).astype(int)
+            matches.T[4] = (10000 * (2* matches.T[3] + (matches.T[3]**5.)/100000000.)/3./matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             
