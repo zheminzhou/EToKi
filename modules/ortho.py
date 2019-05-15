@@ -885,7 +885,7 @@ def precluster(bsn_file, global_file) :
     os.rename(bsn_file + '.tmp.npz', bsn_file + '.tab.npz')
     return gene_scores
 
-def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction) :
+def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene) :
     predictions, alleles = {}, {}
     
     allele_file = open('{0}.allele.fna'.format(prefix), 'w')
@@ -925,9 +925,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             prev = predictions[part[3]][-1]
             if prev[5] == part[5] and part[9] - prev[10] < 500 :
                 if part[11] == '+' and part[7] - prev[8] < 500 :
+                    diff = (part[7]-prev[8]) - (part[9]-prev[10])
                     prev[8], prev[10] = part[8], part[10]
                     continue
                 elif part[11] == '-' and prev[7] - part[8] < 500 :
+                    diff = (prev[7]-part[8]) - (part[9]-prev[10])
                     prev[7], prev[10] = part[7], part[10]
                     continue
             predictions[part[3]][-1][1], part[1] = -1, -1
@@ -935,9 +937,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     op = ['', 0, []]
     with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
-        for gid, (g, predict) in enumerate(predictions.items()) :
+        for gid, (g, predict) in enumerate(sorted(predictions.items())) :
             for pid, pred in enumerate(predict) :
-                allowed_vary = pred[12]*0.2
+                allowed_vary = pred[12]*(1-pseudogene)
+                frames = sorted(np.unique(np.cumsum([0]+[int(n) if t == 'D' else -int(n) for n, t in re.findall(r'(\d+)([ID])', pred[14])])%3))
+                
                 if pred[1] == -1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
                     cds, allele_id = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), 'uncertain'
                     start, stop = pred[9:11]
@@ -963,7 +967,6 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     else :
                         allele_id = str(alleles[pred[0]][seq2])
                     
-                    frames = sorted(set([0, len(seq)%3]))
                     for frame, aa_seq in zip(frames, transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in frames]))['n']) :
                         if (len(seq) - frame) % 3 > 0 :
                             aa_seq = aa_seq[:-1]
@@ -984,7 +987,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         if stop < 0 :
                             cds = 'nostop'
                         elif (stop - start + 1)*3 < pred[12] - allowed_vary :
-                            cds = 'premature stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
+                            cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
                             
                         if cds == 'CDS' :
                             if pred[11] == '+' :
@@ -1009,14 +1012,17 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         continue
                     ovl = min(opd[2], stop) - max(opd[1], start) + 1
                     if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (stop - start + 1) :
-                        frame = min((opd[1] - start) % 3, (opd[2] - stop) % 3)
-                        if frame == 0 :
+                        if pred[11] == '+' :
+                            f2 = np.unique([(opd[1] - pred[9])%3, (opd[2]+1 - pred[9])%3])
+                        else :
+                            f2 = np.unique([(pred[10] - opd[1]+1)%3, (pred[10] - opd[2])%3])
+                        if np.any(np.in1d(f2, frames)) :
                             old_tag.append('{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2]))
 
-                fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog group:{6},allele ID:{7},matched region:{8}-{9}{10}{11}\n'.format(
+                fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog_group:{6},allele ID:{7},matched_region:{8}-{9}{10}{11}\n'.format(
                     pred[5], 'CDS' if cds == 'CDS' else 'pseudogene', start, stop, pred[11], 
                     '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, pred[9], pred[10], 
-                    '' if pred[0] == pred[4] else ',structure variant group:' + pred[4], 
+                    '' if pred[0] == pred[4] else ',structure_variant_group:' + pred[4], 
                     '' if cds == 'CDS' else ';pseudogene=' + cds, 
                     '' if len(old_tag) == 0 else 'old_locus_tag={0};'.format(','.join(old_tag)), 
                 ))
@@ -1143,6 +1149,7 @@ EToKi.py ortho
     parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
+    parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -1306,7 +1313,7 @@ def ortho(args) :
     pool2.join()
     old_predictions = dict(np.load(params['old_prediction'])) if 'old_prediction' in params else {}
     
-    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions)
+    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'])
     
 if __name__ == '__main__' :
     ortho(sys.argv[1:])
