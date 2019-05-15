@@ -310,7 +310,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.3, 4.))
+            gd = (0.005, 3.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.3, 4.))
             
             if aln >= params['match_frag_len'] :
                 distances[i1, i2] = mut/aln/gd[0]/gd[1]/params['allowed_variation']
@@ -468,6 +468,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             continue
         to_run, min_score, min_rank = [], genes[-1][1], genes[0][2]
         genes = {gene:score for gene, score, min_rank in genes}
+
         # first, check whether it overlaps with existing regions
         minSet = len(genes)*0.8
         tmpSet = {}
@@ -476,7 +477,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             if gene not in new_groups :
                 mat = groups.get(gene)
                 mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**3.)/100000000.)/3./mat[0, 3]).astype(int)
-                #mat.T[4] = (mat.T[3]*10000/np.max(mat.T[3])).astype(int)
                 for m in mat :
                     conflict = used.get(m[5], None)
                     if conflict is not None :
@@ -839,7 +839,7 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
         if ingroup[m1[2]] and m1[1] >= min_iden*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 3.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1133,7 +1133,7 @@ EToKi.py ortho
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
     parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
-    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 0', default=100., type=float)
+    parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
@@ -1142,7 +1142,7 @@ EToKi.py ortho
     parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
     parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
-    parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept. Default: 1.', default=1., type=float)
+    parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -1154,6 +1154,10 @@ EToKi.py ortho
     parser.add_argument('--prediction', help='development param', default=None)
 
     params = parser.parse_args(a)
+    params.match_frag_len = min(params.min_cds, params.match_frag_len)
+    params.match_len1 = min(params.min_cds, params.match_len1)
+    params.clust_match_prop = max(params.clust_match_prop, params.match_prop, params.match_prop1, params.match_prop2)
+    
     if params.metagenome :
         params.noDiamond = True
         params.incompleteCDS = 'sife'
