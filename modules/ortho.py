@@ -296,6 +296,8 @@ def decodeSeq(seqs) :
 
 def filt_per_group(data) :
     mat, ref, seq_file, global_file, _ = data
+    if len(mat) <= 1 :
+        return mat
     global_differences = dict(np.load(global_file))
     nMat = mat.shape[0]
     with MapBsn(seq_file) as conn :
@@ -305,20 +307,20 @@ def filt_per_group(data) :
     seqs = np.vstack([s, np.array(list(ref)).view(asc2int).astype(np.uint8)[np.newaxis, :]])
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
     diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int)).astype(float)
-    distances = np.zeros(shape=[seqs.shape[0], seqs.shape[0]], dtype=float)
+    distances = np.zeros(shape=[mat.shape[0], mat.shape[0], 2], dtype=float)
     for i1, m1 in enumerate(mat) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 3.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.3, 4.))
+            gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 4.))
             
             if aln >= params['match_frag_len'] :
-                distances[i1, i2] = mut/aln/gd[0]/gd[1]/params['allowed_variation']
+                distances[i1, i2, :] = [mut/aln/gd[0]/gd[0]/gd[1]/params['allowed_variation'], 1/gd[0]]
             else :
-                distances[i1, i2] = 2.
-
-    if np.max(distances) > 1 :
-        distances[:, :] = distances.T + distances
+                distances[i1, i2, :] = [2./gd[0], 1/gd[0]]
+            distances[i2, i1, :] = distances[i1, i2, :]
+    if np.any(distances[:, :, 0] > distances[:, :, 1]) :
+        #distances[:, :] = distances.T + distances
         groups = []
         for j, m in enumerate(mat) :
             novel = 1
@@ -337,12 +339,11 @@ def filt_per_group(data) :
             
         tags.update({'REF':ref})
 
-        incompatible = np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=float)
+        incompatible = np.zeros(shape=distances.shape, dtype=float)
         for i1, g1 in enumerate(groups) :
             for i2 in range(i1+1, len(groups)) :
                 g2 = groups[i2]
-                incompatible[g2[0], g1[0], 0] = incompatible[g1[0], g2[0], 0] = np.sum(distances[g1].T[g2])
-                incompatible[g2[0], g1[0], 1] = incompatible[g1[0], g2[0], 1] = len(g1) * len(g2)
+                incompatible[g2[0], g1[0], :] = incompatible[g1[0], g2[0], :] = np.sum(distances[g1][:, g2, :], (0, 1))
         
         if np.all(incompatible[:,:,0] <= incompatible[:,:,1]) :
             return mat
@@ -518,7 +519,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         if cut >= params['clust_identity'] :
                             cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
-
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
             logger(' {0} Genes send for ortholog checking'.format(len(to_run)))
             working_groups = pool2.map(filt_per_group, to_run)
@@ -839,7 +839,7 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
         if ingroup[m1[2]] and m1[1] >= min_iden*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 3.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.40, 4.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 4.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1104,8 +1104,8 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
                         global_differences[key] = [i]
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
-        mean_diff = max(np.mean(diff), -4.605)
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, 0.693), 1.386)
+        mean_diff = min(max(np.mean(diff), -4.605), -0.693)
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, 0.693), 1.792)
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
