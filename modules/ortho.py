@@ -516,7 +516,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         region_score2 = sorted(region_score, reverse=True)
                         cut = region_score2[bestPerGenome.size*3-1]
                         if cut >= params['clust_identity'] :
-                            cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], sqrt(params['clust_identity']))
+                            cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
 
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
