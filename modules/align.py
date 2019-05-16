@@ -18,12 +18,12 @@ def parseArgs(argv) :
     parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
-    args.reference = [ args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference] ]
+    args.reference = args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference]
     args.queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries ] if qt != args.reference[0] ])
     return args
 
 def alignAgainst(data) :
-    prefix, minimap2, db, reference, (tag, query) = data
+    prefix, minimap2, db, (rtag, reference), (tag, query) = data
     try :
         qrySeq, qryQual = readFastq(query)
     except :
@@ -272,6 +272,7 @@ def readMap(data) :
                         miss = -99999999
             else :
                 break
+    print(mTag, mFile)
     with uopen(mFile) as fin :
         for line in fin :
             if line.startswith('#') : continue
@@ -403,8 +404,8 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
     return outputs
 
 def runAlignment(prefix, reference, queries, core, minimap2) :
-    alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
-    #alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
+    #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
+    alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
 
     try :
         os.unlink(reference + '.mmi')
@@ -412,7 +413,7 @@ def runAlignment(prefix, reference, queries, core, minimap2) :
         pass
     return alignments
 
-def prepReference(prefix, reference, minimap2, pilercr, trf) :
+def prepReference(prefix, reference, minimap2, pilercr, trf, **args) :
     # prepare minimap2 reference
     if reference :
         subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
@@ -424,12 +425,12 @@ def align(argv) :
     
     global pool
     pool = Pool(args.n_proc)
-    
+    #print(args.reference)
     refMask = prepReference(args.prefix, args.reference[1], **externals)
     alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, externals['minimap2'])
     outputs = {'mappings': dict(alignments)}
     if args.matrix or args.alignment :
-        outputs.update(getMatrix(args.prefix, args.reference, alignments, args.core, args.matrix, args.alignment))
+        outputs.update(getMatrix(args.prefix, args.reference[1], alignments, args.core, args.matrix, args.alignment))
     import json
     sys.stdout.write(json.dumps(outputs, indent=2, sort_keys=True))
     return outputs
