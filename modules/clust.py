@@ -1,8 +1,22 @@
 import argparse, tempfile, glob, os, subprocess, sys, shutil
 try:
-    from configure import externals, uopen, xrange, logger
+    from configure import externals, uopen, xrange, logger, transeq
 except :
-    from .configure import externals, uopen, xrange, logger
+    from .configure import externals, uopen, xrange, logger, transeq
+
+def readFasta(fasta) :
+    sequence = []
+    with uopen(fasta) as fin :
+        for line in fin :
+            if line.startswith('>') :
+                name = line[1:].strip().split()[0]
+                sequence.append([name, []])
+            elif len(line) > 0 and not line.startswith('#') :
+                sequence[-1][1].extend(line.strip().split())
+    for s in sequence :
+        s[1] = (''.join(s[1])).upper()
+    return sequence
+
 
 def clust(argv) :
     parser = argparse.ArgumentParser(description='Get clusters and exemplars of clusters from gene sequences using mmseqs linclust.')
@@ -11,6 +25,7 @@ def clust(argv) :
     parser.add_argument('-d', '--identity', help='[PARAM; DEFAULT: 0.9] minimum intra-cluster identity.', default=0.9, type=float)
     parser.add_argument('-c', '--coverage', help='[PARAM; DEFAULT: 0.9] minimum intra-cluster coverage.', default=0.9, type=float)
     parser.add_argument('-t', '--n_thread', help='[PARAM; DEFAULT: 8]   number of threads to use.', default=8, type=int)
+    parser.add_argument('-a', '--translate', help='[PARAM; DEFAULT: False] activate to cluster in translated sequence.', default=False, action='store_true')
     args = parser.parse_args(argv)
     exemplar, clust = getClust(args.prefix, args.input, args.__dict__)
     logger('Exemplar sequences in {0}'.format(exemplar))
@@ -20,7 +35,15 @@ def getClust(prefix, genes, params) :
     groups = {}
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
     try:
-        geneFile = genes
+        if not params['translate'] :
+            geneFile = genes
+        else :
+            na_seqs = readFasta(genes)
+            aa_seqs = transeq(na_seqs, frame='1', transl_table='starts')
+            with open(os.path.join(dirPath, 'seq.aa'), 'w') as fout :
+                for n, s in aa_seqs :
+                    fout.write('>{0}\n{1}\n'.format(n, s[0]))
+            geneFile = os.path.join(dirPath, 'seq.aa')
         seqDb = os.path.join(dirPath, 'seq.db')
         tmpDb = os.path.join(dirPath, 'tmp')
         lcDb = os.path.join(dirPath, 'seq.lc')
@@ -68,7 +91,14 @@ def getClust(prefix, genes, params) :
                 break
             nRef = len(used_grps)
             geneFile = refFile
-        shutil.copy2(refFile, '{0}.clust.exemplar'.format(prefix))
+        if not params['translate'] :
+            shutil.copy2(refFile, '{0}.clust.exemplar'.format(prefix))
+        else :
+            rSeq = readFasta(refFile)
+            na_seqs = dict(na_seqs)
+            with open('{0}.clust.exemplar'.format(prefix), 'w') as fout :
+                for n, s in rSeq:
+                    fout.write('>{0}\n{1}\n'.format(n, na_seqs[n]))
     finally :
         shutil.rmtree(dirPath)
     with open('{0}.clust.tab'.format(prefix), 'w') as fout :

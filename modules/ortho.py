@@ -207,10 +207,9 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                     s_i += s
                     s_j += s
                     if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= min(params['match_prop'], params['match_prop1'], params['match_prop2']) * int(bsn[0][12]) :
-                        if len(matched_aa)*3 >= params['clust_match_prop']*max(int(bsn[0][13]), int(bsn[0][12])) :
-                        #min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    #max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    #max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
+                        if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                    max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                    max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
                             ortho_pairs[key] = int(np.mean(list(matched_aa.values()))*10000)
                         else :
                             ortho_pairs[key] = 0
@@ -238,11 +237,11 @@ def get_similar_pairs(prefix, clust, priorities, params) :
             continue
         if ss < se and part[0] != part[1] and iden > params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
             if ql <= sl :
-                if qe - qs + 1 >= params['clust_match_prop'] * ql and priorities[(part[0])][0] >= priorities[(part[1])][0] :
+                if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * ql and priorities[(part[0])][0] >= priorities[(part[1])][0] :
                     cluGroups.append([int(part[1]), int(part[0]), int(iden*10000.)])
                     presence[part[0]] = 0
                     continue
-            elif se - ss + 1 >= params['clust_match_prop'] * sl and priorities[(part[0])][0] <= priorities[(part[1])][0] :
+            elif se - ss + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[(part[0])][0] <= priorities[(part[1])][0] :
                 cluGroups.append([int(part[0]), int(part[1]), int(iden*10000.)])
                 presence[part[1]] = 0
                 continue
@@ -1198,6 +1197,7 @@ def iterClust(prefix, genes, geneGroup, params) :
     for iden, cov in zip(iterIden, iterCov) :
         params.update({'identity':iden, 'coverage':cov})
         iden2 = min(1., iden+0.005)
+        iden2 = (2.*iden2 + iden2**3.)/3.
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
         gp = pd.read_csv(clust, sep='\t').values
@@ -1282,7 +1282,7 @@ def ortho(args) :
             params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
             logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop']))
-            params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread']))
+            params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread'], translate=True))
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'

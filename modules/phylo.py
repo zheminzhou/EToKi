@@ -285,10 +285,11 @@ def get_mut(final_tree, names, states, sites) :
         root = {n:1 for n in names}
         for n in final_tree.traverse() : root.pop(n.name, None)
         if len(root) == 1 :
-            final_tree.name = root.keys()[0]
+            final_tree.name = list(root.keys())[0]
     states = states.T
     for node in final_tree.iter_descendants('postorder') :
         for id, (m, n) in enumerate(zip(states[name_ids[node.name]], states[name_ids[node.up.name]])) :
+            m, n = chr(m), chr(n)
             if m != n and m != '-' and n != '-' :
                 if id not in mutations :
                     mutations[id] = []
@@ -326,13 +327,18 @@ def write_ancestral_proportion(fname, names, states, sites, seqLens, missing) :
         for c, p, i in sites :
             tag, state = states[i]
             for n, ss in zip(names, state) :
-                fout.write( '{0}\t{1}\t{2}\t{3}\n'.format(c, p, n, '\t'.join([ '{0}:{1:.5f}'.format(t, s) for t, s in zip(tag, ss)]) ))
+                fout.write( '{0}\t{1}\t{2}\t{3}\n'.format(c, p, n, '\t'.join([ '{0}:{1:.5f}'.format(chr(t), s) for t, s in zip(tag, ss)]) ))
 
 
 def read_states(fname) :
     names, ss, sites = [], {}, []
     with uopen(fname) as fin :
-        names = fin.readline().strip().split('\t')[2:]
+        for line in fin :
+            if line.startswith('##') :
+                continue
+            else :
+                names = line.strip().split('\t')[2:]
+                break
         for line in fin :
             seq, site, snp_str = line.strip().split('\t', 2)
             if snp_str not in ss :
@@ -340,7 +346,7 @@ def read_states(fname) :
             sites.append([seq, int(site), ss[snp_str]])
     states = []
     for s, id in sorted(ss.items(), key=lambda x:x[1]) :
-        states.append(s.split('\t'))
+        states.append(np.array(s.split('\t')).view(asc2int))
     return names, np.array(states), sites
 
 
@@ -466,7 +472,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             branch.children[0].dist = 1e-8
         node_names[str(branch.name)] = id
     states, branches = [ [ 45 for snp in snps ] for br in node_names ], []
-    for n, s in zip(names, np.array([ [ b.upper() for b in snp[2] ] for snp in snps ]).T) :
+    for n, s in zip(names, np.array([ snp[2] for snp in snps ]).T) :
         states[ node_names[n] ] = s
     states = np.array(states).T
     for branch in tree.traverse('postorder') :
@@ -492,11 +498,11 @@ def phylo(args) :
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
         args.snp = xFasta2Matrix( args.prefix, args.alignment, args.core )
-
-    assert os.path.isfile( args.snp )
-    names, sites, snps, seqLens, missing = read_matrix(args.snp)
-    if len(names) < 4 :
-        raise ValueError('Taxa too few.')
+    if 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks or 'mutation' in args.tasks :
+        assert os.path.isfile( args.snp )
+        names, sites, snps, seqLens, missing = read_matrix(args.snp)
+        if len(names) < 4 :
+            raise ValueError('Taxa too few.')
 
     # build tree
     if 'phylogeny' in args.tasks :
