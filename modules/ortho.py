@@ -207,9 +207,10 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                     s_i += s
                     s_j += s
                     if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= min(params['match_prop'], params['match_prop1'], params['match_prop2']) * int(bsn[0][12]) :
-                        if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
+                        if len(matched_aa)*3 >= params['clust_match_prop']*max(int(bsn[0][13]), int(bsn[0][12])) :
+                        #min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                    #max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                    #max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
                             ortho_pairs[key] = int(np.mean(list(matched_aa.values()))*10000)
                         else :
                             ortho_pairs[key] = 0
@@ -458,7 +459,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                 conflicts[k2] = []
             conflicts[k1].append(k2*10 + v)
             conflicts[k2].append(k1*10 + v)
-    
+    del matIds
     new_groups = {}
     encodes = np.array([n for i, n in sorted([[i, n] for n, i in encodes.items()])])
     
@@ -524,7 +525,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                             cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
-            #logger(' {0} Genes send for ortholog checking'.format(len(to_run)))
             working_groups = pool2.map(filt_per_group, to_run)
             #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
@@ -559,7 +559,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                 break
             mat = new_groups.pop(gene)
             
-            logger('Overlap checking for gene {0}:{1}'.format(gene, score))
             # third, check its overlapping again
             paralog2 = 0  # paralog = 0
             supergroup, used2 = {}, {}
@@ -605,10 +604,9 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             groups.delete(gene)
             genes.pop(gene)
             pangenome[mat[0][0]] = pangene
-            # finally tag the regions that are covered by this group
             used.update(used2)
 
-            if len(pangenome) % 100 == 0 :
+            if len(pangenome) % 50 == 0 :
                 logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score/10000., encodes[pangene], len(pangenome), groups.size()+len(pangenome)))
             mat_out.append([pangene, min_rank, mat])
     mat_out.append([0, 0, []])
@@ -618,7 +616,6 @@ def load_priority(priority_list, genes, encodes) :
     file_priority = { encodes.get(fn, ''):id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
     unassign_id = max(file_priority.values()) + 1
     first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5], n ] for n, g in genes.items() }
-
     return first_classes
 
     
