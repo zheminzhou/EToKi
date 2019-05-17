@@ -237,11 +237,11 @@ def get_similar_pairs(prefix, clust, priorities, params) :
             continue
         if ss < se and part[0] != part[1] and iden > params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
             if ql <= sl :
-                if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * ql and priorities[(part[0])][0] >= priorities[(part[1])][0] :
+                if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[(part[0])][0] >= priorities[(part[1])][0] :
                     cluGroups.append([int(part[1]), int(part[0]), int(iden*10000.)])
                     presence[part[0]] = 0
                     continue
-            elif se - ss + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[(part[0])][0] <= priorities[(part[1])][0] :
+            elif se - ss + 1 >= np.sqrt(params['clust_match_prop']) * ql and priorities[(part[0])][0] <= priorities[(part[1])][0] :
                 cluGroups.append([int(part[0]), int(part[1]), int(iden*10000.)])
                 presence[part[1]] = 0
                 continue
