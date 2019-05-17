@@ -1193,8 +1193,10 @@ def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
     geneGroup = []
-    for iden in np.arange(1., identity_target-0.005, -0.01) :
-        params['identity'] = iden
+    iterIden = np.arange(1., identity_target-0.005, -0.01)
+    iterCov = np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
+    for iden, cov in zip(iterIden, iterCov) :
+        params.update({'identity':iden, 'coverage':cov})
         iden2 = min(1., iden+0.005)
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
