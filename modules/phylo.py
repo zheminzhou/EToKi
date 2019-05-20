@@ -208,7 +208,7 @@ def read_matrix(fname) :
     seqLens, missing = [], []
     
     validate = np.repeat(45, 256).astype(np.uint8)
-    validate[np.array(['A', 'C', 'G', 'T', '.', '+', '-', '']).view(asc2int)] = np.array(['A', 'C', 'G', 'T', '.', '+', '-', '']).view(asc2int)
+    validate[np.array(['A', 'C', 'G', 'T', '.', '+', '-', '', '*']).view(asc2int)] = np.array(['A', 'C', 'G', 'T', '', '', '-', '', '']).view(asc2int)
     
     with uopen(fname) as fin :
         for line_id, line in enumerate(fin) :
@@ -243,21 +243,29 @@ def read_matrix(fname) :
             bk = validate[mat[:, cols].astype('str').view(asc2int)].reshape(mat.shape[0], -1, cols.shape[0])
             bk = np.moveaxis(bk, 1, 2)
             if bk.shape[2] > 1 :
-                bk[(bk[:, :, 1] != 0) & (bk[:, :, 0] == 45), 0] = 42
+                bk[(bk[:, :, 1] != 0) & (bk[:, :, 0] == 45), 0] = 0
             b_keys = bk[:, :, 0]
             weights = mat[:, w_cols].astype(float).prod(1) if w_cols.size else np.ones(mat.shape[0], dtype=float)
-            for (b_key, site, w) in zip(b_keys, mat[:, :2], weights) :
+            for (b_key, site, w) in zip(b_keys, mat, weights) :
                 b_key = tuple(b_key)
-                
+                if min(b_key) == 0 :
+                    bk2 = site[cols]
+                    bk2[bk2 == '-'] = ''
+                    category, b_key = np.unique(bk2, return_inverse=True)
+                    if category[0] == '' :
+                        category[0] = '-'
+                    b_key = tuple(b_key.tolist())
+                else :
+                    category = []
                 if b_key in snps :
                     snps[b_key][2] += w
-                elif min(b_key) >= 45 :
+                elif min(b_key) >= 45 : 
                     snps[b_key] = [len(snps), 1, w]
                 else :
                     snps[b_key] = [len(snps), 2, w]
                     
                 if snps[b_key][1] > 0 :
-                    sites.append([ site[0], site[1], snps[b_key][0] ])
+                    sites.append([ site[0], site[1], snps[b_key][0], np.array(category) ])
 
     for inv in invariant :
         b_key = tuple([inv[0]] * len(names))
@@ -289,21 +297,25 @@ def get_mut(final_tree, names, states, sites) :
     states = states.T
     for node in final_tree.iter_descendants('postorder') :
         for id, (m, n) in enumerate(zip(states[name_ids[node.name]], states[name_ids[node.up.name]])) :
-            m, n = chr(m), chr(n)
-            if m != n and m != '-' and n != '-' :
+            #m, n = chr(m), chr(n)
+            if m != n and m not in (0, 45) and n not in (0, 45) :
                 if id not in mutations :
                     mutations[id] = []
-                mutations[id].append([node.name, '{0}->{1}'.format(n,m)])
+                mutations[id].append([node.name, (n,m)])
     outputs = []
-    for c, p, i in sites :
+    for c, p, i, l in sites :
         m = mutations.get(i, [])
         len_m = {}
         for mut in m :
             s = tuple(sorted([mut[1][0], mut[1][-1]]))
             mut.append(s)
             len_m[s] = len_m.get(s, 0) + 1
-        for mut in m :
-            outputs.append([mut[0], c, p, len_m[mut[-1]], mut[1]])
+        if l.size == 0 :
+            for mut in m :
+                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(chr(mut[1][0]), chr(mut[1][1]))])
+        else :
+            for mut in m :
+                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(l[mut[1][0]], l[mut[1][1]])])
     return sorted(outputs)
 
 def write_states(fname, names, states, sites, seqLens, missing) :
@@ -314,7 +326,10 @@ def write_states(fname, names, states, sites, seqLens, missing) :
             fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
         fout.write('#Seq\t#Site\t' + '\t'.join(names) + '\n')
         for site in sites :
-            fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(np.frompyfunc(chr, 1, 1)(states[site[2]])) ))
+            if site[3].size == 0 :
+                fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(np.frompyfunc(chr, 1, 1)(states[site[2]])) ))
+            else :
+                fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join( site[3][states[site[2]]] ) ))
 
 def write_ancestral_proportion(fname, names, states, sites, seqLens, missing) :
     with uopen(fname, 'w') as fout :
@@ -324,11 +339,15 @@ def write_ancestral_proportion(fname, names, states, sites, seqLens, missing) :
             fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
         
         fout.write('#Seq\t#Site\t#Type:Proportion\n')
-        for c, p, i in sites :
+        for c, p, i, l in sites :
             tag, state = states[i]
-            for n, ss in zip(names, state) :
-                fout.write( '{0}\t{1}\t{2}\t{3}\n'.format(c, p, n, '\t'.join([ '{0}:{1:.5f}'.format(chr(t), s) for t, s in zip(tag, ss)]) ))
-
+            if l.size == 0 :
+                for n, ss in zip(names, state) :
+                    fout.write( '{0}\t{1}\t{2}\t{3}\n'.format(c, p, n, '\t'.join([ '{0}:{1:.5f}'.format(chr(t), s) for t, s in zip(tag, ss)]) ))
+            else :
+                for n, ss in zip(names, state) :
+                    fout.write( '{0}\t{1}\t{2}\t{3}\n'.format(c, p, n, '\t'.join([ '{0}:{1:.5f}'.format(l[t], s) for t, s in zip(tag, ss)]) ))
+                
 
 def read_states(fname) :
     names, ss, sites = [], {}, []
@@ -393,12 +412,13 @@ mat2mut: ancestral,mutation''', default='aln2phy')
 
 def infer_ancestral2(data) :
     state, branches, n_node, infer = data
+    state[state == 45] = 0
     transitions = {}
     tag, code = np.unique(state, return_inverse=True)
     n_state = tag.size
-    missing = np.where(tag == 45)[0]
+    missing = np.where(tag == 0)[0]
     if missing.size > 0 :
-        tag, n_state = tag[tag != 45], n_state - 1
+        tag, n_state = tag[tag != 0], n_state - 1
         code[code == missing[0]] = -1
         code[code  > missing[0]] = code[code  > missing[0]] - 1
     if len(tag) == 0 :
@@ -425,7 +445,7 @@ def infer_ancestral2(data) :
                 beta[t] = np.dot(alpha[t], tr)
                 alpha[s] *= beta[t]
 
-        for (s, t, v), tr in reversed(zip(branches, transition)) :
+        for (s, t, v), tr in reversed(list(zip(branches, transition))) :
             if s :
                 alpha[t] *= np.dot(alpha[s]/beta[t], tr)
         return [tag, alpha]
@@ -471,7 +491,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             branch.children[1].dist += branch.children[0].dist - 1e-8
             branch.children[0].dist = 1e-8
         node_names[str(branch.name)] = id
-    states, branches = [ [ 45 for snp in snps ] for br in node_names ], []
+    states, branches = [ [ 0 for snp in snps ] for br in node_names ], []
     for n, s in zip(names, np.array([ snp[2] for snp in snps ]).T) :
         states[ node_names[n] ] = s
     states = np.array(states).T
@@ -488,7 +508,7 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     except :
         pool = Pool(5)
         retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
-    return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(retvalue, dtype=np.uint8)
+    return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(retvalue, dtype=np.uint8) if infer =='viterbi' else retvalue
 
 def phylo(args) :
     args = add_args(args)

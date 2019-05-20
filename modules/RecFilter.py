@@ -63,19 +63,23 @@ def read_RecHMM(fname, nodes, prob) :
     return rec
 
 def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
-    bases = {'A':0, 'C':0, 'G':0, 'T':0}
-    for base, snp in snps.items() :
-        for n, c in zip(*np.unique(base, return_counts=True)) :
+    bases = {65:0, 67:0, 71:0, 84:0}
+    for snp in snps :
+        for n, c in zip(*np.unique(snp[2], return_counts=True)) :
             if n in  bases :
-                bases[n] += c*snp[2]
+                bases[n] += c*snp[1]
     
-    sv = {ss[0]:s for s, ss in snps.items()}
     name_map = {name:id for id, name in enumerate(names)}
     sss = []
     for site in sites :
+        if len(site[3]) > 0 :
+            print('aa')
         if not len(m_weight[site[1]]) : continue
         weight = np.mean(list(m_weight[site[1]].values())) 
-        snvs = np.array(sv[site[2]])
+        if site[3].size == 0 :
+            snvs = np.frompyfunc(chr, 1, 1)(snps[site[2]][2])
+        else :
+            snvs = site[3][snps[site[2]][2]]
         snv_x = []
         p = np.zeros(snvs.shape, dtype=bool)
         for m in masks.get(site[1], []) :
@@ -131,10 +135,9 @@ def RecFilter(argv) :
         write_gubbins(args.rec)
         sys.exit()
     names, sites, snps, seqLens, missing = phylo.read_matrix(args.matrix)
-    snp_list = sorted([[info[0], int(math.ceil(info[2])), line, info[1]] for line, info in snps.items() ])
     tree = Tree(args.tree, format=1)
     
-    final_tree, node_names, states = phylo.infer_ancestral(args.tree, names, snp_list, sites, infer='viterbi')
+    final_tree, node_names, states = phylo.infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
     nodes = {}
     for node in final_tree.traverse('postorder') :
         if node.is_leaf() :
@@ -150,7 +153,7 @@ def RecFilter(argv) :
     else :
         rec_regions = read_RecHMM(args.rec, nodes, args.prob)
         
-    n_base = np.sum([v[2] for v in snps.values()])
+    n_base = np.sum([v[1] for v in snps])
     br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[2]-rr[1]+1 for rr in r ])+.1) for b, r in rec_regions.items() }
     curr = ['', [], 0]
     m_weight, masks = {}, {}

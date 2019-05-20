@@ -927,11 +927,15 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             if prev[5] == part[5] and part[9] - prev[10] < 500 :
                 if part[11] == '+' and part[7] - prev[8] < 500 :
                     diff = (part[7]-prev[8]) - (part[9]-prev[10])
+                    diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))
                     prev[8], prev[10] = part[8], part[10]
+                    prev[14] = prev[14] + diff + part[14]
                     continue
                 elif part[11] == '-' and prev[7] - part[8] < 500 :
                     diff = (prev[7]-part[8]) - (part[9]-prev[10])
+                    diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))                    
                     prev[7], prev[10] = part[7], part[10]
+                    prev[14] = part[14] + diff + prev[14]
                     continue
             predictions[part[3]][-1][1], part[1] = -1, -1
         predictions[part[3]].append(part)
