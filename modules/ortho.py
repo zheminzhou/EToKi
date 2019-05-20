@@ -492,18 +492,14 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
         minSet = len(genes)*0.8
         tmpSet = {}
         for gene, score in list(genes.items()) :
-            presence = 0
+            
+            presence = False
             if gene not in new_groups :
                 mat = groups.get(gene)
                 mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**3.)/100000000.)/3./mat[0, 3]).astype(int)
                 for m in mat :
-                    conflict = used.get(m[5], None)
-                    if conflict is not None :
-                        if conflict > 0 and m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
-                            presence = 0
-                            break
-                    else :
-                        presence = 1
+                    if used.get(m[5], None) is None :
+                        presence = True
                 if not presence :
                     genes.pop(gene)
                     scores.pop(gene)
@@ -591,11 +587,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         superC = pangenome[-(conflict+1)]
                         supergroup[superC] = supergroup.get(superC, 0) + 1
                     elif conflict >0 :
-                        #if m[6] <= 1 and m[4] >= params['clust_identity']*10000 :
-                            #paralog = 1
-                            #break
-                        #else :
-                            paralog2 += 1
+                        paralog2 += 1
                     m[3] = -1
                 else :
                     if idens < m[4] : idens = m[4]
@@ -608,7 +600,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         else  :
                             used2[g2] = 1 if gs == 2 else 0
                     
-            #if (paralog2*1 > mat.shape[0] and paralog2>1) or 
             if idens < params['clust_identity']*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
