@@ -424,8 +424,6 @@ def filt_per_group(data) :
                 mats.append(mat[tips])
             else :
                 mats.append(mat)
-        if len(mats) > 1 :
-            print('aa')
         return mats
     else :
         return [mat]
