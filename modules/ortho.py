@@ -821,17 +821,17 @@ def writeGenes(fname, genes, priority) :
             len_s, hcode = len(s), genes[n[0]][5]
             if len_s :
                 if len_s not in uniques :
-                    uniques = { len_s:{ hcode:n } }
+                    uniques = { len_s:{ hcode:n[0] } }
                 elif hcode in uniques[ len_s ] :
-                    groups.append([ uniques[len_s][hcode], n, 10000 ])
+                    groups.append([ uniques[len_s][hcode], n[0], 10000 ])
                     continue
-                uniques[ len_s ][ hcode ] = n
+                uniques[ len_s ][ hcode ] = n[0]
                 fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname, groups
 
 def determineGroup(gIden, global_differences, min_iden, variation) :
     ingroup = np.zeros(gIden.shape[0], dtype=bool)
-    ingroup[0] = True
+    ingroup[gIden.T[1] >= (min_iden**2)*10000] = True
 
     for i1, m1 in enumerate(gIden) :
         # if ingroup[m1[2]] or 
@@ -1018,9 +1018,10 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                             
                     op = [pred[5], 0, old_prediction.get(pred[5], [])]
                 old_tag = []
+                s, e = min(start, pred[9]), max(stop, pred[10])
                 for k in xrange(op[1], len(op[2])) :
                     opd = op[2][k]
-                    if opd[2] < start :
+                    if opd[2] < s :
                         if opd[4] < 8 :
                             reason = ['Conflicted_pan_gene', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence', 'Overlap_with_another_gene'][opd[4]]
                             fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\told_locus_tag={5};inference=Discarded;reason={6}\n'.format(
@@ -1028,10 +1029,10 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                             ) )
                         op[1] = k + 1
                         continue
-                    elif opd[1] > stop :
+                    elif opd[1] > e :
                         break
-                    ovl = min(opd[2], stop) - max(opd[1], start) + 1
-                    if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (stop - start + 1) :
+                    ovl = min(opd[2], e) - max(opd[1], s) + 1
+                    if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (e - s + 1) :
                         opd[4] = max(opd[4], 7)
                         if opd[3] != pred[11] :
                             continue
@@ -1214,7 +1215,6 @@ def encodeNames(genomes, genes, geneFiles, prefix, labelFile=None) :
 def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
-    geneGroup = []
     iterIden = np.arange(1., identity_target-0.005, -0.01)
     iterCov = np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
     for iden, cov in zip(iterIden, iterCov) :
