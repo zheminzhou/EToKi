@@ -495,8 +495,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             
             presence = False
             if gene not in new_groups :
-                if gene == 5610 :
-                    print('')                    
                 mat = groups.get(gene)
                 mat.T[4] = (10000 * mat.T[3]/mat[0, 3]).astype(int)
                 for m in mat :
@@ -576,8 +574,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             if score < min_score :
                 break
             mat = new_groups.pop(gene)
-            if gene == 5610 :
-                print('')
             # third, check its overlapping again
             paralog2 = 0  # paralog = 0
             supergroup, used2 = {}, {}
@@ -601,8 +597,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                             if g2 not in used :
                                 used2[g2] = -(gene+1)
                         else  :
-                            if g2 == 7649 :
-                                print('')
                             used2[g2] = 1 if gs == 2 else 0
                     
             if idens < params['clust_identity']*mat[0, 4] :
