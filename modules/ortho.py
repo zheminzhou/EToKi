@@ -306,7 +306,7 @@ def filt_per_group(data) :
     global_differences = dict(np.load(global_file))
     nMat = mat.shape[0]
     with MapBsn(seq_file) as conn :
-        seqs = np.array([ conn.get(int(id/1000))[id%1000] for id in mat.T[5].tolist() ])
+        seqs = np.array([ conn.get(int(id/10000))[id%10000] for id in mat.T[5].tolist() ])
     seqs = np.array([45, 65, 67, 71, 84], dtype=np.uint8)[decodeSeq(seqs)][:, :len(ref)]
     
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
@@ -374,7 +374,6 @@ def filt_per_group(data) :
         node = gene_phy.get_midpoint_outgroup()
         if node is not None :
             gene_phy.set_outgroup(node)
-        #good_tips = set(np.where(incompatible[0, :, 0] <= incompatible[0, :, 1])[0].tolist())
         gene_phys = [gene_phy]
         id = 0
         while id < len(gene_phys) :
@@ -383,7 +382,6 @@ def filt_per_group(data) :
                 all_tips = {int(t) for t in gene_phy.get_leaf_names() if t != 'REF'}
                 if np.all(incompatible[list(all_tips)].T[0, list(all_tips)] <= incompatible[list(all_tips)].T[1, list(all_tips)]) :
                     break
-                #all_tips = good_tips & all_tips
                 rdist = sum([c.dist for c in gene_phy.get_children()])
                 for c in gene_phy.get_children() :
                     c.dist = rdist
@@ -408,7 +406,7 @@ def filt_per_group(data) :
                         gene_phy = gene_phy.get_children()[0]
                     else :
                         prev_node.delete(preserve_branch_length=True)
-                    if '0' in t2.get_leaf_names() :
+                    if np.min(np.array(gene_phy.get_leaf_names()).astype(int)) > np.min(np.array(t2.get_leaf_names()).astype(int)) :
                         gene_phy, t2 = t2, gene_phy
                     gene_phys[id] = gene_phy
                     if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= (params['clust_identity']**2) * 10000 :
@@ -432,10 +430,7 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
     ranking = {gene:first_classes.get(gene)[0] for gene in allScores.keys() if gene in first_classes}
     if len(ranking) > 0 :
         min_rank = min(ranking.values())
-        scores = {}
-        for gene, r in ranking.items() :
-            if r == min_rank :
-                scores[gene] = allScores[gene]
+        scores = { gene:allScores[gene] for gene, r in ranking.items() if r == min_rank }
     else :
         min_rank = -1
         scores = {}
@@ -443,20 +438,16 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
     genes, all_useds = [], set([])
     for gene, score in sorted(sorted(scores.items()), key=itemgetter(1), reverse=True) :
         if score <= 0 : break
-        if gene not in all_useds :
+        if gene not in all_useds or len(scores)*2 < cnt :
             genes.append([gene, score, min_rank])
             if len(genes) >= cnt :
                 break
-            all_useds.update(set(ortho_groups[ortho_groups.T[0] == int(gene), 1]) | set([int(gene)]))
+            all_useds.update(set(ortho_groups[ortho_groups.T[0] == int(gene), 1]))
     
     if len(genes) <= 0 :
         for gene in scores :
-            allScores.delete(gene)
+            allScores.pop(gene)
         return []
-    elif min(scores.values()) <= 0 :
-        for gene, score in scores.items() :
-            if score <= 0 :
-                allScores.delete(gene)
     return genes
 
 def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, first_classes = None, scores = None, encodes = None) :
@@ -481,36 +472,35 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
     used, pangenome = {}, {}
     while len(scores) > 0 :
         # get top 100 genes
+        ortho_groups = ortho_groups[np.all(np.in1d(ortho_groups, list(scores.keys())).reshape(ortho_groups.shape), 1)]
         genes = get_gene(scores, first_classes, ortho_groups, cnt=100)
-        #logger('Selected {0} genes'.format(len(genes)))
         if len(genes) <= 0 :
             continue
-        to_run, min_score, min_rank = [], genes[-1][1], genes[0][2]
+        to_run, (min_score, min_rank) = [], genes[-1][1:]
         genes = {gene:score for gene, score, min_rank in genes}
 
-        # first, check whether it overlaps with existing regions
         minSet = len(genes)*0.8
         tmpSet = {}
         for gene, score in list(genes.items()) :
-            
             presence = False
             if gene not in new_groups :
                 mat = groups.get(gene)
                 mat.T[4] = (10000 * mat.T[3]/mat[0, 3]).astype(int)
                 for m in mat :
-                    if used.get(m[5], None) is None :
+                    v = used.get(m[5], None)
+                    if v is None :
                         presence = True
+                    elif v > 0 :
+                        m[3] = -1
                 if not presence :
                     genes.pop(gene)
                     scores.pop(gene)
-                    new_groups.pop(gene, None)
                 else :
-                    tmpSet[gene] = mat
+                    tmpSet[gene] = mat[mat.T[3] > 0]
         if len(genes) < minSet :
             continue
 
         logger('Selected {0} genes after initial checking'.format(len(genes)))
-        # second, remove paralogs
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
                 if gene not in new_groups :
@@ -575,7 +565,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                 break
             mat = new_groups.pop(gene)
             # third, check its overlapping again
-            paralog2 = 0  # paralog = 0
+            paralog = False
             supergroup, used2 = {}, {}
             idens = 0.
             for m in mat :
@@ -586,7 +576,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         superC = pangenome[-(conflict+1)]
                         supergroup[superC] = supergroup.get(superC, 0) + 1
                     elif conflict >0 :
-                        paralog2 += 1
+                        paralog = True
                     m[3] = -1
                 else :
                     if idens < m[4] : idens = m[4]
@@ -597,9 +587,9 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                             if g2 not in used :
                                 used2[g2] = -(gene+1)
                         else  :
-                            used2[g2] = 1 if gs == 2 else 0
+                            used2[g2] = gene+1 if gs == 2 else 0
                     
-            if idens < params['clust_identity']*mat[0, 4] :
+            if idens < params['clust_identity'] * mat[0, 4] :
                 scores.pop(gene)
                 genes.pop(gene)
                 continue
@@ -607,7 +597,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
             if pid >= mat.shape[0] or (pid*2 >= mat.shape[0] and pid>1) :
                 pangene = pg
-            elif paralog2 > 0 :
+            elif paralog :
                 new_groups[gene] = mat
                 continue
             else :
@@ -616,14 +606,13 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             genes.pop(gene)
             pangenome[gene] = pangene
             used.update(used2)
-            if isinstance(pangene, float) :
-                pangene_name = encodes[int(pangene)] + '__' + str(int(1000*(pangene - int(pangene)) + 0.5))
-            else :
-                pangene_name = encodes[pangene]
+
+            pangene_name = encodes[int(pangene)] + '/' + str(int(1000*(pangene - int(pangene)) + 0.5)) if isinstance(pangene, float) else encodes[pangene]
+            gene_name = encodes[int(gene)] + '/' + str(int(1000*(gene - int(gene)) + 0.5)) if isinstance(gene, float) else encodes[gene]
             if len(pangenome) % 50 == 0 :
                 logger('{4} / {5}: pan gene "{3}" : "{0}" picked from rank {1} and score {2}'.format(encodes[mat[0][0]], min_rank, score/10000., pangene_name, len(pangenome), len(scores)+len(pangenome)))
-            mat_out.append([pangene_name, min_rank, mat])
-    mat_out.append([0, 0, []])
+            mat_out.append([pangene_name, gene_name, min_rank, mat])
+    mat_out.append([0, 0, 0, []])
     return 
 
 def load_priority(priority_list, genes, encodes) :
@@ -735,14 +724,10 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         if s[0] not in taxa : taxa[s[0]] = []
         taxa[s[0]].append([g, s[1]])
     
-    #overlaps = []
     ids = 0
     
-    seqs = []
-    seq_cnts = 0
-    
-    mats = []
-    mat_cnts = 0
+    seqs, seq_cnts = [], 0
+    mats, mat_cnts = [], 0
     
     blastab = []
     #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
@@ -758,15 +743,15 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
-            ss = np.split(seqs, np.arange(1000, seqs.shape[0], 1000))
+            ss = np.split(seqs, np.arange(10000, seqs.shape[0], 10000))
             seqs = ss[-1]
             for s in ss[:-1] :
                 seq_conn.save(seq_cnts, s)
                 seq_cnts += 1
-        bsn.T[4] = 0
+        bsn.T[4] = bsn.T[3]
 
         mats = np.concatenate([mats, bsn.T[6]])
-        mm = np.split(mats, np.arange(1000, mats.shape[0], 1000))
+        mm = np.split(mats, np.arange(10000, mats.shape[0], 10000))
         mats = mm[-1]
         for m in mm[:-1] :
             mat_conn.save(mat_cnts, m)
@@ -1250,7 +1235,7 @@ def async_writeOut(mat_out, matFile, outFile, labelFile) :
     encodes = pd.read_csv(labelFile, header=None, na_filter=False).values.tolist()
     encodes = np.array([n for i, n in sorted([[i, n] for n, i in encodes])])
     outPos = np.ones(16, dtype=bool)
-    outPos[[3,4,5,10,15]] = False
+    outPos[[0,3,4,5,10,15]] = False
     
     mat_id, group_id = 0, 0
     mat_conn = None
@@ -1264,33 +1249,34 @@ def async_writeOut(mat_out, matFile, outFile, labelFile) :
                 mat_out2 = mat_out[mat_id:mat_id2]
                 for i in range(mat_id, mat_id2) :
                     mat_out[i] = None
-                gids = {grp[5]:None for pangene, min_rank, mat in mat_out2 for grp in mat}
+                gids = {grp[5]:None for pangene, gene, min_rank, mat in mat_out2 for grp in mat}
                 p = [-1, None]
                 for gid in sorted(gids) :
-                    if p[0] != int(gid/1000) :
-                        p = [int(gid/1000), mat_conn.get(int(gid/1000))]
-                    gids[gid] = p[1][gid%1000]
+                    if p[0] != int(gid/10000) :
+                        p = [int(gid/10000), mat_conn.get(int(gid/10000))]
+                    gids[gid] = p[1][gid%10000]
                 mat_id = mat_id2
-                for pangene, min_rank, mat in mat_out2 :
+                for pangene, gene, min_rank, mat in mat_out2 :
                     if len(mat) == 0 :
                         return
                     for grp in mat :
                         group_id += 1
                         m = gids[int(grp[5])]
-                        m.T[:2] = encodes[m.T[:2].astype(int)]
+                        m.T[1] = encodes[m.T[1].astype(int)]
                         for g in m :
                             gg = g[outPos].astype(str).tolist()
-                            fout.write('{0}\t{1}\t{2}\t{3}\t{4}\n'.format(pangene, min_rank, group_id, encodes[grp[1]], '\t'.join(gg)))
+                            fout.write('{0}\t{1}\t{2}\t{3}\t{4}\t{5}\n'.format(pangene, min_rank, group_id, encodes[grp[1]], gene, '\t'.join(gg)))
                     del mat
             time.sleep(1)
     return
+
 pool, pool2, mat_out = None, None, None
 def ortho(args) :
     global params
     params.update(add_args(args).__dict__)
     params.update(externals)
 
-    global pool, pool2, mat_out
+    global pool, pool2
     pool = Pool(params['n_thread'])
     pool2 = Pool(params['n_thread'])
     
@@ -1341,6 +1327,7 @@ def ortho(args) :
         pool.close()
         pool.join()
         
+        global mat_out
         mat_out = Manager().list([])
         writeProcess = Process(target=async_writeOut, args=(mat_out, params['map_bsn']+'.mat.npz', params['prediction'], labelFile))
         writeProcess.start()
