@@ -223,7 +223,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
     if params['noDiamond'] :
         self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
     else :
-        self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF -s 1 --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
     self_bsn.T[:2] = self_bsn.T[:2].astype(int)
     presence, ortho_pairs = {}, {}
     save = []
@@ -234,7 +234,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
             presence[part[0]] = 1
         elif presence[part[0]] == 0 :
             continue
-        part[2] = (2.*part[2]+part[2]**3)/3.
+        #part[2] = (2.*part[2]+part[2]**3)/3.
         iden, qs, qe, ss, se, ql, sl = float(part[2]), float(part[6]), float(part[7]), float(part[8]), float(part[9]), float(part[12]), float(part[13])
         if presence.get(part[1], 1) == 0 or ss >= se :
             continue
@@ -309,7 +309,6 @@ def filt_per_group(data) :
         seqs = np.array([ conn.get(int(id/1000))[id%1000] for id in mat.T[5].tolist() ])
     seqs = np.array([45, 65, 67, 71, 84], dtype=np.uint8)[decodeSeq(seqs)][:, :len(ref)]
     
-    #seqs = np.vstack([s, np.array(list(ref)).view(asc2int).astype(np.uint8)[np.newaxis, :]])
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
     diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int)).astype(float)
     distances = np.zeros(shape=[mat.shape[0], mat.shape[0], 2], dtype=float)
@@ -375,7 +374,7 @@ def filt_per_group(data) :
         node = gene_phy.get_midpoint_outgroup()
         if node is not None :
             gene_phy.set_outgroup(node)
-
+        #good_tips = set(np.where(incompatible[0, :, 0] <= incompatible[0, :, 1])[0].tolist())
         gene_phys = [gene_phy]
         id = 0
         while id < len(gene_phys) :
@@ -384,6 +383,7 @@ def filt_per_group(data) :
                 all_tips = {int(t) for t in gene_phy.get_leaf_names() if t != 'REF'}
                 if np.all(incompatible[list(all_tips)].T[0, list(all_tips)] <= incompatible[list(all_tips)].T[1, list(all_tips)]) :
                     break
+                #all_tips = good_tips & all_tips
                 rdist = sum([c.dist for c in gene_phy.get_children()])
                 for c in gene_phy.get_children() :
                     c.dist = rdist
@@ -392,7 +392,7 @@ def filt_per_group(data) :
                         node.leaves = { int(node.name) } if node.name != 'REF' else set([])
                     else :
                         node.leaves = { n  for child in node.get_children() for n in child.leaves }
-                    if len(node.leaves) and len(node.leaves) < len(all_tips):
+                    if len(node.leaves) : 
                         oleaves = all_tips - node.leaves
                         ic = np.sum(incompatible[list(node.leaves)].T[:, list(oleaves)], (1,2))
                         node.ic = ic[0]/ic[1] if ic[1] > 0 else 0.
@@ -411,7 +411,7 @@ def filt_per_group(data) :
                     if '0' in t2.get_leaf_names() :
                         gene_phy, t2 = t2, gene_phy
                     gene_phys[id] = gene_phy
-                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= params['clust_identity'] * 10000 :
+                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= (params['clust_identity']**2) * 10000 :
                         gene_phys.append(t2)
                 else :
                     break
@@ -495,8 +495,10 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             
             presence = False
             if gene not in new_groups :
+                if gene == 5610 :
+                    print('')                    
                 mat = groups.get(gene)
-                mat.T[4] = (10000 * (2* mat.T[3] + (mat.T[3]**3.)/100000000.)/3./mat[0, 3]).astype(int)
+                mat.T[4] = (10000 * mat.T[3]/mat[0, 3]).astype(int)
                 for m in mat :
                     if used.get(m[5], None) is None :
                         presence = True
@@ -574,7 +576,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             if score < min_score :
                 break
             mat = new_groups.pop(gene)
-            
+            if gene == 5610 :
+                print('')
             # third, check its overlapping again
             paralog2 = 0  # paralog = 0
             supergroup, used2 = {}, {}
@@ -596,11 +599,13 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         g2, gs = int(gg/10), gg % 10
                         if gs == 1 :
                             if g2 not in used :
-                                used2[g2] = -(m[0]+1)
+                                used2[g2] = -(gene+1)
                         else  :
+                            if g2 == 7649 :
+                                print('')
                             used2[g2] = 1 if gs == 2 else 0
                     
-            if idens < params['clust_identity']*10000 :
+            if idens < params['clust_identity']*mat[0, 4] :
                 scores.pop(gene)
                 genes.pop(gene)
                 continue
@@ -650,7 +655,7 @@ def iter_map_bsn(data) :
     if params['noDiamond'] :
         blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     else :
-        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 1 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
     os.unlink(gfile)
     blastab.T[:2] = blastab.T[:2].astype(int)
     
@@ -850,7 +855,8 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
     ingroup[0] = True
 
     for i1, m1 in enumerate(gIden) :
-        if ingroup[m1[2]] and m1[1] >= min_iden*10000 :
+        # if ingroup[m1[2]] or 
+        if m1[1] >= (min_iden**2)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
                 gs = np.vectorize(lambda g1, g2: (0.005, 6.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
@@ -872,7 +878,7 @@ def precluster2(data) :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
             matches = matches[np.argsort(-matches.T[2])]
-            matches.T[4] = (10000 * (2* matches.T[3] + (matches.T[3]**3.)/100000000.)/3./matches[0, 3]).astype(int)
+            matches.T[4] = (10000 * matches.T[3]/matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             
@@ -1174,7 +1180,7 @@ EToKi.py ortho
     parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.85', default=0.85, type=float)
 
     parser.add_argument('--fast', dest='noDiamond', help='disable Diamond search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
-    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
+    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.4, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
     parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
@@ -1233,9 +1239,9 @@ def iterClust(prefix, genes, geneGroup, params) :
     iterIden = np.arange(1., identity_target-0.005, -0.01)
     iterCov = np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
     for iden, cov in zip(iterIden, iterCov) :
-        params.update({'identity':iden, 'coverage':cov})
+        params.update({'identity':iden, 'coverage':np.round(cov, 2)})
         iden2 = min(1., iden+0.005)
-        iden2 = (2.*iden2 + iden2**3.)/3.
+        #iden2 = (2.*iden2 + iden2**3.)/3.
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
         gp = pd.read_csv(clust, sep='\t').values
@@ -1319,7 +1325,7 @@ def ortho(args) :
             params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
             del genes
             logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop']))
-            params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread'], translate=True))
+            params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread'], translate=False))
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'

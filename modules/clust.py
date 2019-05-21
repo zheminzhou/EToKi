@@ -51,7 +51,7 @@ def getClust(prefix, genes, params) :
         refFile = os.path.join(dirPath, 'seq.ref')
         
         nRef = 999999999999999
-        for ite in xrange(3) :
+        for ite in xrange(4) :
             if os.path.isdir(tmpDb) :
                 shutil.rmtree(tmpDb)
             os.makedirs(tmpDb)
@@ -59,7 +59,6 @@ def getClust(prefix, genes, params) :
                 list(map(os.unlink, glob.glob(seqDb + '*')))
             if os.path.isfile(lcDb) :
                 list(map(os.unlink, glob.glob(lcDb + '*')))
-
             subprocess.Popen('{0} createdb {2} {1} -v 0'.format(externals['mmseqs'], seqDb, geneFile).split()).communicate()
             subprocess.Popen('{0} linclust {1} {2} {3} --min-seq-id {4} -c {5} --threads {6} -v 0'.format( \
                 externals['mmseqs'], seqDb, lcDb, tmpDb, params['identity'], params['coverage'], params['n_thread']).split(), stdout=subprocess.PIPE).communicate()

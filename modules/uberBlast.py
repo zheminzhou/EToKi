@@ -237,7 +237,9 @@ def poolBlast(params) :
         blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
     Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).communicate()
     if os.path.getsize(outfile) > 0 :
-        blastab = parseBlast(open(outfile), min_id, min_cov, min_ratio)
+        with open(outfile) as fin :
+            blastab = parseBlast(fin, min_id, min_cov, min_ratio)
+        os.unlink(outfile)
     else :
         blastab = None
     if blastab is None :
