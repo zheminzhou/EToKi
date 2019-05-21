@@ -306,7 +306,7 @@ def filt_per_group(data) :
     global_differences = dict(np.load(global_file))
     nMat = mat.shape[0]
     with MapBsn(seq_file) as conn :
-        seqs = np.array([ conn.get(int(id/10000))[id%10000] for id in mat.T[5].tolist() ])
+        seqs = np.array([ conn.get(int(id/1000))[id%1000] for id in mat.T[5].tolist() ])
     seqs = np.array([45, 65, 67, 71, 84], dtype=np.uint8)[decodeSeq(seqs)][:, :len(ref)]
     
     seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
@@ -743,7 +743,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
-            ss = np.split(seqs, np.arange(10000, seqs.shape[0], 10000))
+            ss = np.split(seqs, np.arange(1000, seqs.shape[0], 1000))
             seqs = ss[-1]
             for s in ss[:-1] :
                 seq_conn.save(seq_cnts, s)
@@ -751,7 +751,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         bsn.T[4] = bsn.T[3]
 
         mats = np.concatenate([mats, bsn.T[6]])
-        mm = np.split(mats, np.arange(10000, mats.shape[0], 10000))
+        mm = np.split(mats, np.arange(1000, mats.shape[0], 1000))
         mats = mm[-1]
         for m in mm[:-1] :
             mat_conn.save(mat_cnts, m)
@@ -1252,9 +1252,9 @@ def async_writeOut(mat_out, matFile, outFile, labelFile) :
                 gids = {grp[5]:None for pangene, gene, min_rank, mat in mat_out2 for grp in mat}
                 p = [-1, None]
                 for gid in sorted(gids) :
-                    if p[0] != int(gid/10000) :
-                        p = [int(gid/10000), mat_conn.get(int(gid/10000))]
-                    gids[gid] = p[1][gid%10000]
+                    if p[0] != int(gid/1000) :
+                        p = [int(gid/1000), mat_conn.get(int(gid/1000))]
+                    gids[gid] = p[1][gid%1000]
                 mat_id = mat_id2
                 for pangene, gene, min_rank, mat in mat_out2 :
                     if len(mat) == 0 :
