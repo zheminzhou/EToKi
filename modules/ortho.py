@@ -450,7 +450,7 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
         return []
     return genes
 
-def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, first_classes = None, scores = None, encodes = None) :
+def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, first_classes, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
     conflicts = {}
     for conflict in cfl_conn.values() : 
@@ -469,7 +469,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
     
     clust_ref = { int(n):s for n, s in readFasta(params['clust']).items()}
     
-    used, pangenome = {}, {}
+    used, pangenome, panList = {}, {}, {}
     while len(scores) > 0 :
         # get top 100 genes
         ortho_groups = ortho_groups[np.all(np.in1d(ortho_groups, list(scores.keys())).reshape(ortho_groups.shape), 1)]
@@ -594,9 +594,17 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                 genes.pop(gene)
                 continue
             mat = mat[mat.T[3] > 0]
-            (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
-            if pid >= mat.shape[0] or (pid >= 0.7*mat.shape[0] and pid>1) :
-                pangene = pg
+            
+            superR = [None, 0]
+            if len(supergroup) :
+                for superC, cnt in sorted(supergroup.items(), key=lambda d:d[1]) :
+                    if cnt >= 0.5*mat.shape[0] :
+                        gl1, gl2 = panList[superC], set(mat.T[1])
+                        score = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
+                        if score > superR[1] :
+                            superR = [superC, score]
+            if superR[0] :
+                pangene = superR[0]
             elif paralog :
                 new_groups[gene] = mat
                 continue
@@ -606,6 +614,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             genes.pop(gene)
             pangenome[gene] = pangene
             used.update(used2)
+            
+            panList[pangene] = panList.get(pangene, set([])) | set(mat.T[1])
 
             pangene_name = encodes[int(pangene)] + '/' + str(int(1000*(pangene - int(pangene)) + 0.5)) if isinstance(pangene, float) else encodes[pangene]
             gene_name = encodes[int(gene)] + '/' + str(int(1000*(gene - int(gene)) + 0.5)) if isinstance(gene, float) else encodes[gene]
