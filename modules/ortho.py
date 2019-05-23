@@ -201,21 +201,22 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         for part in bsn :
             s_i, e_i, s_j, e_j = [ int(x) for x in part[6:10] ]
             for s, t in re.findall(r'(\d+)([A-Z])', part[14]) :
-                frame_i, frame_j = s_i % 3, s_j % 3
-                s = int(s)
+                s, frame_i, frame_j = int(s), s_i % 3, s_j % 3
                 if t == 'M' :
                     if frame_i == frame_j or 'f' in params['incompleteCDS'] :
                         matched_aa.update({ (s_i+x): part[2] for x in xrange( (3 - (frame_i - 1))%3, s )})
                     s_i += s
                     s_j += s
                     if len(matched_aa)*3 >= min(params['match_len2'], params['match_len'], params['match_len1']) and len(matched_aa)*3 >= min(params['match_prop'], params['match_prop1'], params['match_prop2']) * int(bsn[0][12]) :
-                        if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
-                                                    max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
-                            ortho_pairs[key] = int(np.mean(list(matched_aa.values()))*10000)
-                        else :
-                            ortho_pairs[key] = 0
-                        return
+                        ave_iden = int(np.mean(list(matched_aa.values()))*10000)
+                        if ave_iden >= params['match_identity']*10000 :
+                            if len(matched_aa)*3 >= min(max(params['match_len'], params['match_prop']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                        max(params['match_len1'], params['match_prop1']* min(int(bsn[0][13]), int(bsn[0][12]))), 
+                                                        max(params['match_len2'], params['match_prop2']* min(int(bsn[0][13]), int(bsn[0][12]))) ) :
+                                ortho_pairs[key] = ave_iden
+                            else :
+                                ortho_pairs[key] = 0
+                            return
                 elif t == 'I' :
                     s_i += s
                 else :
@@ -234,11 +235,10 @@ def get_similar_pairs(prefix, clust, priorities, params) :
             presence[part[0]] = 1
         elif presence[part[0]] == 0 :
             continue
-        #part[2] = (2.*part[2]+part[2]**3)/3.
         iden, qs, qe, ss, se, ql, sl = float(part[2]), float(part[6]), float(part[7]), float(part[8]), float(part[9]), float(part[12]), float(part[13])
         if presence.get(part[1], 1) == 0 or ss >= se :
             continue
-        if ss < se and part[0] != part[1] and iden > params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
+        if ss < se and part[0] != part[1] and iden >= params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
             if ql <= sl :
                 if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[(part[0])][0] >= priorities[(part[1])][0] :
                     cluGroups.append([int(part[1]), int(part[0]), int(iden*10000.)])
@@ -316,7 +316,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 5.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 5.))
+            gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 4.))
             
             if aln >= params['match_frag_len'] :
                 distances[i1, i2, :] = [mut/aln/gd[0]/gd[0]/gd[1]/params['allowed_variation'], 1/gd[0]]
@@ -482,17 +482,17 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
         minSet = len(genes)*0.8
         tmpSet = {}
         for gene, score in list(genes.items()) :
-            presence = False
+            present_iden = 0
             if gene not in new_groups :
                 mat = groups.get(gene)
                 mat.T[4] = (10000 * mat.T[3]/mat[0, 3]).astype(int)
                 for m in mat :
                     v = used.get(m[5], None)
                     if v is None :
-                        presence = True
+                        present_iden = max(present_iden, m[4])
                     elif v > 0 :
                         m[3] = -1
-                if not presence :
+                if present_iden < (params['clust_identity']**2)*10000 :
                     genes.pop(gene)
                     scores.pop(gene)
                 else :
@@ -589,13 +589,13 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         else  :
                             used2[g2] = gene+1 if gs == 2 else 0
                     
-            if idens < params['clust_identity'] * mat[0, 4] :
+            if idens < params['clust_identity'] * mat[0, 4] or idens < (params['clust_identity']**2)*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
                 continue
             mat = mat[mat.T[3] > 0]
             (pg, pid) = (0, 0) if len(supergroup) == 0 else max(supergroup.items(), key=itemgetter(1))
-            if pid >= mat.shape[0] or (pid*2 >= mat.shape[0] and pid>1) :
+            if pid >= mat.shape[0] or (pid >= 0.7*mat.shape[0] and pid>1) :
                 pangene = pg
             elif paralog :
                 new_groups[gene] = mat
@@ -834,16 +834,17 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
     ingroup[gIden.T[1] >= (min_iden**2)*10000] = True
 
     for i1, m1 in enumerate(gIden) :
-        # if ingroup[m1[2]] or 
         if m1[1] >= (min_iden**2)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 5.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 5.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 4.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
-    return ingroup    
+    x0, x1, x2 = np.unique(gIden.T[0], return_inverse=True, return_index=True)
+    ingroup[:] = ingroup[x1[x2]]
+    return ingroup
 
 def precluster2(data) :
     bsn_file, genes, global_file = data
@@ -860,7 +861,6 @@ def precluster2(data) :
             matches.T[4] = (10000 * matches.T[3]/matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
-            
             matches = matches[ingroup]
             s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
             outputs.append([ gene, matches, s ])
@@ -885,21 +885,19 @@ def precluster(bsn_file, global_file) :
     matIds = np.concatenate(matIds)
     return gene_scores, np.bincount(matIds).astype(np.bool_)
 
-def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene) :
-    predictions, alleles = {}, {}
+def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, clust=None, orthoPair=None) :
+    alleles = {}
     
-    allele_file = open('{0}.allele.fna'.format(prefix), 'w')
-    prediction = pd.read_csv(prediction, sep='\t', header=None)
-    prediction = prediction.assign(s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[3, 5, 's']).drop('s', axis=1).values
-    for part in prediction :
-        if part[0] in encodes :
-            gId = encodes[part[0]]
-            if part[0] not in alleles :
-                alleles[part[0]] = {clust_ref[gId]:1}
-                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
+    def addOld(opd) :
+        if opd[4] == 0 :
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', op[0]]
         else :
-            alleles[part[0]] = {}
-
+            if opd[4] < 7 :
+                reason = ['Conflicted_pan_gene', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence'][opd[4]]
+            else :
+                reason = 'Overlap_with:{0}_g_{1}'.format(prefix, int(opd[4]/10))
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, [], 'misc_feature', reason]
+    def setInFrame(part) :
         if part[9] < part[10] :
             l, r, d = min(part[7]-1, part[9]-1), min(part[12]-part[8], part[13]-part[10]), 1
         else :
@@ -917,140 +915,238 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             if rr > 0 :
                 part[8], part[10] = part[8]-3+rr, part[10]-(3-rr)*d
 
-        if part[9] < part[10] :
-            part[9:12] = part[9], part[10], '+'
-        else :
-            part[9:12] = part[10], part[9], '-'
-        
-        if part[3] not in predictions :
-            predictions[part[3]] = []
-        elif predictions[part[3]][-1][2] == part[2] :
-            prev = predictions[part[3]][-1]
-            if prev[5] == part[5] and part[9] - prev[10] < 500 :
-                if part[11] == '+' and part[7] - prev[8] < 500 :
-                    diff = (part[7]-prev[8]) - (part[9]-prev[10])
-                    diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))
-                    prev[8], prev[10] = part[8], part[10]
-                    prev[14] = prev[14] + diff + part[14]
-                    continue
-                elif part[11] == '-' and prev[7] - part[8] < 500 :
-                    diff = (prev[7]-part[8]) - (part[9]-prev[10])
-                    diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))                    
-                    prev[7], prev[10] = part[7], part[10]
-                    prev[14] = part[14] + diff + prev[14]
-                    continue
-            predictions[part[3]][-1][1], part[1] = -1, -1
-        predictions[part[3]].append(part)
+        part[9:12] = (part[9], part[10], '+') if d > 0 else (part[10], part[9], '-')
     
+    allele_file = open('{0}.allele.fna'.format(prefix), 'w')
+    prediction = pd.read_csv(prediction, sep='\t', header=None)
+    prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 9]).drop('s', axis=1).values
+    for part in prediction :
+        setInFrame(part)
+
+    for id, part in enumerate(prediction[1:]) :
+        prev = prediction[id]
+        if part[2] == prev[2] and part[11] == prev[11] and prev[5] == part[5] and part[9] - prev[10] < 500 :
+            if part[11] == '+' and part[7] - prev[8] < 500 :
+                diff = (part[7]-prev[8]) - (part[9]-prev[10])
+                diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))
+                part[7], part[9] = prev[7], prev[9]
+                part[14] = prev[14] + diff + part[14]
+                prev[0] = ''
+            elif part[11] == '-' and prev[7] - part[8] < 500 :
+                diff = (prev[7]-part[8]) - (part[9]-prev[10])
+                diff = '' if diff == 0 else ('{0}I'.format(diff) if diff > 0 else '{0}D'.format(-diff))                    
+                part[8], part[9] = prev[8], prev[9]
+                part[14] = part[14] + diff + prev[14]
+                prev[0] = ''
+    prediction = prediction[prediction.T[0] != '']
+    _, gTag, gIdx, gCnt = np.unique(prediction.T[2], return_counts=True, return_inverse=True, return_index=True)
+    prediction.T[1] = gCnt[gIdx]
+    prediction.T[2] = gTag[gIdx]+1
+
+    # map to old annotation
     op = ['', 0, []]
-    with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
-        for gid, (g, predict) in enumerate(sorted(predictions.items())) :
-            for pid, pred in enumerate(predict) :
-                allowed_vary = pred[12]*(1-pseudogene)
-                frames = sorted(np.unique(np.cumsum([0]+[int(n) if t == 'D' else -int(n) for n, t in re.findall(r'(\d+)([ID])', pred[14])])%3))
-                
-                if pred[1] == -1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-                    cds, allele_id = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), 'uncertain'
-                    start, stop = pred[9:11]
-                else :
-                    s, e = pred[9:11]
-                    if pred[11] == '+' :
-                        s2, e2 = s - min(3*int((s - 1)/3), 60), e + min(3*int((pred[13] - e)/3), 600)
-                        seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
-                        lp, rp = s - s2, e2 - e
-                    else :
-                        s2, e2 = s - min(3*int((s - 1)/3), 600), e + min(3*int((pred[13] - e)/3), 60)
-                        seq = rc(genomes[encodes[pred[5]]][1][(s2-1):e2])
-                        rp, lp = s - s2, e2 - e
-                    
-                    seq2 = seq[(lp):(len(seq)-rp)]
-                    if seq2 not in alleles[pred[0]] :
-                        if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
-                            alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
-                        else :
-                            alleles[pred[0]][seq2] = 'LowQ{0}'.format(len(alleles[pred[0]])+1)
-                        allele_id = str(alleles[pred[0]][seq2])
-                        allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], allele_id, seq2))
-                    else :
-                        allele_id = str(alleles[pred[0]][seq2])
-                    
-                    for frame, aa_seq in zip(frames, transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in frames]))['n']) :
-                        if (len(seq) - frame) % 3 > 0 :
-                            aa_seq = aa_seq[:-1]
-                        cds = 'CDS'
-                        
-                        s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
-                        start = s0 if s0 >= 0 else s1
-                        if start < 0 :
-                            cds, start = 'nostart', int(lp/3)
-                        stop = aa_seq.find('X', start)
-                        while 0 <= stop < int((lp+allowed_vary)/3) :
-                            s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
-                            if s0 >= 0 :
-                                start = s0
-                                stop = aa_seq.find('X', start)
-                            else :
-                                break
-                        if stop < 0 :
-                            cds = 'nostop'
-                        elif (stop - start + 1)*3 < pred[12] - allowed_vary :
-                            cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
-                            
-                        if cds == 'CDS' :
-                            if pred[11] == '+' :
-                                start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
-                            else :
-                                start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
-                            break
-                        else :
-                            start, stop = s, e
-                            if frame > 0 :
-                                cds = 'frameshift'
-                if pred[5] != op[0] :
-                    if len(op[2]) :
-                        for k in xrange(op[1], len(op[2])) :
-                            opd = op[2][k]
-                            if opd[4] < 8 :
-                                reason = ['Conflicted_pan_gene', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence', 'Overlap_with_another_gene'][opd[4]]
-                                fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\told_locus_tag={5};inference=Discarded;reason={6}\n'.format(
-                                    op[0], 'misc_feature', opd[1], opd[2], opd[3], opd[0], reason
-                                ) )
-                            
-                    op = [pred[5], 0, old_prediction.get(pred[5], [])]
-                old_tag = []
-                s, e = min(start, pred[9]), max(stop, pred[10])
+    old_to_add = []
+    for pred in prediction :
+        pred[14] = sorted(np.unique(np.cumsum([0]+[int(n) if t == 'D' else -int(n) for n, t in re.findall(r'(\d+)([ID])', pred[14])])%3))
+        if pred[5] != op[0] :
+            if len(op[2]) :
                 for k in xrange(op[1], len(op[2])) :
                     opd = op[2][k]
-                    if opd[2] < s :
-                        if opd[4] < 8 :
-                            reason = ['Conflicted_pan_gene', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence', 'Overlap_with_another_gene'][opd[4]]
-                            fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\told_locus_tag={5};inference=Discarded;reason={6}\n'.format(
-                                op[0], 'misc_feature', opd[1], opd[2], opd[3], opd[0], reason
-                            ) )
-                        op[1] = k + 1
-                        continue
-                    elif opd[1] > e :
+                    if opd[4] != 7 :
+                        old_to_add.append(addOld(opd))
+                    
+            op = [pred[5], 0, old_prediction.get(pred[5], [])]
+        old_tag = []
+        s, e = pred[9], pred[10]
+        for k in xrange(op[1], len(op[2])) :
+            opd = op[2][k]
+            if opd[2] < s :
+                if opd[4] != 7 :
+                    old_to_add.append(addOld(opd))
+                op[1] = k + 1
+                continue
+            elif opd[1] > e :
+                break
+            ovl = min(opd[2], e) - max(opd[1], s) + 1
+            if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (e - s + 1) :
+                if opd[4] < 7 :
+                    opd[4] = 10 * pred[2]
+                if opd[3] != pred[11] :
+                    continue
+                if pred[11] == '+' :
+                    f2 = np.unique([(opd[1] - pred[9])%3, (opd[2]+1 - pred[9])%3])
+                else :
+                    f2 = np.unique([(pred[10] - opd[1]+1)%3, (pred[10] - opd[2])%3])
+                if np.any(np.in1d(f2, pred[14])) :
+                    old_tag.append('{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2]))
+                    opd[4] = 7
+        pred[16] = ','.join(old_tag)
+    if len(op[2]) :
+        for k in xrange(op[1], len(op[2])) :
+            opd = op[2][k]
+            if opd[4] != 7 :
+                old_to_add.append(addOld(opd))
+    maxTag = np.max(gTag)+1
+    for g in old_to_add :
+        maxTag += 1
+        g[2] = maxTag
+    # rescue
+    old_genes = [ encodes[g[0]] for g in old_to_add if g[15] == 'CDS' ]
+    if len(old_genes) :
+        queries = set(old_genes)
+        groups = { g:[g] for g in old_genes }
+        tags = None
+        if clust :
+            clust = np.load(clust.rsplit('.', 1)[0] + '.npy')
+            while len(queries) :
+                c = clust[np.in1d(clust.T[1], list(queries))]
+                queries = set(c.T[0]) - queries
+                for grp, gene, _ in c :
+                    if grp not in groups :
+                        groups[grp] = groups.pop(gene)
+                    else :
+                        groups[grp].extend(groups.pop(gene))
+            tags = {ggg: g for g, gg in groups.items() for ggg in gg}
+        if orthoPair :
+            clust = np.load(orthoPair)
+            clust = clust[np.all(np.in1d(clust, queries).reshape(clust.shape), 1)]
+            for g1, g2, _ in clust :
+                t1, t2 = tags[g1], tags[g2]
+                for g in groups[t2] :
+                    tags[g] = t1
+                groups[t1].extend(groups.pop(t2))
+            groups = {g:sorted(gg) for g, gg in groups.items()}
+            tags = {ggg:gg[0] for g, gg in groups.items() for ggg in gg}
+        if tags :
+            decodes = {v:k for k, v in encodes.items()}
+            for g in old_to_add :
+                if g[15] == 'CDS' :
+                    g[0] = decodes[tags[encodes[g[0]]]]
+    prediction = pd.DataFrame(np.vstack([prediction, old_to_add])).sort_values(by=[5,9]).values
+    for part in prediction :
+        alleles[part[0]] = {}
+        if part[0] in encodes :
+            gId = encodes[part[0]]
+            if gId in clust_ref :
+                alleles[part[0]] = {clust_ref[gId]:1}
+                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
+    
+    
+    for pid, pred in enumerate(prediction) :
+        if pred[15] == 'misc_feature' or pred[0] == '' : 
+            continue
+        allowed_vary = pred[12]*(1-pseudogene)
+        
+        if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
+            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), 'uncertain'
+            pred2 = None
+        else :
+            s, e = pred[9:11]
+            if pred[11] == '+' :
+                pred2 = None
+                for pp in prediction[pid+1:pid+5] :
+                    if pp[5] != pred[5] : break
+                    elif pp[15] != 'misc_feature' :
+                        pred2 = pp
                         break
-                    ovl = min(opd[2], e) - max(opd[1], s) + 1
-                    if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (e - s + 1) :
-                        opd[4] = max(opd[4], 7)
-                        if opd[3] != pred[11] :
-                            continue
-                        if pred[11] == '+' :
-                            f2 = np.unique([(opd[1] - pred[9])%3, (opd[2]+1 - pred[9])%3])
-                        else :
-                            f2 = np.unique([(pred[10] - opd[1]+1)%3, (pred[10] - opd[2])%3])
-                        if np.any(np.in1d(f2, frames)) :
-                            old_tag.append('{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2]))
-                            opd[4] = 8
+                if pred2 is not None:
+                    e2 = e + min(3*int((pred[13] - e)/3), 3*int((pred2[10] + 300 - e)/3))
+                else :
+                    e2 = e + min(3*int((pred[13] - e)/3), 600)
+                s2 = s - min(3*int((s - 1)/3), 60)
+                seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
+                lp, rp = s - s2, e2 - e
+            else :
+                pred2 = None
+                for pp in reversed(prediction[max(pid-5, 0):pid]) :
+                    if pp[5] != pred[5] : break
+                    elif pp[15] != 'misc_feature' :
+                        pred2 = pp
+                        break
+                if pred2 is not None :
+                    s2 = s - min(3*int((s - 1)/3), 3*int((s - pred2[9] + 300)/3))
+                else :
+                    s2 = s - min(3*int((s - 1)/3), 600)
 
-                fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog_group:{6},allele ID:{7},matched_region:{8}-{9}{10}{11}\n'.format(
-                    pred[5], 'CDS' if cds == 'CDS' else 'pseudogene', start, stop, pred[11], 
-                    '{0}_{1}_{2}'.format(prefix, gid, pid), pred[0], allele_id, pred[9], pred[10], 
-                    '' if pred[0] == pred[4] else ',structure_variant_group:' + pred[4], 
-                    '' if cds == 'CDS' else ';pseudogene=' + cds, 
-                    '' if len(old_tag) == 0 else 'old_locus_tag={0};'.format(','.join(old_tag)), 
-                ))
+                e2 = e + min(3*int((pred[13] - e)/3), 60)
+                seq = rc(genomes[encodes[pred[5]]][1][(s2-1):e2])
+                rp, lp = s - s2, e2 - e
+            
+            seq2 = seq[(lp):(len(seq)-rp)]
+            if seq2 not in alleles[pred[0]] :
+                if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
+                    alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
+                else :
+                    alleles[pred[0]][seq2] = 'LowQ{0}'.format(len(alleles[pred[0]])+1)
+                allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
+            pred[13] = str(alleles[pred[0]][seq2])
+            
+            for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in pred[14]]))['n']) :
+                if (len(seq) - frame) % 3 > 0 :
+                    aa_seq = aa_seq[:-1]
+                cds = 'CDS'
+                
+                s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
+                start = s0 if s0 >= 0 else s1
+                if start < 0 :
+                    cds, start = 'nostart', int(lp/3)
+                stop = aa_seq.find('X', start)
+                while 0 <= stop < int((lp+allowed_vary)/3) :
+                    s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
+                    if s0 >= 0 :
+                        start = s0
+                        stop = aa_seq.find('X', start)
+                    else :
+                        break
+                if stop < 0 :
+                    cds = 'nostop'
+                elif (stop - start + 1)*3 < pred[12] - allowed_vary :
+                    cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
+                    
+                if cds == 'CDS' :
+                    if pred[11] == '+' :
+                        start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
+                    else :
+                        start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
+                    break
+                else :
+                    start, stop = s, e
+                    if frame > 0 :
+                        cds = 'frameshift'
+            pred[9:11] = start, stop
+        if cds != 'CDS' :
+            pred[15] = 'pseudogene=' + cds
+        
+        if pred2 is not None:
+            if pred[11] == '+' :
+                if pred[10] - pred2[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
+                    pred[0] = pred[0]+',' + pred2[0]
+                    pred[4] = pred[4]+',' + pred2[4]
+                    pred[16] = ','.join(set(pred[16].split(',') + pred2[16].split(',')))
+                    pred2[0] == ''
+            else :
+                if pred2[10] - pred[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
+                    pred[0] = pred2[0]+',' + pred[0]
+                    pred[4] = pred2[4]+',' + pred[4]
+                    pred[16] = ','.join(set(pred[16].split(',') + pred2[16].split(',')))
+                    pred2[0] == ''
+    with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
+        for pred in prediction :
+            if pred[0] != '' :
+                if pred[15] == 'misc_feature' :
+                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{7}inference={6}\n'.format(
+                        pred[5], 'misc_feature', pred[9], pred[10], pred[11], 
+                        '{0}_g_{1}'.format(prefix, pred[2]), pred[16], 
+                        'old_locus_tag={0}:{1}-{2};'.format(pred[0].split(':', 1)[1], pred[9], pred[10]), 
+                    ))
+                else :
+                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog_group:{6},allele ID:{7},matched_region:{8}-{9}{10}{11}\n'.format(
+                        pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], pred[9], pred[10], pred[11], 
+                        '{0}_g_{1}'.format(prefix, pred[2]), pred[0], pred[13], pred[7], pred[8], 
+                        '' if pred[0] == pred[4] else ',structure_variant_group:' + pred[4], 
+                        ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
+                        '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
+                    ))
     allele_file.close()
     logger('Pan genome annotations have been saved in {0}'.format('{0}.EToKi.gff'.format(prefix)))
     logger('Gene allelic sequences have been saved in {0}'.format('{0}.allele.fna'.format(prefix)))
@@ -1130,7 +1226,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff = min(max(np.mean(diff), np.log(0.01)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(3.)), np.log(9.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(2.)), np.log(8.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
@@ -1152,15 +1248,15 @@ EToKi.py ortho
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_ortho', default='EToKi_ortho')
     parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. \nnj [default], ml (for small dataset) or rapid (extremely large datasets)', default='nj')
 
-    parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 30', default=30, type=int)
+    parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 20', default=20, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
     parser.add_argument('--incompleteCDS', help="Allowed types of imperfection for reference genes. Default: ''. \n's': allows unrecognized start codon. \n'e': allows unrecognized stop codon. \n'i': allows stop codons in the coding region. \n'f': allows frameshift in the coding region. \nMultiple keywords can be used together. e.g., use 'sife' to allow random sequences.", default='')
 
-    parser.add_argument('--clust_identity', help='minimum identities of mmseqs clusters. Default: 0.95', default=0.95, type=float)
-    parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.85', default=0.85, type=float)
+    parser.add_argument('--clust_identity', help='minimum identities of mmseqs clusters. Default: 0.9', default=0.9, type=float)
+    parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.9', default=0.9, type=float)
 
     parser.add_argument('--fast', dest='noDiamond', help='disable Diamond search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
-    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.4, type=float)
+    parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
     parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
@@ -1341,7 +1437,7 @@ def ortho(args) :
     pool2.join()
     old_predictions = dict(np.load(params['old_prediction'])) if 'old_prediction' in params else {}
     
-    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'])
+    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params.get('clust', None), params.get('self_bsn', None))
     
 if __name__ == '__main__' :
     ortho(sys.argv[1:])
