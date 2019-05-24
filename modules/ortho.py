@@ -440,9 +440,10 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
         scores = {}
     
     genes, all_useds = [], set([])
-    for gene, score in sorted(sorted(scores.items()), key=itemgetter(1), reverse=True) :
+    nGene = len(scores)
+    for id, (gene, score) in enumerate(sorted(scores.items(), key=itemgetter(1), reverse=True)) :
         if score <= 0 : break
-        if gene not in all_useds or len(scores)*2 < cnt :
+        if gene not in all_useds or nGene < 2*cnt :
             genes.append([gene, score, min_rank])
             if len(genes) >= cnt :
                 break
@@ -578,7 +579,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                 if conflict is not None :
                     if conflict < 0 :
                         superC = pangenome[-(conflict+1)]
-                        supergroup[superC] = supergroup.get(superC, 0) + 1
+                        if superC not in supergroup :
+                            supergroup[superC] = [0, 0]
+                        supergroup[superC][1] += 1
+                        if m[4] >= params['clust_identity'] * 10000 :
+                            supergroup[superC][0] += 1
                     elif conflict >0 :
                         paralog = True
                     m[3] = -1
@@ -601,12 +606,16 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             
             superR = [None, 0]
             if len(supergroup) :
-                for superC, cnt in sorted(supergroup.items(), key=lambda d:d[1]) :
+                for superC, (cnt2, cnt) in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
                     if cnt >= 0.5*mat.shape[0] :
-                        gl1, gl2 = panList[superC], set(mat.T[1])
-                        score = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
-                        if score > superR[1] :
-                            superR = [superC, score]
+                        if cnt2 > 0 :
+                            superR = [superC]
+                            break
+                        else :
+                            gl1, gl2 = panList[superC], set(mat.T[1])
+                            s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
+                            if s > superR[1] :
+                                superR = [superC, s]
             if superR[0] :
                 pangene = superR[0]
             elif paralog :
@@ -709,7 +718,7 @@ def iter_map_bsn(data) :
                     f = (f+s)%3
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
-            max_sc += (max(sc[0], sc[f])**2) * tab[2]/np.sqrt(tab[12])
+            max_sc += (np.max(sc)**2) * tab[2]/np.sqrt(tab[12])
         group[2] = max_sc
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
@@ -1055,7 +1064,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         allowed_vary = pred[12]*(1-pseudogene)
         
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), 'uncertain'
+            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), '{0}:{1}:{2}-{3}'.format(pred[0], 'ND', pred[7], pred[8])
             pred2 = None
         else :
             s, e = pred[9:11]
@@ -1166,7 +1175,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
                         pred[9], pred[10], pred[11], 
                         '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
-                        '' if pred[4] == '' else ',structure_variant_group:{0}'.format(pred[4]), 
+                        '' if pred[4] == '' else ';structure_variant=:{0}'.format(pred[4]), 
                         ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
                         '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
                     ))

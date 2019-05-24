@@ -72,8 +72,6 @@ def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
     name_map = {name:id for id, name in enumerate(names)}
     sss = []
     for site in sites :
-        if len(site[3]) > 0 :
-            print('aa')
         if not len(m_weight[site[1]]) : continue
         weight = np.mean(list(m_weight[site[1]].values())) 
         if site[3].size == 0 :

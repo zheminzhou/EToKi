@@ -223,7 +223,7 @@ class recHMM(object) :
             if 'low_cov' not in model['categories'] :
                 model['categories']['low_cov'] = {}
             for brId, (theta, v) in enumerate(zip(model['posterior']['theta'], model['posterior']['v'])) :
-                if v[0] > .05 * theta[0] and v[1]*theta[0] < theta[1]*v[0] :
+                if v[0] > .05 * theta[0] and v[1]*theta[0] < theta[1]*v[0] and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
                     print('Model {0}: Branch {1} is too divergent for Rec identification. Move to new category. '.format(model['id'], self.branches[brId]))
                     model['categories']['nu'][brId] = new_id = model['categories']['nu'][brId] + 1
                     if new_id >= model['v'].shape[0] :
