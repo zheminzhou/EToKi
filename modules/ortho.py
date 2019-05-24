@@ -581,9 +581,9 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         superC = pangenome[-(conflict+1)]
                         if superC not in supergroup :
                             supergroup[superC] = [0, 0]
-                        supergroup[superC][1] += 1
+                        supergroup[superC][1] += m[4]
                         if m[4] >= params['clust_identity'] * 10000 :
-                            supergroup[superC][0] += 1
+                            supergroup[superC][0] += m[4]
                     elif conflict >0 :
                         paralog = True
                     m[3] = -1
