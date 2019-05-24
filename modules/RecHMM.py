@@ -198,7 +198,7 @@ class recHMM(object) :
                         self.screen_out('Freeze', curr_model)
                         new_models.append(curr_model)
                         if ite <= min(cool_down, 50) :
-                            prediction['id'] += 0.01
+                            prediction['id'] = np.round(prediction['id'] + 0.01, 3)
                             prediction['ite'] = ite+1
                             prediction['diff'] = 1
                             new_models.append(prediction)

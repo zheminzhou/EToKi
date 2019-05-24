@@ -18,7 +18,11 @@ params = dict(
     ml = '{fasttree} {0} -nt -gtr -pseudo', 
     nj = '{rapidnj} -i fa -t d {0}', 
 )
-    
+
+def in1d(arr1, arr2, invert=False) :
+    darr2 = set(arr2)
+    res = np.array([n in darr2 for n in arr1.flatten()])
+    return ~res if invert else res
 
 class MapBsn(object) :
     def __init__(self, fname, mode='r') :
@@ -309,7 +313,7 @@ def filt_per_group(data) :
         seqs = np.array([ conn.get(int(id/1000))[id%1000] for id in mat.T[5].tolist() ])
     seqs = np.array([45, 65, 67, 71, 84], dtype=np.uint8)[decodeSeq(seqs)][:, :len(ref)]
     
-    seqs[np.in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
+    seqs[in1d(seqs, [65, 67, 71, 84], invert=True).reshape(seqs.shape)] = 0
     diff = compare_seq(seqs, np.zeros(shape=[seqs.shape[0], seqs.shape[0], 2], dtype=int)).astype(float)
     distances = np.zeros(shape=[mat.shape[0], mat.shape[0], 2], dtype=float)
     for i1, m1 in enumerate(mat) :
@@ -472,7 +476,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
     used, pangenome, panList = {}, {}, {}
     while len(scores) > 0 :
         # get top 100 genes
-        ortho_groups = ortho_groups[np.all(np.in1d(ortho_groups, list(scores.keys())).reshape(ortho_groups.shape), 1)]
+        ortho_groups = ortho_groups[np.all(in1d(ortho_groups, list(scores.keys())).reshape(ortho_groups.shape), 1)]
         genes = get_gene(scores, first_classes, ortho_groups, cnt=100)
         if len(genes) <= 0 :
             continue
@@ -852,8 +856,8 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
                 break
-    x0, x1, x2 = np.unique(gIden.T[0], return_inverse=True, return_index=True)
-    ingroup[:] = ingroup[x1[x2]]
+    _, tag, idx = np.unique(gIden.T[0], return_inverse=True, return_index=True)
+    ingroup[:] = ingroup[tag[idx]]
     return ingroup
 
 def precluster2(data) :
@@ -903,10 +907,10 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', op[0]]
         else :
             if opd[4] < 7 :
-                reason = ['Conflicted_pan_gene', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence'][opd[4]]
+                reason = ['', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence'][opd[4]]
             else :
                 reason = 'Overlap_with:{0}_g_{1}'.format(prefix, int(opd[4]/10))
-            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, [], 'misc_feature', reason]
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, -1, 'misc_feature', reason]
     def setInFrame(part) :
         if part[9] < part[10] :
             l, r, d = min(part[7]-1, part[9]-1), min(part[12]-part[8], part[13]-part[10]), 1
@@ -930,6 +934,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     allele_file = open('{0}.allele.fna'.format(prefix), 'w')
     prediction = pd.read_csv(prediction, sep='\t', header=None)
     prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 9]).drop('s', axis=1).values
+
     for part in prediction :
         setInFrame(part)
 
@@ -987,7 +992,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     f2 = np.unique([(opd[1] - pred[9])%3, (opd[2]+1 - pred[9])%3])
                 else :
                     f2 = np.unique([(pred[10] - opd[1]+1)%3, (pred[10] - opd[2])%3])
-                if np.any(np.in1d(f2, pred[14])) :
+                if np.any(in1d(f2, pred[14])) :
                     old_tag.append('{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2]))
                     opd[4] = 7
         pred[16] = ','.join(old_tag)
@@ -1009,7 +1014,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         if clust :
             clust = np.load(clust.rsplit('.', 1)[0] + '.npy')
             while len(queries) :
-                c = clust[np.in1d(clust.T[1], list(queries))]
+                c = clust[in1d(clust.T[1], list(queries))]
                 queries = set(c.T[0]) - queries
                 for grp, gene, _ in c :
                     if grp not in groups :
@@ -1019,7 +1024,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             tags = {ggg: g for g, gg in groups.items() for ggg in gg}
         if orthoPair :
             clust = np.load(orthoPair)
-            clust = clust[np.all(np.in1d(clust, queries).reshape(clust.shape), 1)]
+            clust = clust[np.all(in1d(clust, queries).reshape(clust.shape), 1)]
             for g1, g2, _ in clust :
                 t1, t2 = tags[g1], tags[g2]
                 for g in groups[t2] :
@@ -1033,6 +1038,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 if g[15] == 'CDS' :
                     g[0] = decodes[tags[encodes[g[0]]]]
     prediction = pd.DataFrame(np.vstack([prediction, old_to_add])).sort_values(by=[5,9]).values
+    prediction[prediction.T[4] == prediction.T[0], 4] = ''
+    
     for part in prediction :
         alleles[part[0]] = {}
         if part[0] in encodes :
@@ -1054,10 +1061,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             s, e = pred[9:11]
             if pred[11] == '+' :
                 pred2 = None
-                for pp in prediction[pid+1:pid+5] :
+                for i, pp in enumerate(prediction[pid+1:pid+5]) :
                     if pp[5] != pred[5] : break
                     elif pp[15] != 'misc_feature' :
                         pred2 = pp
+                        pred2_id = i + pid + 1
                         break
                 if pred2 is not None:
                     e2 = e + min(3*int((pred[13] - e)/3), 3*int((pred2[10] + 300 - e)/3))
@@ -1068,10 +1076,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 lp, rp = s - s2, e2 - e
             else :
                 pred2 = None
-                for pp in reversed(prediction[max(pid-5, 0):pid]) :
+                for i, pp in enumerate(reversed(prediction[max(pid-5, 0):pid])) :
                     if pp[5] != pred[5] : break
                     elif pp[15] != 'misc_feature' :
                         pred2 = pp
+                        pred2_id = pid - 1 - i
                         break
                 if pred2 is not None :
                     s2 = s - min(3*int((s - 1)/3), 3*int((s - pred2[9] + 300)/3))
@@ -1087,9 +1096,9 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
                     alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
                 else :
-                    alleles[pred[0]][seq2] = 'LowQ{0}'.format(len(alleles[pred[0]])+1)
+                    alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
-            pred[13] = str(alleles[pred[0]][seq2])
+            pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8])
             
             for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in pred[14]]))['n']) :
                 if (len(seq) - frame) % 3 > 0 :
@@ -1126,19 +1135,22 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             pred[9:11] = start, stop
         if cds != 'CDS' :
             pred[15] = 'pseudogene=' + cds
+        pred[14] = pred2_id if pred2 is not None else -1
         
-        if pred2 is not None:
+    for pid, pred in enumerate(prediction) :
+        if pred[0] != '' and pred[14] >= 0:
+            pred2 = prediction[pred[14]]
             if pred[11] == '+' :
                 if pred[10] - pred2[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
-                    pred[0] = pred[0]+',' + pred2[0]
-                    pred[4] = pred[4]+',' + pred2[4]
-                    pred[16] = ','.join(set(pred[16].split(',') + pred2[16].split(',')))
+                    pred[13] = ','.join(sorted([pred[13], pred2[13]]))
+                    pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
+                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))))
                     pred2[0] == ''
             else :
                 if pred2[10] - pred[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
-                    pred[0] = pred2[0]+',' + pred[0]
-                    pred[4] = pred2[4]+',' + pred[4]
-                    pred[16] = ','.join(set(pred[16].split(',') + pred2[16].split(',')))
+                    pred[13] = ','.join(sorted([pred[13], pred2[13]]))
+                    pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
+                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))))
                     pred2[0] == ''
     with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
         for pred in prediction :
@@ -1150,10 +1162,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         'old_locus_tag={0}:{1}-{2};'.format(pred[0].split(':', 1)[1], pred[9], pred[10]), 
                     ))
                 else :
-                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{12}inference=ortholog_group:{6},allele ID:{7},matched_region:{8}-{9}{10}{11}\n'.format(
-                        pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], pred[9], pred[10], pred[11], 
-                        '{0}_g_{1}'.format(prefix, pred[2]), pred[0], pred[13], pred[7], pred[8], 
-                        '' if pred[0] == pred[4] else ',structure_variant_group:' + pred[4], 
+                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{9}inference=ortholog_group:{6}{7}{8}\n'.format(
+                        pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
+                        pred[9], pred[10], pred[11], 
+                        '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
+                        '' if pred[4] == '' else ',structure_variant_group:{0}'.format(pred[4]), 
                         ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
                         '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
                     ))
@@ -1201,8 +1214,8 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
     bsn = np.load(bsnFile)
     bsn = bsn[bsn.T[2] > 0]
     
-    selectedClu = clu[np.in1d(clu.T[0], selectedGenes)]
-    selectedBsn = bsn[np.in1d(bsn.T[0], selectedGenes)]
+    selectedClu = clu[in1d(clu.T[0], selectedGenes)]
+    selectedBsn = bsn[in1d(bsn.T[0], selectedGenes)]
     # get global
     global_differences = {}
     geneGroups = {}
@@ -1321,12 +1334,11 @@ def encodeNames(genomes, genes, geneFiles, prefix, labelFile=None) :
 def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
-    iterIden = np.arange(1., identity_target-0.005, -0.01)
+    iterIden = np.round(np.arange(1., identity_target-0.005, -0.01), 5)
     iterCov = np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
     for iden, cov in zip(iterIden, iterCov) :
         params.update({'identity':iden, 'coverage':np.round(cov, 2)})
         iden2 = min(1., iden+0.005)
-        #iden2 = (2.*iden2 + iden2**3.)/3.
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)
         gp = pd.read_csv(clust, sep='\t').values
