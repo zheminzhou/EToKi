@@ -913,13 +913,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     def addOld(opd) :
         if opd[4] == 0 :
-            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', op[0]]
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 1, opd[2]-opd[1]+1, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', '{0}:{1}_{2}'.format(opd[0].split(':', 1), opd[1], opd[2])]
         else :
             if opd[4] < 7 :
                 reason = ['', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence'][opd[4]]
             else :
                 reason = 'Overlap_with:{0}_g_{1}'.format(prefix, int(opd[4]/10))
-            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 0, 0, opd[1], opd[2], opd[3], 0, 0, -1, 'misc_feature', reason]
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 1, opd[2]-opd[1]+1, opd[1], opd[2], opd[3], 0, 0, -1, 'misc_feature', reason]
     def setInFrame(part) :
         if part[9] < part[10] :
             l, r, d = min(part[7]-1, part[9]-1), min(part[12]-part[8], part[13]-part[10]), 1
@@ -1059,17 +1059,19 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     
     for pid, pred in enumerate(prediction) :
-        if pred[15] == 'misc_feature' or pred[0] == '' : 
+        if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
+            pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8])
+            pred[14] = -1
             continue
         allowed_vary = pred[12]*(1-pseudogene)
         
+        pred2 = None
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
+            pred[14] == -1
             cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), '{0}:{1}:{2}-{3}'.format(pred[0], 'ND', pred[7], pred[8])
-            pred2 = None
         else :
             s, e = pred[9:11]
             if pred[11] == '+' :
-                pred2 = None
                 for i, pp in enumerate(prediction[pid+1:pid+5]) :
                     if pp[5] != pred[5] : break
                     elif pp[15] != 'misc_feature' :
@@ -1084,7 +1086,6 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
                 lp, rp = s - s2, e2 - e
             else :
-                pred2 = None
                 for i, pp in enumerate(reversed(prediction[max(pid-5, 0):pid])) :
                     if pp[5] != pred[5] : break
                     elif pp[15] != 'misc_feature' :
@@ -1153,14 +1154,14 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 if pred[10] - pred2[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
                     pred[13] = ','.join(sorted([pred[13], pred2[13]]))
                     pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
-                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))))
-                    pred2[0] == ''
+                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))-{''}))
+                    pred2[0] = ''
             else :
                 if pred2[10] - pred[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
                     pred[13] = ','.join(sorted([pred[13], pred2[13]]))
                     pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
-                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))))
-                    pred2[0] == ''
+                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))-{''}))
+                    pred2[0] = ''
     with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
         for pred in prediction :
             if pred[0] != '' :
