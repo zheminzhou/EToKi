@@ -198,7 +198,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         key = tuple(sorted([bsn[0][0], bsn[0][1]]))
         if key in ortho_pairs :
             return
-        if min(int(bsn[0][13]), int(bsn[0][12])) * 5 <= max(int(bsn[0][13]), int(bsn[0][12])) :
+        if min(int(bsn[0][13]), int(bsn[0][12])) * 10 <= max(int(bsn[0][13]), int(bsn[0][12])) :
             return
         matched_aa = {}
         len_aa = int(int(bsn[0][12])/3)
