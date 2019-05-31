@@ -320,7 +320,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 4.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 4.))
+            gd = (0.005, 6.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 6.))
             
             if aln >= params['match_frag_len'] :
                 distances[i1, i2, :] = [mut/aln/gd[0]/gd[0]/gd[1]/params['allowed_variation'], 1/gd[0]]
@@ -413,7 +413,7 @@ def filt_per_group(data) :
                     if np.min(np.array(gene_phy.get_leaf_names()).astype(int)) > np.min(np.array(t2.get_leaf_names()).astype(int)) :
                         gene_phy, t2 = t2, gene_phy
                     gene_phys[id] = gene_phy
-                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= (params['clust_identity']**2) * 10000 :
+                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= params['clust_identity'] * 10000 :
                         gene_phys.append(t2)
                 else :
                     break
@@ -497,7 +497,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         present_iden = max(present_iden, m[4])
                     elif v > 0 :
                         m[3] = -1
-                if present_iden < (params['clust_identity']**2)*10000 :
+                if present_iden < params['clust_identity']*10000 :
                     genes.pop(gene)
                     scores.pop(gene)
                 else :
@@ -539,7 +539,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         new_groups[ng] = matches
                         scores[ng] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
                         first_classes[ng] = first_classes[gene][:]
-                        first_classes[ng][0] += 1000
+                        #first_classes[ng][0] += 0 #1000
         else :
             for gene, score in genes.items() :
                 if gene not in new_groups :
@@ -581,9 +581,9 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         superC = pangenome[-(conflict+1)]
                         if superC not in supergroup :
                             supergroup[superC] = [0, 0]
-                        supergroup[superC][1] += m[4]
+                        supergroup[superC][1] += 1
                         if m[4] >= params['clust_identity'] * 10000 :
-                            supergroup[superC][0] += m[4]
+                            supergroup[superC][0] += 1
                     elif conflict >0 :
                         paralog = True
                     m[3] = -1
@@ -598,25 +598,26 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         else  :
                             used2[g2] = gene+1 if gs == 2 else 0
                     
-            if idens < params['clust_identity'] * mat[0, 4] or idens < (params['clust_identity']**2)*10000 :
+            if idens < params['clust_identity'] * mat[0, 4] or idens < params['clust_identity']*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
                 continue
             mat = mat[mat.T[3] > 0]
             
-            superR = [None, 0]
+            superR = [None, -999, 0, 0]
             if len(supergroup) :
                 for superC, (cnt2, cnt) in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
                     if cnt >= 0.5*mat.shape[0] :
-                        if cnt2 > 0 :
-                            superR = [superC]
-                            break
-                        else :
+                        #if cnt2 > 0 :
+                            #superR = [superC]
+                            #break
+                        #else :
                             gl1, gl2 = panList[superC], set(mat.T[1])
                             s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
-                            if s > superR[1] :
-                                superR = [superC, s]
-            if superR[0] :
+                            if s < 0 : s = -1
+                            if [s, cnt2, cnt] > superR[1:] :
+                                superR = [superC, s, cnt2, cnt]
+            if superR[1] > 0 or superR[2] > 0 :
                 pangene = superR[0]
             elif paralog :
                 new_groups[gene] = mat
@@ -718,7 +719,8 @@ def iter_map_bsn(data) :
                     f = (f+s)%3
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
-            max_sc += (np.max(sc)**2) * tab[2]/np.sqrt(tab[12])
+            sc = np.max(sc)
+            max_sc += (sc * tab[2])*sc/np.sqrt(tab[12])
         group[2] = max_sc
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
@@ -805,7 +807,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
 
 def checkPseu(n, s) :
     if len(s) < params['min_cds'] :
-        #logger('{0} is too short'.format(n))
+        #logger('{0} len={1} is too short'.format(n, len(s)))
         return 1
 
     if len(s) % 3 > 0 and 'f' not in params['incompleteCDS'] :
@@ -854,13 +856,13 @@ def writeGenes(fname, genes, priority) :
 
 def determineGroup(gIden, global_differences, min_iden, variation) :
     ingroup = np.zeros(gIden.shape[0], dtype=bool)
-    ingroup[gIden.T[1] >= (min_iden**2)*10000] = True
+    ingroup[gIden.T[1] >= (min_iden)*10000] = True
 
     for i1, m1 in enumerate(gIden) :
-        if m1[1] >= (min_iden**2)*10000 :
+        if m1[1] >= (min_iden)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 4.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 4.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 6.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -913,7 +915,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     def addOld(opd) :
         if opd[4] == 0 :
-            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 1, opd[2]-opd[1]+1, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', '{0}:{1}_{2}'.format(opd[0].split(':', 1), opd[1], opd[2])]
+            return [opd[0], -1, -1, op[0], opd[0], op[0], 1., 1, opd[2]-opd[1]+1, opd[1], opd[2], opd[3], 0, 0, [0], 'CDS', '{0}:{1}-{2}'.format(opd[0].split(':', 1)[1], opd[1], opd[2])]
         else :
             if opd[4] < 7 :
                 reason = ['', 'Too_short', 'Pseudogene:Frameshift', 'Pseudogene:No_start', 'Pseudogene:No_stop', 'Pseudogene:Premature', 'Error_in_sequence'][opd[4]]
@@ -1050,12 +1052,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
     for part in prediction :
-        alleles[part[0]] = {}
-        if part[0] in encodes :
-            gId = encodes[part[0]]
-            if gId in clust_ref :
-                alleles[part[0]] = {clust_ref[gId]:1}
-                allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
+        if part[0] not in alleles :
+            alleles[part[0]] = {}
+            if part[0] in encodes :
+                gId = encodes[part[0]]
+                if gId in clust_ref :
+                    alleles[part[0]] = {clust_ref[gId]:1}
+                    allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
     
     
     for pid, pred in enumerate(prediction) :
@@ -1103,8 +1106,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             
             seq2 = seq[(lp):(len(seq)-rp)]
             if seq2 not in alleles[pred[0]] :
-                if pred[4] == pred[0] and pred[7] == 1 and pred[8] == pred[12] :
-                    alleles[pred[0]][seq2] = len(alleles[pred[0]])+1
+                if pred[4] == '' and pred[7] == 1 and pred[8] == pred[12] :
+                    alleles[pred[0]][seq2] = str(len(alleles[pred[0]])+1)
                 else :
                     alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
@@ -1176,7 +1179,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
                         pred[9], pred[10], pred[11], 
                         '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
-                        '' if pred[4] == '' else ';structure_variant=:{0}'.format(pred[4]), 
+                        '' if pred[4] == '' else ';structure_variant={0}'.format(pred[4]), 
                         ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
                         '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
                     ))
@@ -1259,7 +1262,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff = min(max(np.mean(diff), np.log(0.01)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(2.)), np.log(8.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(3.)), np.log(9.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
@@ -1297,13 +1300,13 @@ EToKi.py ortho
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
-    parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 60', default=60., type=float)
+    parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
     
     parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
     parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
-    parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
+    parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.9', default=.9, type=float)
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)

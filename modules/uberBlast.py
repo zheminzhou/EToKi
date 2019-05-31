@@ -189,7 +189,7 @@ def cigar2score(data) :
     if mode == 1 :
         nMatch = np.sum(qAln == rAln)
         nMismatch = qAln.size - nMatch
-        return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*3 - nMismatch*3 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
+        return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*3 - nMismatch*2 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
     else :
         qAln, rAln = qAln[frame:], rAln[frame:]
         if qAln.size % 3 :
