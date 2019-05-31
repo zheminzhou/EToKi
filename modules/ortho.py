@@ -198,7 +198,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         key = tuple(sorted([bsn[0][0], bsn[0][1]]))
         if key in ortho_pairs :
             return
-        if min(int(bsn[0][13]), int(bsn[0][12])) * 10 <= max(int(bsn[0][13]), int(bsn[0][12])) :
+        if min(int(bsn[0][13]), int(bsn[0][12])) * 20 <= max(int(bsn[0][13]), int(bsn[0][12])) :
             return
         matched_aa = {}
         len_aa = int(int(bsn[0][12])/3)
@@ -320,7 +320,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 6.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 6.))
+            gd = (0.005, 2.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 6.))
             
             if aln >= params['match_frag_len'] :
                 distances[i1, i2, :] = [mut/aln/gd[0]/gd[0]/gd[1]/params['allowed_variation'], 1/gd[0]]
@@ -413,7 +413,7 @@ def filt_per_group(data) :
                     if np.min(np.array(gene_phy.get_leaf_names()).astype(int)) > np.min(np.array(t2.get_leaf_names()).astype(int)) :
                         gene_phy, t2 = t2, gene_phy
                     gene_phys[id] = gene_phy
-                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= params['clust_identity'] * 10000 :
+                    if np.max(mat[np.array(t2.get_leaf_names()).astype(int), 4]) >= (params['clust_identity']-0.02)*10000 :
                         gene_phys.append(t2)
                 else :
                     break
@@ -497,7 +497,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         present_iden = max(present_iden, m[4])
                     elif v > 0 :
                         m[3] = -1
-                if present_iden < params['clust_identity']*10000 :
+                if present_iden < (params['clust_identity']-0.02)*10000 :
                     genes.pop(gene)
                     scores.pop(gene)
                 else :
@@ -598,7 +598,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                         else  :
                             used2[g2] = gene+1 if gs == 2 else 0
                     
-            if idens < params['clust_identity'] * mat[0, 4] or idens < params['clust_identity']*10000 :
+            if idens < params['clust_identity'] * mat[0, 4] or idens < (params['clust_identity']-0.02)*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
                 continue
@@ -856,13 +856,13 @@ def writeGenes(fname, genes, priority) :
 
 def determineGroup(gIden, global_differences, min_iden, variation) :
     ingroup = np.zeros(gIden.shape[0], dtype=bool)
-    ingroup[gIden.T[1] >= (min_iden)*10000] = True
+    ingroup[gIden.T[1] >= (min_iden-0.02)*10000] = True
 
     for i1, m1 in enumerate(gIden) :
-        if m1[1] >= (min_iden)*10000 :
+        if m1[1] >= (min_iden-0.02)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 6.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 2.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1261,8 +1261,8 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
                         global_differences[key] = [i]
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
-        mean_diff = min(max(np.mean(diff), np.log(0.01)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(3.)), np.log(9.))
+        mean_diff = min(max(np.mean(diff), np.log(0.02)), np.log(0.5))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*5, np.log(3.)), np.log(9.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
@@ -1294,11 +1294,11 @@ EToKi.py ortho
     parser.add_argument('--fast', dest='noDiamond', help='disable Diamond search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
-    parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=300., type=float)
+    parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=250., type=float)
     parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
     parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
     parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
-    parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=500., type=float)
+    parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=400., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
     
