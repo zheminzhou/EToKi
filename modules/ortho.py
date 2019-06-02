@@ -608,15 +608,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             if len(supergroup) :
                 for superC, (cnt2, cnt) in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
                     if cnt >= 0.5*mat.shape[0] :
-                        #if cnt2 > 0 :
-                            #superR = [superC]
-                            #break
-                        #else :
-                            gl1, gl2 = panList[superC], set(mat.T[1])
-                            s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
-                            if s < 0 : s = -1
-                            if [s, cnt2, cnt] > superR[1:] :
-                                superR = [superC, s, cnt2, cnt]
+                        gl1, gl2 = panList[superC], set(mat.T[1])
+                        s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
+                        if s < 0 : s = -1
+                        if [s, cnt2, cnt] > superR[1:] :
+                            superR = [superC, s, cnt2, cnt]
             if superR[1] > 0 or superR[2] > 0 :
                 pangene = superR[0]
             elif paralog :
@@ -814,13 +810,13 @@ def checkPseu(n, s) :
         #logger('{0} is discarded due to frameshifts'.format(n))
         return 2
     aa = transeq({'n':s.upper()}, frame=1, transl_table='starts')['n'][0]
-    if aa[0] != 'M' and 'm' not in params['incompleteCDS'] :
+    if aa[0] != 'M' and 's' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to lack of start codon'.format(n))
         return 3
-    if aa[-1] != 'X' and '*' not in params['incompleteCDS'] :
+    if aa[-1] != 'X' and 'e' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to lack of stop codon'.format(n))
         return 4
-    if len(aa[:-1].split('X')) > 1 and 's' not in params['incompleteCDS'] :
+    if len(aa[:-1].split('X')) > 1 and 'i' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to internal stop codons'.format(n))
         return 5
     return 0
@@ -1060,7 +1056,6 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     alleles[part[0]] = {clust_ref[gId]:1}
                     allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
     
-    
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
             pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8])
@@ -1262,7 +1257,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff = min(max(np.mean(diff), np.log(0.02)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*5, np.log(3.)), np.log(9.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(4.)), np.log(8.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
