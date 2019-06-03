@@ -117,7 +117,8 @@ class MapBsn(object) :
         self.conn = zipfile.ZipFile(self.fname, mode='a', compression=zipfile.ZIP_DEFLATED,allowZip64=True)
         
 
-def iter_readGFF(fname) :
+def iter_readGFF(data) :
+    fname, gtable = data
     seq, cds = {}, {}
     names = {}
     fnames = fname.split(',')
@@ -165,7 +166,7 @@ def iter_readGFF(fname) :
             c[6]= seq[c[1]][1][(c[2]-1) : c[3]]
             if c[4] == '-' :
                 c[6] = rc(c[6])
-            pcode = checkPseu(n, c[6])
+            pcode = checkPseu(n, c[6], gtable)
             if pcode :
                 c[5], c[6] = pcode, ''
             else :
@@ -175,9 +176,9 @@ def iter_readGFF(fname) :
 
     return seq, cds    
 
-def readGFF(fnames) :
+def readGFF(fnames, gtable) :
     if not isinstance(fnames, list) : fnames = [fnames]
-    combo = pool.map(iter_readGFF, fnames)
+    combo = pool.map(iter_readGFF, [[fn, gtable] for fn in fnames])
     #combo = list(map(iter_readGFF, fnames))
 
     seq, cds = {}, {}
@@ -226,9 +227,11 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                 else :
                     s_j += s
     if params['noDiamond'] :
-        self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p --gtable {5}'.format(\
+            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split())
     else :
-        self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF -s 1 --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p'.format(clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1).split())
+        self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF -s 1 --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p --gtable {5}'.format(\
+            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split())
     self_bsn.T[:2] = self_bsn.T[:2].astype(int)
     presence, ortho_pairs = {}, {}
     save = []
@@ -455,20 +458,20 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
         return []
     return genes
 
-def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, first_classes, scores, encodes) :
+def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classes, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
-    conflicts = {}
-    for conflict in cfl_conn.values() : 
-        conflict = conflict[np.all(conflict[:, :2] < matIds.size, 1), :]
-        conflict = conflict[matIds[conflict.T[0]] & matIds[conflict.T[1]], :]
-        for k1, k2, v in conflict :
-            if k1 not in conflicts :
-                conflicts[k1] = []
-            if k2 not in conflicts :
-                conflicts[k2] = []
-            conflicts[k1].append(k2*10 + v)
-            conflicts[k2].append(k1*10 + v)
-    del matIds
+    #conflicts = {}
+    #for conflict in cfl_conn.values() : 
+        #conflict = conflict[np.all(conflict[:, :2] < matIds.size, 1), :]
+        #conflict = conflict[matIds[conflict.T[0]] & matIds[conflict.T[1]], :]
+        #for k1, k2, v in conflict :
+            #if k1 not in conflicts :
+                #conflicts[k1] = []
+            #if k2 not in conflicts :
+                #conflicts[k2] = []
+            #conflicts[k1].append(k2*10 + v)
+            #conflicts[k2].append(k1*10 + v)
+    #del matIds
     new_groups = {}
     encodes = np.array([n for i, n in sorted([[i, n] for n, i in encodes.items()])])
     
@@ -490,7 +493,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             present_iden = 0
             if gene not in new_groups :
                 mat = groups.get(gene)
-                mat.T[4] = (10000 * mat.T[3]/mat[0, 3]).astype(int)
+                mat.T[4] = (10000 * mat.T[3]/np.max(mat.T[3])).astype(int)
                 for m in mat :
                     v = used.get(m[5], None)
                     if v is None :
@@ -514,6 +517,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                     region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                     if region_score.size >= bestPerGenome.size * 2 :
                         used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
+                        cfls = cfl_conn[gene]
+                        conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
+                        for _, m, n, c in cfls :
+                            conflicts[m].append(int(n*10+c))
+                            
                         for id, m in enumerate(mat) :
                             if m[5] in used2 :
                                 kept[id] = False
@@ -548,6 +556,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
                     region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                     mat = mat[region_score>=params['clust_identity']]
                     used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
+                    cfls = cfl_conn[gene]
+                    conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
+                    for _, m, n, c in cfls :
+                        conflicts[m].append(int(n*10+c))
+                    
                     for id, m in enumerate(mat) :
                         if m[5] in used2 :
                             kept[id] = False
@@ -569,10 +582,17 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, matIds, firs
             if score < min_score :
                 break
             mat = new_groups.pop(gene)
+            
+            x = encodes[int(gene)] + '/' + str(int(1000*(gene - int(gene)) + 0.5)) if isinstance(gene, float) else encodes[gene]
             # third, check its overlapping again
             paralog = False
             supergroup, used2 = {}, {}
             idens = 0.
+            cfls = cfl_conn[gene]
+            conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
+            for _, m, n, c in cfls :
+                conflicts[m].append(int(n*10+c))
+            
             for m in mat :
                 gid = m[5]
                 conflict = used.get(gid, None) if gid in used else used2.get(gid, None)
@@ -656,9 +676,11 @@ def iter_map_bsn(data) :
             fout.write('>{0}\n{1}\n'.format(n, s) )
 
     if params['noDiamond'] :
-        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3 --gtable {7}'.format(\
+            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'], params['gtable'] ).split())
     else :
-        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 1 -e 0,3'.format(gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'] ).split())
+        blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 1 -e 0,3 --gtable {7}'.format(\
+            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'], params['gtable'] ).split())
     os.unlink(gfile)
     blastab.T[:2] = blastab.T[:2].astype(int)
     
@@ -697,7 +719,7 @@ def iter_map_bsn(data) :
             convA[group[6].T[15].astype(int)] = id
         else :
             convB[group[6].T[15].astype(int)] = id
-        max_sc = 0
+        max_sc = []
         for tab in group[6] :
             matchedSeq = seq[tab[1]][tab[8]-1:tab[9]] if tab[8] < tab[9] else rc(seq[tab[1]][tab[9]-1:tab[8]])
             ms, i, f, sc = [], 0, 0, [0, 0, 0]
@@ -716,8 +738,19 @@ def iter_map_bsn(data) :
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
             sc = np.max(sc)
-            max_sc += (sc * tab[2])*sc/np.sqrt(tab[12])
-        group[2] = max_sc
+            msc = (sc * tab[2])*sc/np.sqrt(tab[12])
+            amsc = float(msc)/(tab[7]-tab[6]+1)
+            max_sc.append([tab[6], tab[7], amsc, msc])
+        for i, c in enumerate(max_sc[1:]) :
+            p = max_sc[i]
+            if c[0] < p[1] :
+                if c[2] > p[2] :
+                    p[1] = c[0] - 1
+                    p[3] = np.max(p[2] * (p[1]-p[0]+1), 0)
+                else :
+                    c[0] = p[1] + 1
+                    c[3] = np.max(c[2] * (c[1]-c[0]+1), 0)
+        group[2] = np.sum([c[3] for c in max_sc])
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
     bsn=np.array(groups, dtype=object)
@@ -750,18 +783,18 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     seqs, seq_cnts = [], 0
     mats, mat_cnts = [], 0
     
-    blastab = []
+    blastab, overlaps = [], []
     #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
     for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
         tmp = np.load(bsnPrefix + '.bsn.npz')
         bsn, ovl = tmp['bsn'], tmp['ovl']
-
+        ovl = np.vstack([np.hstack([bsn[ovl.T[0], 0][:, np.newaxis], ovl]), np.hstack([bsn[ovl.T[1], 0][:, np.newaxis], ovl[:, np.array([1,0,2])]])])
         bsn.T[5] += ids
-        ovl[:, :2] += ids
+        ovl[:, 1:3] += ids #ovl[:, :2] += ids
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
-        clf_conn.save(bId, ovl)
-        
+        overlaps.append(ovl) # clf_conn.save(bId, ovl)
+        del ovl
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
             ss = np.split(seqs, np.arange(1000, seqs.shape[0], 1000))
@@ -793,6 +826,14 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
             conn.update(blastab)
             del blastab
             blastab = []
+            
+            overlaps = np.vstack(overlaps)
+            overlaps = overlaps[np.argsort(overlaps.T[0], kind='mergesort')]
+            overlaps = np.split(overlaps, np.cumsum(np.unique(overlaps.T[0], return_counts=True)[1])[:-1])
+            clf_conn.update(overlaps)
+            del overlaps
+            overlaps = []
+            
     pool.close()
     pool.join()
     if saveSeq and seqs.shape[0] :
@@ -801,7 +842,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         mat_conn.save(mat_cnts, mats)
     return 
 
-def checkPseu(n, s) :
+def checkPseu(n, s, gtable) :
     if len(s) < params['min_cds'] :
         #logger('{0} len={1} is too short'.format(n, len(s)))
         return 1
@@ -809,7 +850,7 @@ def checkPseu(n, s) :
     if len(s) % 3 > 0 and 'f' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to frameshifts'.format(n))
         return 2
-    aa = transeq({'n':s.upper()}, frame=1, transl_table='starts')['n'][0]
+    aa = transeq({'n':s.upper()}, frame=1, transl_table=gtable, markStarts=True)['n'][0]
     if aa[0] != 'M' and 's' not in params['incompleteCDS'] :
         #logger('{0} is discarded due to lack of start codon'.format(n))
         return 3
@@ -822,14 +863,14 @@ def checkPseu(n, s) :
     return 0
     
 
-def addGenes(genes, gene_file) :
+def addGenes(genes, gene_file, gtable) :
     for gfile in gene_file.split(',') :
         if gfile == '' : continue
         gprefix = os.path.basename(gfile).split('.')[0]
         ng = readFasta(gfile)
         for name in ng :
             s = ng[name]
-            if not checkPseu(name, s) :
+            if not checkPseu(name, s, gtable) :
                 genes['{0}:{1}'.format(gprefix,name)] = [ gfile, '', 0, 0, '+', int(hashlib.sha1(s.encode('utf-8')).hexdigest(), 16), s]
     return genes
 
@@ -879,7 +920,7 @@ def precluster2(data) :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
             matches = matches[np.argsort(-matches.T[2])]
-            matches.T[4] = (10000 * matches.T[3]/matches[0, 3]).astype(int)
+            matches.T[4] = (10000 * matches.T[3]/np.max(matches.T[3])).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             matches = matches[ingroup]
@@ -889,7 +930,7 @@ def precluster2(data) :
 
 def precluster(bsn_file, global_file) :
     gene_scores = {}
-    matIds = []
+    #matIds = []
     with MapBsn(bsn_file + '.tab.npz') as conn, MapBsn(bsn_file + '.tmp.npz', 'w') as conn2 :
         genes = np.array(sorted(conn.keys()))
         for ite in xrange(0, len(genes), 10000) :
@@ -899,14 +940,14 @@ def precluster(bsn_file, global_file) :
             #toUpdates = map(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
             for toUpdate in toUpdates :
                 for gene, data, score in toUpdate :
-                    matIds.append(data.T[5])
+                    #matIds.append(data.T[5])
                     gene_scores[int(gene)] = score
                     conn2.save(gene, data)
     os.rename(bsn_file + '.tmp.npz', bsn_file + '.tab.npz')
-    matIds = np.concatenate(matIds)
-    return gene_scores, np.bincount(matIds).astype(np.bool_)
+    #matIds = np.concatenate(matIds)
+    return gene_scores #, np.bincount(matIds).astype(np.bool_)
 
-def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, clust=None, orthoPair=None) :
+def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, gtable, clust=None, orthoPair=None) :
     alleles = {}
     
     def addOld(opd) :
@@ -1044,7 +1085,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             for g in old_to_add :
                 if g[15] == 'CDS' :
                     g[0] = decodes[tags[encodes[g[0]]]]
-    prediction = pd.DataFrame(np.vstack([prediction, old_to_add])).sort_values(by=[5,9]).values
+    prediction = pd.DataFrame(np.vstack([prediction, np.array(old_to_add)])).sort_values(by=[5,9]).values
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
     for part in prediction :
@@ -1108,7 +1149,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
             pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8])
             
-            for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table='starts', frame=','.join([str(f+1) for f in pred[14]]))['n']) :
+            for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
                 if (len(seq) - frame) % 3 > 0 :
                     aa_seq = aa_seq[:-1]
                 cds = 'CDS'
@@ -1282,6 +1323,7 @@ EToKi.py ortho
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 20', default=20, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
     parser.add_argument('--incompleteCDS', help="Allowed types of imperfection for reference genes. Default: ''. \n's': allows unrecognized start codon. \n'e': allows unrecognized stop codon. \n'i': allows stop codons in the coding region. \n'f': allows frameshift in the coding region. \nMultiple keywords can be used together. e.g., use 'sife' to allow random sequences.", default='')
+    parser.add_argument('--gtable', help='translate table to Use. Default: 11.', default=11, type=int)
 
     parser.add_argument('--clust_identity', help='minimum identities of mmseqs clusters. Default: 0.9', default=0.9, type=float)
     parser.add_argument('--clust_match_prop', help='minimum matches in mmseqs clusters. Default: 0.9', default=0.9, type=float)
@@ -1301,7 +1343,7 @@ EToKi.py ortho
     parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
-    parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.9', default=.9, type=float)
+    parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -1406,8 +1448,8 @@ def ortho(args) :
     pool = Pool(params['n_thread'])
     pool2 = Pool(params['n_thread'])
     
-    genomes, genes = readGFF(params['GFFs'])
-    genes = addGenes(genes, params['genes'])
+    genomes, genes = readGFF(params['GFFs'], params['gtable'])
+    genes = addGenes(genes, params['genes'], params['gtable'])
     if params.get('old_prediction', None) is None :
         params['old_prediction'] = params['prefix']+'.old_prediction.npz'
         old_predictions = {}
@@ -1457,9 +1499,9 @@ def ortho(args) :
         mat_out = Manager().list([])
         writeProcess = Process(target=async_writeOut, args=(mat_out, params['map_bsn']+'.mat.npz', params['prediction'], labelFile))
         writeProcess.start()
-        gene_scores, matIds = precluster(params['map_bsn'], params.get('global', None))
+        gene_scores = precluster(params['map_bsn'], params.get('global', None))
         with MapBsn(params['map_bsn']+'.tab.npz') as tab_conn, MapBsn(params['map_bsn']+'.conflicts.npz') as cfl_conn :
-            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn']), params['global'], cfl_conn, matIds, first_classes, gene_scores, encodes)
+            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn']), params['global'], cfl_conn, first_classes, gene_scores, encodes)
         writeProcess.join()
     else :
         genes = {n:s[-1] for n,s in genes.items() }
@@ -1467,7 +1509,7 @@ def ortho(args) :
     pool2.join()
     old_predictions = dict(np.load(params['old_prediction'])) if 'old_prediction' in params else {}
     
-    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params.get('clust', None), params.get('self_bsn', None))
+    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     
 if __name__ == '__main__' :
     ortho(sys.argv[1:])

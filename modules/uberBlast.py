@@ -164,7 +164,9 @@ def _linearMerge(data) :
 
 
 def cigar2score(data) :
-    cigar, rSeq, qSeq, frame, mode, gapOpen, gapExtend = data
+    cigar, rSeq, qSeq, frame, mode, gapOpen, gapExtend, table_id = data
+    if table_id == 4 :
+        gtable[56] = 22
     frame = (frame-1) % 3
     gap, rBlk, qBlk = [], [], []
     qId, rId = 0, 0
@@ -189,7 +191,7 @@ def cigar2score(data) :
     if mode == 1 :
         nMatch = np.sum(qAln == rAln)
         nMismatch = qAln.size - nMatch
-        return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*3 - nMismatch*2 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
+        return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
     else :
         qAln, rAln = qAln[frame:], rAln[frame:]
         if qAln.size % 3 :
@@ -199,7 +201,7 @@ def cigar2score(data) :
             match = (qAln == rAln)
             nMatch = np.sum(np.sum(match, 0) * (9./7., 9./7., 3./7.))
             nMismatch = np.sum(rAln >= 0) - nMatch
-            return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*2 - nMismatch*2 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
+            return float(nMatch)/(nMatch + nMismatch+bGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - bGap*gapExtend
         else :
             s = (~np.any(rAln < 0, 1), )
             qAln, rAln = qAln[s], rAln[s]
@@ -210,8 +212,7 @@ def cigar2score(data) :
             nTotal = qAA.size * 3. + bGap
             score = np.sum(blosum62[(qAA << 5) + rAA])
             return nMatch/nTotal, score - nGap*(gapOpen-gapExtend) - bGap*gapExtend
-nucEncoder = np.zeros(255, dtype=int)
-nucEncoder[:] = 2
+nucEncoder = np.repeat(2, 255).astype(int)
 nucEncoder[(np.array(['A', 'C', 'G', 'T']).view(asc2int),)] = (0, 1, 3, 4)
 gtable = np.array(list('KNXKNTTXTTXXXXXRSXRSIIXMIQHXQHPPXPPXXXXXRRXRRLLXLLXXXXXXXXXXXXXXXXXXXXXXXXXEDXEDAAXAAXXXXXGGXGGVVXVVXYXXYSSXSSXXXXXXCXWCLFXLF')).view(asc2int).astype(int)-65
 
@@ -264,11 +265,12 @@ def getCIGAR(data) :
 class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
-    def run(self, ref, qry, methods, min_id, min_cov, min_ratio, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
+    def run(self, ref, qry, methods, min_id, min_cov, min_ratio, table_id=11, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
         tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseqs=self.runMMseq, diamond=self.runDiamond, diamondself=self.runDiamondSELF)
         self.min_id = min_id
         self.min_cov = min_cov
         self.min_ratio = min_ratio
+        self.table_id = table_id
         self.n_thread = n_thread
         if useProcess :
             self.pool = Pool(n_thread)
@@ -290,7 +292,7 @@ class RunBlast(object) :
                 blastab = np.hstack([blastab.values, np.arange(blastab.shape[0], dtype=int)[:, np.newaxis]])
         
         if re_score :
-            blastab=self.reScore(ref, qry, blastab, re_score, self.min_id)
+            blastab=self.reScore(ref, qry, blastab, re_score, self.min_id, self.table_id)
         if filter[0] :
             blastab=self.ovlFilter(blastab, filter)
         if linear_merge[0] :
@@ -323,7 +325,7 @@ class RunBlast(object) :
         logger('Identified {0} overlaps.'.format(len(res)))
         return res
     
-    def reScore(self, ref, qry, blastab, mode, min_id, perBatch=10000) :
+    def reScore(self, ref, qry, blastab, mode, min_id, table_id=11, perBatch=10000) :
         if not self.qrySeq :
             self.qrySeq, self.qryQual = readFastq(qry)
         if not self.refSeq :
@@ -338,7 +340,7 @@ class RunBlast(object) :
             logger('Update scores: {0} / {1}'.format(bId, nTab))
             tabs = blastab[bId:bId+perBatch]
             #scores = np.array([ cigar2score([t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1]) for t in tabs ])
-            scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1] for t in tabs ))))
+            scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1, table_id] for t in tabs ))))
             tabs.T[2], tabs.T[11] = np.round(scores.T, 3)
         blastab = blastab[blastab.T[2] >= min_id]
         return blastab
@@ -523,13 +525,13 @@ class RunBlast(object) :
         if not self.refSeq :
             self.refSeq, self.refQual = readFastq(ref)
 
-        qryAASeq = transeq(self.qrySeq, frame='F')
+        qryAASeq = transeq(self.qrySeq, frame='F', transl_table=self.table_id)
         with open(qryAA, 'w') as fout :
             for n, ss in sorted(qryAASeq.items()) :
                 _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
                 fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
         
-        refAASeq = transeq(self.refSeq, frames)
+        refAASeq = transeq(self.refSeq, frames, transl_table=self.table_id)
         toWrite = []
         for n, ss in sorted(refAASeq.items()) :
             for id, s in enumerate(ss) :
@@ -609,7 +611,7 @@ class RunBlast(object) :
         if not self.refSeq :
             self.refSeq, self.refQual = readFastq(ref)
 
-        qryAASeq = transeq(self.qrySeq, frame='F')
+        qryAASeq = transeq(self.qrySeq, frame='F', transl_table=self.table_id)
         with open(qryAA, 'w') as fout :
             for n, ss in sorted(qryAASeq.items()) :
                 _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
@@ -619,7 +621,7 @@ class RunBlast(object) :
             diamond=diamond, qryAA=qryAA)
         p = Popen(diamond_fmt.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
         
-        refAASeq = transeq(self.refSeq, frames)
+        refAASeq = transeq(self.refSeq, frames, transl_table=self.table_id)
         toWrite = []
         for n, ss in sorted(refAASeq.items()) :
             for id, s in enumerate(ss) :
@@ -724,7 +726,8 @@ def uberBlast(args) :
     parser.add_argument('--ublastSELF',   help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--minimap',      help='Run minimap. Fast. Good for identities between [90-100]', action='store_true', default=False)
     parser.add_argument('--minimapASM',   help='Run minimap on assemblies. Fast. Good for identities between [90-100]', action='store_true', default=False)
-    parser.add_argument('--mmseqs',        help='Run mmseqs2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
+    parser.add_argument('--mmseqs',       help='Run mmseqs2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
+    parser.add_argument('--gtable',       help='[DEFAULT: 11] genetic table to use. 11 for bacterial genomes and 4 for Mycoplasma', default=11, type=int)
     
     parser.add_argument('--min_id', help='[DEFAULT: 0.3] Minimum identity before reScore for an alignment to be kept', type=float, default=0.3)
     parser.add_argument('--min_cov', help='[DEFAULT: 40] Minimum length for an alignment to be kept', type=float, default=40.)
@@ -752,7 +755,7 @@ def uberBlast(args) :
     for opt in ('fix_end',) :
         args.__dict__[opt] = args.__dict__[opt].split(',')
         args.__dict__[opt][-2:] = list(map(float, args.__dict__[opt][-2:]))
-    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.min_ratio, args.n_thread, args.process, args.re_score, \
+    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.min_ratio, args.gtable, args.n_thread, args.process, args.re_score, \
                              [args.filter, args.filter_cov, args.filter_score], \
                              [args.linear_merge, args.merge_gap, args.merge_diff], \
                              [args.return_overlap, args.overlap_length, args.overlap_proportion], \

@@ -130,17 +130,20 @@ def rc(seq) :
 baseConv = np.empty(255, dtype=int)
 baseConv.fill(-100)
 baseConv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
-def transeq(seq, frame=7, transl_table=None) :
+def transeq(seq, frame=7, transl_table=None, markStarts=False) :
     frames = {'F': [1,2,3],
               'R': [4,5,6],
               '7': [1,2,3,4,5,6]}.get( str(frame).upper() , None)
     if frames is None :
         frames = [int(f) for f in str(frame).split(',')]
     
-    if transl_table == 'starts' :
-        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVMVXYXYSSSSXCWCLFMF-'))
+    if transl_table == 4 :
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSWCWCLFLF-'))
     else :
         gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSXCWCLFLF-'))
+    if markStarts :
+        gtable[(np.array([46, 62]),)] = 'M'
+
     seqs = seq.items() if isinstance(seq, dict) else seq
     nFrame = (max(frames) > 3)
     trans_seq = []
