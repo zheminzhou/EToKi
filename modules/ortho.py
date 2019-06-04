@@ -509,6 +509,18 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             continue
 
         logger('Selected {0} genes after initial checking'.format(len(genes)))
+        tab_ids = set([])
+        for gene in genes :
+            mat = tmpSet.get(gene) if gene not in new_groups else new_groups.get(gene)
+            tab_ids.update(set(mat.T[5]))
+        x = [-1, None]
+        conflicts = {}
+        for tid in sorted(tab_ids) :
+            x2 = int(tid/10000)
+            if x2 != x[0] :
+                x = [x2, cfl_conn[x2]]
+            conflicts[tid] = x[1][tid%10000]
+        
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
                 if gene not in new_groups :
@@ -517,10 +529,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                     if region_score.size >= bestPerGenome.size * 2 :
                         used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
-                        cfls = cfl_conn[gene]
-                        conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
-                        for _, m, n, c in cfls :
-                            conflicts[m].append(int(n*10+c))
                             
                         for id, m in enumerate(mat) :
                             if m[5] in used2 :
@@ -556,10 +564,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
                     mat = mat[region_score>=params['clust_identity']]
                     used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
-                    cfls = cfl_conn[gene]
-                    conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
-                    for _, m, n, c in cfls :
-                        conflicts[m].append(int(n*10+c))
                     
                     for id, m in enumerate(mat) :
                         if m[5] in used2 :
@@ -588,10 +592,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             paralog = False
             supergroup, used2 = {}, {}
             idens = 0.
-            cfls = cfl_conn[gene]
-            conflicts = { m:[] for m in cfls.T[1] } if len(cfls) else {}
-            for _, m, n, c in cfls :
-                conflicts[m].append(int(n*10+c))
             
             for m in mat :
                 gid = m[5]
@@ -783,18 +783,27 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     seqs, seq_cnts = [], 0
     mats, mat_cnts = [], 0
     
-    blastab, overlaps = [], []
+    blastab, overlaps = [], {}
     #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
     for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
         tmp = np.load(bsnPrefix + '.bsn.npz')
         bsn, ovl = tmp['bsn'], tmp['ovl']
-        ovl = np.vstack([np.hstack([bsn[ovl.T[0], 0][:, np.newaxis], ovl]), np.hstack([bsn[ovl.T[1], 0][:, np.newaxis], ovl[:, np.array([1,0,2])]])])
         bsn.T[5] += ids
-        ovl[:, 1:3] += ids #ovl[:, :2] += ids
+        ovl[:, :2] += ids
+        
+        prev_id = ids
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
-        overlaps.append(ovl) # clf_conn.save(bId, ovl)
+        
+        overlaps.update({id:[[] for i2 in np.arange(10000)] for id in np.unique((ovl[:, :2]/10000).astype(int)) if id not in overlaps})
+        for m, n, c in ovl :
+            overlaps[int(m/10000)][m%10000].append(n*10+c)
+            overlaps[int(n/10000)][n%10000].append(m*10+c)
         del ovl
+        for id in np.arange(int(prev_id/10000), int(ids/10000)) :
+            if id in overlaps :
+                clf_conn.save(id, overlaps.pop(id))
+        
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
             ss = np.split(seqs, np.arange(1000, seqs.shape[0], 1000))
@@ -827,19 +836,15 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
             del blastab
             blastab = []
             
-            overlaps = np.vstack(overlaps)
-            overlaps = overlaps[np.argsort(overlaps.T[0], kind='mergesort')]
-            overlaps = np.split(overlaps, np.cumsum(np.unique(overlaps.T[0], return_counts=True)[1])[:-1])
-            clf_conn.update(overlaps)
-            del overlaps
-            overlaps = []
-            
     pool.close()
     pool.join()
     if saveSeq and seqs.shape[0] :
         seq_conn.save(seq_cnts, seqs)
     if mats.shape[0] :
         mat_conn.save(mat_cnts, mats)
+    for id in overlaps.keys() :
+        clf_conn.save(id, overlaps.get(id))
+    del overlaps
     return 
 
 def checkPseu(n, s, gtable) :
@@ -1330,12 +1335,12 @@ EToKi.py ortho
 
     parser.add_argument('--fast', dest='noDiamond', help='disable Diamond search. Fast but less sensitive when nucleotide identities < 0.9', default=False, action='store_true')
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
-    parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.65', default=0.65, type=float)
-    parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 300', default=250., type=float)
-    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
+    parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.6', default=0.6, type=float)
+    parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 250', default=250., type=float)
+    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.75', default=0.75, type=float)
     parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
-    parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.5', default=0.5, type=float)
-    parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 500', default=400., type=float)
+    parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.45', default=0.45, type=float)
+    parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 400', default=400., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
     
