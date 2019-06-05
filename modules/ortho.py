@@ -503,7 +503,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
         if len(tmpSet):
             tab_ids = np.vstack([ mat[:, (5, 0)] for mat in tmpSet.values() ])
                     
-            x = [-1, None]            for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
+            x = [-1, None]
+            for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
                 x1, x2 = int(tid/30000), tid%30000
                 if x1 != x[0] :
                     x = [x1, cfl_conn[x1]]
