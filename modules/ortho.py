@@ -516,10 +516,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
         x = [-1, None]
         conflicts = {}
         for tid in sorted(tab_ids) :
-            x2 = int(tid/10000)
-            if x2 != x[0] :
-                x = [x2, cfl_conn[x2]]
-            conflicts[tid] = x[1][tid%10000]
+            x1, x2 = int(tid/30000), tid%30000
+            if x1 != x[0] :
+                x = [x1, cfl_conn[x1]]
+            idx1, idx2 = x[1][x2:(x2+2)]
+            conflicts[tid] = x[1][idx1:idx2]
         
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
@@ -795,14 +796,16 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         
-        overlaps.update({id:[[] for i2 in np.arange(10000)] for id in np.unique((ovl[:, :2]/10000).astype(int)) if id not in overlaps})
+        overlaps.update({id:[[] for i2 in np.arange(10000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
         for m, n, c in ovl :
-            overlaps[int(m/10000)][m%10000].append(n*10+c)
-            overlaps[int(n/10000)][n%10000].append(m*10+c)
-        del ovl
-        for id in np.arange(int(prev_id/10000), int(ids/10000)) :
+            overlaps[int(m/30000)][m%30000].append(n*10+c)
+            overlaps[int(n/30000)][n%30000].append(m*10+c)
+        for id in np.arange(int(prev_id/30000), int(ids/30000)) :
             if id in overlaps :
-                clf_conn.save(id, overlaps.pop(id))
+                ovl = overlaps.pop(id)
+                ovl = np.concatenate([np.cumsum([len(o) for o in ([[]] + ovl)])+30001,  np.array([ oo for o in ovl for oo in o ], dtype=int)])
+                clf_conn.save(id, ovl)
+        del ovl
         
         if saveSeq :
             seqs = np.concatenate([seqs, bsn.T[4]])
@@ -843,9 +846,10 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     if mats.shape[0] :
         mat_conn.save(mat_cnts, mats)
     for id in overlaps.keys() :
-        clf_conn.save(id, overlaps.get(id))
-    del overlaps
-    return 
+        ovl = overlaps.get(id)
+        ovl = np.concatenate([np.cumsum([len(o) for o in ([[]] + ovl)])+10001,  np.array([ oo for o in ovl for oo in o ], dtype=int)])
+        clf_conn.save(id, ovl)
+    del ovl, overlaps
 
 def checkPseu(n, s, gtable) :
     if len(s) < params['min_cds'] :
