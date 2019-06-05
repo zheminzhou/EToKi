@@ -474,7 +474,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
         if len(genes) <= 0 :
             continue
         to_run, (min_score, min_rank) = [], genes[-1][1:]
-        genes = {gene:score for gene, score, min_rank in genes}
+        genes = {gene:score for gene, score, min_rank in genes}.fv
 
         minSet = len(genes)*0.8
         tmpSet = {}
@@ -500,16 +500,15 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
 
         logger('Selected {0} genes after initial checking'.format(len(genes)))
         conflicts.update({gene:{} for gene in tmpSet.keys()})
-        tab_ids = np.vstack([ mat[:, (5, 0)] for mat in tmpSet.values() ])
-                
-        x = [-1, None]
-        #conflicts = {}
-        for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
-            x1, x2 = int(tid/30000), tid%30000
-            if x1 != x[0] :
-                x = [x1, cfl_conn[x1]]
-            idx1, idx2 = x[1][x2:(x2+2)]
-            conflicts[g][tid] = x[1][idx1:idx2]
+        if len(tmpSet):
+            tab_ids = np.vstack([ mat[:, (5, 0)] for mat in tmpSet.values() ])
+                    
+            x = [-1, None]            for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
+                x1, x2 = int(tid/30000), tid%30000
+                if x1 != x[0] :
+                    x = [x1, cfl_conn[x1]]
+                idx1, idx2 = x[1][x2:(x2+2)]
+                conflicts[g][tid] = x[1][idx1:idx2]
         
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
