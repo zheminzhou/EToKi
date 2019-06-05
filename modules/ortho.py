@@ -461,17 +461,6 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
 def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classes, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
     conflicts = {}
-    #for conflict in cfl_conn.values() : 
-        #conflict = conflict[np.all(conflict[:, :2] < matIds.size, 1), :]
-        #conflict = conflict[matIds[conflict.T[0]] & matIds[conflict.T[1]], :]
-        #for k1, k2, v in conflict :
-            #if k1 not in conflicts :
-                #conflicts[k1] = []
-            #if k2 not in conflicts :
-                #conflicts[k2] = []
-            #conflicts[k1].append(k2*10 + v)
-            #conflicts[k2].append(k1*10 + v)
-    #del matIds
     new_groups = {}
     encodes = np.array([n for i, n in sorted([[i, n] for n, i in encodes.items()])])
     
@@ -799,10 +788,6 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         
-        #overlaps.update({id:[[] for i2 in np.arange(30000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
-        #for m, n, c in ovl :
-            #overlaps[int(m/30000)][m%30000].append(n*10+c)
-            #overlaps[int(n/30000)][n%30000].append(m*10+c)
         overlaps.update({id:[] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
         ovl = np.vstack([ovl, ovl[:, (1,0,2)]])
         ovl = ovl[np.argsort(ovl.T[0])]
@@ -1351,9 +1336,9 @@ EToKi.py ortho
     parser.add_argument('--match_identity', help='minimum identities in BLAST search. Default: 0.5', default=0.5, type=float)
     parser.add_argument('--match_prop', help='minimum match proportion for normal genes in BLAST search. Default: 0.6', default=0.6, type=float)
     parser.add_argument('--match_len', help='minimum match length for normal genes in BLAST search. Default: 250', default=250., type=float)
-    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.75', default=0.75, type=float)
+    parser.add_argument('--match_prop1', help='minimum match proportion for short genes in BLAST search. Default: 0.8', default=0.8, type=float)
     parser.add_argument('--match_len1', help='minimum match length for short genes in BLAST search. Default: 100', default=100., type=float)
-    parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.45', default=0.45, type=float)
+    parser.add_argument('--match_prop2', help='minimum match proportion for long genes in BLAST search. Default: 0.4', default=0.4, type=float)
     parser.add_argument('--match_len2', help='minimum match length for long genes in BLAST search. Default: 400', default=400., type=float)
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
