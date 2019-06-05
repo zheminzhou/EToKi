@@ -796,7 +796,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         
-        overlaps.update({id:[[] for i2 in np.arange(10000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
+        overlaps.update({id:[[] for i2 in np.arange(30000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
         for m, n, c in ovl :
             overlaps[int(m/30000)][m%30000].append(n*10+c)
             overlaps[int(n/30000)][n%30000].append(m*10+c)
