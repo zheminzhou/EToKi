@@ -460,7 +460,7 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
 
 def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classes, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
-    #conflicts = {}
+    conflicts = {}
     #for conflict in cfl_conn.values() : 
         #conflict = conflict[np.all(conflict[:, :2] < matIds.size, 1), :]
         #conflict = conflict[matIds[conflict.T[0]] & matIds[conflict.T[1]], :]
@@ -501,26 +501,26 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     elif v > 0 :
                         m[3] = -1
                 if present_iden < (params['clust_identity']-0.02)*10000 :
-                    genes.pop(gene)
-                    scores.pop(gene)
+                    genes.pop(gene, None)
+                    scores.pop(gene, None)
+                    conflicts.pop(gene, None)
                 else :
                     tmpSet[gene] = mat[mat.T[3] > 0]
         if len(genes) < minSet :
             continue
 
         logger('Selected {0} genes after initial checking'.format(len(genes)))
-        tab_ids = set([])
-        for gene in genes :
-            mat = tmpSet.get(gene) if gene not in new_groups else new_groups.get(gene)
-            tab_ids.update(set(mat.T[5]))
+        conflicts.update({gene:{} for gene in tmpSet.keys()})
+        tab_ids = np.vstack([ mat[:, (5, 0)] for mat in tmpSet.values() ])
+                
         x = [-1, None]
-        conflicts = {}
-        for tid in sorted(tab_ids) :
+        #conflicts = {}
+        for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
             x1, x2 = int(tid/30000), tid%30000
             if x1 != x[0] :
                 x = [x1, cfl_conn[x1]]
             idx1, idx2 = x[1][x2:(x2+2)]
-            conflicts[tid] = x[1][idx1:idx2]
+            conflicts[g][tid] = x[1][idx1:idx2]
         
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
@@ -535,7 +535,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                             if m[5] in used2 :
                                 kept[id] = False
                             else :
-                                used2.update( { int(k/10) for k in conflicts.get(m[5],[]) + [m[5]*10] } )
+                                used2.update( { int(k/10) for k in conflicts.get(int(gene), {}).get(m[5],[]) + [m[5]*10] } )
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                         region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
@@ -554,6 +554,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                     for id, matches in enumerate(working_group[1:]) :
                         ng = np.round(gene + 0.001*(id+2), 3)
                         new_groups[ng] = matches
+                        conflicts[ng] = { mid:conflicts[gene].pop(mid, {}) for mid in matches.T[5] }
                         scores[ng] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
                         first_classes[ng] = first_classes[gene][:]
                         #first_classes[ng][0] += 0 #1000
@@ -570,7 +571,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                         if m[5] in used2 :
                             kept[id] = False
                         else :
-                            used2.update( { int(k/10) for k in conflicts.get(m[5],[]) + [m[5]*10] } )
+                            used2.update( { int(k/10) for k in conflicts.get(gene, {}).get(m[5],[]) + [m[5]*10] } )
                             
                     genomes = np.unique(mat[~kept, 1])
                     mat = mat[kept]
@@ -611,7 +612,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 else :
                     if idens < m[4] : idens = m[4]
                     used2[gid] = 0
-                    for gg in conflicts.get(gid, []) : 
+                    for gg in conflicts.get(gene, {}).get(gid, []) : 
                         g2, gs = int(gg/10), gg % 10
                         if gs == 1 :
                             if g2 not in used :
@@ -622,6 +623,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
             if idens < params['clust_identity'] * mat[0, 4] or idens < (params['clust_identity']-0.02)*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
+                conflicts.pop(gene)
                 continue
             mat = mat[mat.T[3] > 0]
             
@@ -643,6 +645,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
                 pangene = gene
             scores.pop(gene)
             genes.pop(gene)
+            conflicts.pop(gene)
             pangenome[gene] = pangene
             used.update(used2)
             
