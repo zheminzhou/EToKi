@@ -796,14 +796,21 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
         ids += bsn.shape[0]
         bsn.T[1] = genomes.get(bsn[0, 1], [-1])[0]
         
-        overlaps.update({id:[[] for i2 in np.arange(30000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
-        for m, n, c in ovl :
-            overlaps[int(m/30000)][m%30000].append(n*10+c)
-            overlaps[int(n/30000)][n%30000].append(m*10+c)
+        #overlaps.update({id:[[] for i2 in np.arange(30000)] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
+        #for m, n, c in ovl :
+            #overlaps[int(m/30000)][m%30000].append(n*10+c)
+            #overlaps[int(n/30000)][n%30000].append(m*10+c)
+        overlaps.update({id:[] for id in np.unique((ovl[:, :2]/30000).astype(int)) if id not in overlaps})
+        ovl = np.vstack([ovl, ovl[:, (1,0,2)]])
+        ovl = ovl[np.argsort(ovl.T[0])]
+        ovl = np.hstack([(ovl[:, :1]/30000).astype(int), ovl[:, :1]%30000, ovl[:, 1:2]*10+ovl[:, 2:]])
+        ovl = np.split(ovl, np.cumsum(np.unique(ovl.T[0], return_counts=True)[1])[:-1])
+        for ovl2 in ovl :
+            overlaps[ovl2[0, 0]].append(ovl2[:, 1:])
         for id in np.arange(int(prev_id/30000), int(ids/30000)) :
             if id in overlaps :
-                ovl = overlaps.pop(id)
-                ovl = np.concatenate([np.cumsum([len(o) for o in ([[]] + ovl)])+30001,  np.array([ oo for o in ovl for oo in o ], dtype=int)])
+                ovl = np.vstack(overlaps.pop(id))
+                ovl = np.concatenate([np.cumsum(np.concatenate([[0], np.bincount(ovl.T[0], minlength=30000)]))+30001, ovl.T[1]])
                 clf_conn.save(id, ovl)
         del ovl
         
@@ -846,8 +853,8 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     if mats.shape[0] :
         mat_conn.save(mat_cnts, mats)
     for id in overlaps.keys() :
-        ovl = overlaps.get(id)
-        ovl = np.concatenate([np.cumsum([len(o) for o in ([[]] + ovl)])+10001,  np.array([ oo for o in ovl for oo in o ], dtype=int)])
+        ovl = np.vstack(overlaps.get(id))
+        ovl = np.concatenate([np.cumsum(np.concatenate([[0], np.bincount(ovl.T[0], minlength=30000)]))+30001, ovl.T[1]])
         clf_conn.save(id, ovl)
     del ovl, overlaps
 
