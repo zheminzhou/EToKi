@@ -474,7 +474,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
         if len(genes) <= 0 :
             continue
         to_run, (min_score, min_rank) = [], genes[-1][1:]
-        genes = {gene:score for gene, score, min_rank in genes}.fv
+        genes = {gene:score for gene, score, min_rank in genes}
 
         minSet = len(genes)*0.8
         tmpSet = {}
