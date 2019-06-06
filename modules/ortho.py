@@ -458,7 +458,19 @@ def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
         return []
     return genes
 
-def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classes, scores, encodes) :
+def load_conflict(data) :
+    cfl_file, ids = data
+    gid = int(ids[0, 0]/30000)
+    with MapBsn(cfl_file) as cfl_conn :
+        d = cfl_conn[gid]
+    conflicts = []
+    for id, g in ids :
+        idx = id%30000
+        idx1, idx2 = d[idx:(idx+2)]
+        conflicts.append([g, id, d[idx1:idx2]])
+    return conflicts
+
+def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classes, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
     conflicts = {}
     new_groups = {}
@@ -502,14 +514,18 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_conn, first_classe
         conflicts.update({gene:{} for gene in tmpSet.keys()})
         if len(tmpSet):
             tab_ids = np.vstack([ mat[:, (5, 0)] for mat in tmpSet.values() ])
-                    
-            x = [-1, None]
-            for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
-                x1, x2 = int(tid/30000), tid%30000
-                if x1 != x[0] :
-                    x = [x1, cfl_conn[x1]]
-                idx1, idx2 = x[1][x2:(x2+2)]
-                conflicts[g][tid] = x[1][idx1:idx2]
+            tab_ids = tab_ids[np.argsort(tab_ids.T[0])]
+            tab_ids = np.split(tab_ids, np.cumsum(np.unique((tab_ids.T[0]/30000).astype(int), return_counts=True)[1])[:-1])
+            for cfl in pool2.imap_unordered(load_conflict, [ [cfl_file, ids] for ids in tab_ids ]) :
+                for g, i, c in cfl :
+                    conflicts[g][i] = c
+            #x = [-1, None]
+            #for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
+                #x1, x2 = int(tid/30000), tid%30000
+                #if x1 != x[0] :
+                    #x = [x1, cfl_conn[x1]]
+                #idx1, idx2 = x[1][x2:(x2+2)]
+                #conflicts[g][tid] = x[1][idx1:idx2]
         
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
@@ -1072,7 +1088,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     if grp not in groups :
                         groups[grp] = groups.pop(gene)
                     else :
-                        groups[grp].extend(groups.pop(gene))
+                        groups[grp].extend(groups.pop(gene, {}))
             tags = {ggg: g for g, gg in groups.items() for ggg in gg}
         if orthoPair :
             clust = np.load(orthoPair)
@@ -1504,8 +1520,8 @@ def ortho(args) :
         writeProcess = Process(target=async_writeOut, args=(mat_out, params['map_bsn']+'.mat.npz', params['prediction'], labelFile))
         writeProcess.start()
         gene_scores = precluster(params['map_bsn'], params.get('global', None))
-        with MapBsn(params['map_bsn']+'.tab.npz') as tab_conn, MapBsn(params['map_bsn']+'.conflicts.npz') as cfl_conn :
-            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn']), params['global'], cfl_conn, first_classes, gene_scores, encodes)
+        with MapBsn(params['map_bsn']+'.tab.npz') as tab_conn :
+            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn']), params['global'], params['map_bsn']+'.conflicts.npz', first_classes, gene_scores, encodes)
         writeProcess.join()
     else :
         genes = {n:s[-1] for n,s in genes.items() }
