@@ -599,7 +599,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         superC = pangenome[-(conflict+1)]
                         if superC not in supergroup :
                             supergroup[superC] = [0, 0]
-                        if m[4] >= params['clust_identity'] * 10000 :
+                        if m[4] >= np.sqrt(params['clust_identity']) * 10000 :
                             supergroup[superC][0] += 1
                             supergroup[superC][1] += 2
                         else :
@@ -634,7 +634,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         if s < 0 : s = -1
                         if [s, cnt2, cnt] > superR[1:] :
                             superR = [superC, s, cnt2, cnt]
-            if superR[1] > 0 : # or superR[2] > 0 :
+            if superR[1] > 0 or superR[2] > 0 :
                 pangene = superR[0]
             elif paralog :
                 new_groups[gene] = mat
@@ -1103,7 +1103,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     except :
         print(prediction.shape)
         print(len(old_to_add))
-        print(old_to_add)
+        print([len(t) for t in old_to_add])
+        print(np.array(list(old_to_add)).shape)
         sys.exit(0)
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
