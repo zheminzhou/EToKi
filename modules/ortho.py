@@ -323,7 +323,7 @@ def filt_per_group(data) :
         for i2 in xrange(i1+1, nMat) :
             m2 = mat[i2]
             mut, aln = diff[i1, i2]
-            gd = (0.005, 2.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 6.))
+            gd = (0.005, 3.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 6.))
             
             if aln >= params['match_frag_len'] :
                 distances[i1, i2, :] = [mut/aln/gd[0]/gd[0]/gd[1]/params['allowed_variation'], 1/gd[0]]
@@ -519,20 +519,13 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             for cfl in pool2.imap_unordered(load_conflict, [ [cfl_file, ids] for ids in tab_ids ]) :
                 for g, i, c in cfl :
                     conflicts[g][i] = c
-            #x = [-1, None]
-            #for tid, g in tab_ids[np.argsort(tab_ids.T[0])] :
-                #x1, x2 = int(tid/30000), tid%30000
-                #if x1 != x[0] :
-                    #x = [x1, cfl_conn[x1]]
-                #idx1, idx2 = x[1][x2:(x2+2)]
-                #conflicts[g][tid] = x[1][idx1:idx2]
         
         if params['orthology'] in ('ml', 'nj') :
             for gene, score in genes.items() :
                 if gene not in new_groups :
                     mat = tmpSet.get(gene)
                     _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                    region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
+                    region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
                     if region_score.size >= bestPerGenome.size * 2 :
                         used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
                             
@@ -543,7 +536,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                                 used2.update( { int(k/10) for k in conflicts.get(int(gene), {}).get(m[5],[]) + [m[5]*10] } )
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                        region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
+                        region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
                     if region_score.size > bestPerGenome.size * 3 and len(region_score) > 1000 :
                         region_score2 = sorted(region_score, reverse=True)
                         cut = region_score2[bestPerGenome.size*3-1]
@@ -551,8 +544,10 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                             cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
-            working_groups = pool2.map(filt_per_group, to_run)
-            #working_groups = [filt_per_group(d) for d in to_run]
+            #if 28513 not in genes :
+                working_groups = pool2.map(filt_per_group, to_run)
+            #else :
+                #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
                 new_groups[gene] = working_group[0]
                 if len(working_group) > 1 :
@@ -562,13 +557,12 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         conflicts[ng] = { mid:conflicts[gene].pop(mid, {}) for mid in matches.T[5] }
                         scores[ng] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
                         first_classes[ng] = first_classes[gene][:]
-                        #first_classes[ng][0] += 0 #1000
         else :
             for gene, score in genes.items() :
                 if gene not in new_groups :
                     mat = tmpSet.get(gene)
                     _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                    region_score = mat.T[2]/mat[bestPerGenome[matInGenome], 2]
+                    region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
                     mat = mat[region_score>=params['clust_identity']]
                     used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
                     
@@ -593,7 +587,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             if score < min_score :
                 break
             mat = new_groups.pop(gene)
-            
             x = encodes[int(gene)] + '/' + str(int(1000*(gene - int(gene)) + 0.5)) if isinstance(gene, float) else encodes[gene]
             # third, check its overlapping again
             paralog = False
@@ -608,9 +601,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         superC = pangenome[-(conflict+1)]
                         if superC not in supergroup :
                             supergroup[superC] = [0, 0]
-                        supergroup[superC][1] += 1
                         if m[4] >= params['clust_identity'] * 10000 :
                             supergroup[superC][0] += 1
+                            supergroup[superC][1] += 2
+                        else :
+                            supergroup[superC][1] += 1
                     elif conflict >0 :
                         paralog = True
                     m[3] = -1
@@ -635,7 +630,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             superR = [None, -999, 0, 0]
             if len(supergroup) :
                 for superC, (cnt2, cnt) in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
-                    if cnt >= 0.5*mat.shape[0] :
+                    if cnt >= 0.5 * mat.shape[0] or cnt >= 0.5 * len(panList[superC]) :
                         gl1, gl2 = panList[superC], set(mat.T[1])
                         s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
                         if s < 0 : s = -1
@@ -919,7 +914,7 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
         if m1[1] >= (min_iden-0.02)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 2.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (0.005, 3.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 6.) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/gs[0]/gs[1]/variation
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1001,7 +996,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     allele_file = open('{0}.allele.fna'.format(prefix), 'w')
     prediction = pd.read_csv(prediction, sep='\t', header=None)
-    prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 9]).drop('s', axis=1).values
+    prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
 
     for part in prediction :
         setInFrame(part)
@@ -1105,7 +1100,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             for g in old_to_add :
                 if g[15] == 'CDS' :
                     g[0] = decodes[tags[encodes[g[0]]]]
-    prediction = pd.DataFrame(np.vstack([prediction, np.array(old_to_add)])).sort_values(by=[5,9]).values
+    prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
     for part in prediction :
@@ -1120,13 +1115,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
             pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8])
-            pred[14] = -1
+            #pred[14] = -1
             continue
         allowed_vary = pred[12]*(1-pseudogene)
         
         pred2 = None
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-            pred[14] == -1
+            #pred[14] == -1
             cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), '{0}:{1}:{2}-{3}'.format(pred[0], 'ND', pred[7], pred[8])
         else :
             s, e = pred[9:11]
@@ -1167,7 +1162,10 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 else :
                     alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
-            pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8])
+            if pred[4] :
+                pred[13] = '{0}:({4}){1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8], pred[4].rsplit(':', 1)[-1])
+            else :
+                pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8])
             
             for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
                 if (len(seq) - frame) % 3 > 0 :
@@ -1204,23 +1202,25 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             pred[9:11] = start, stop
         if cds != 'CDS' :
             pred[15] = 'pseudogene=' + cds
-        pred[14] = pred2_id if pred2 is not None else -1
-        
+        #pred[14] = pred2_id if pred2 is not None else -1
+    prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
     for pid, pred in enumerate(prediction) :
-        if pred[0] != '' and pred[14] >= 0:
-            pred2 = prediction[pred[14]]
-            if pred[11] == '+' :
-                if pred[10] - pred2[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
-                    pred[13] = ','.join(sorted([pred[13], pred2[13]]))
-                    pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
-                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))-{''}))
-                    pred2[0] = ''
-            else :
-                if pred2[10] - pred[9]+1 >= 0.6 * (pred2[10] - pred2[9] +1) :
-                    pred[13] = ','.join(sorted([pred[13], pred2[13]]))
-                    pred[4] = ','.join(sorted([x for x in [pred[4], pred2[4]] if x]))
-                    pred[16] = ','.join(sorted(set(pred[16].split(',') + pred2[16].split(','))-{''}))
-                    pred2[0] = ''
+        if pred[0] != '' and pred[15] != 'misc_feature' :
+            for pred2 in prediction[pid+1:] :
+                if pred2[0] != '' and pred[15] != 'misc_feature' :
+                    if pred[5] == pred2[5] :
+                        if (pred[10]>=pred2[10] or pred2[9] <= pred[9]) :
+                            p, p2 = (pred, pred2) if pred[10]-pred[9] >= pred2[10] - pred2[9] else (pred2, pred)
+                            p[13] = ','.join(sorted([p[13], p2[13]]))
+                            p[4] = ','.join(sorted([x for x in [p[4], p2[4]] if x]))
+                            p[16] = ','.join(sorted(set(p[16].split(',') + p2[16].split(','))-{''}))
+                            p2[0] = ''
+                            if pred[0] == '' :
+                                break
+                        elif pred2[9] > pred[10] :
+                            break
+                    else :
+                        break
     with open('{0}.EToKi.gff'.format(prefix), 'w') as fout :
         for pred in prediction :
             if pred[0] != '' :
@@ -1231,11 +1231,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         'old_locus_tag={0}:{1}-{2};'.format(pred[0].split(':', 1)[1], pred[9], pred[10]), 
                     ))
                 else :
-                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{9}inference=ortholog_group:{6}{7}{8}\n'.format(
+                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{8}inference=ortholog_group:{6}{7}\n'.format(
                         pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
                         pred[9], pred[10], pred[11], 
                         '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
-                        '' if pred[4] == '' else ';structure_variant={0}'.format(pred[4]), 
+                        #'' if pred[4] == '' else ';structure_variant={0}'.format(pred[4]), 
                         ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
                         '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
                     ))
