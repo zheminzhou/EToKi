@@ -544,10 +544,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                             cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
-            #if 28513 not in genes :
             working_groups = pool2.map(filt_per_group, to_run)
-            #else :
-                #working_groups = [filt_per_group(d) for d in to_run]
+            #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
                 new_groups[gene] = working_group[0]
                 if len(working_group) > 1 :
@@ -636,7 +634,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         if s < 0 : s = -1
                         if [s, cnt2, cnt] > superR[1:] :
                             superR = [superC, s, cnt2, cnt]
-            if superR[1] > 0 or superR[2] > 0 :
+            if superR[1] > 0 : # or superR[2] > 0 :
                 pangene = superR[0]
             elif paralog :
                 new_groups[gene] = mat
