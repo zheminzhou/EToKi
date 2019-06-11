@@ -545,7 +545,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         mat = mat[region_score>=cut]
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
             #if 28513 not in genes :
-                working_groups = pool2.map(filt_per_group, to_run)
+            working_groups = pool2.map(filt_per_group, to_run)
             #else :
                 #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
