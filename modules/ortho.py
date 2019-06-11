@@ -1207,7 +1207,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     for pid, pred in enumerate(prediction) :
         if pred[0] != '' and pred[15] != 'misc_feature' :
             for pred2 in prediction[pid+1:] :
-                if pred2[0] != '' and pred[15] != 'misc_feature' :
+                if pred2[0] != '' and pred2[15] != 'misc_feature' :
                     if pred[5] == pred2[5] :
                         if (pred[10]>=pred2[10] or pred2[9] <= pred[9]) :
                             p, p2 = (pred, pred2) if pred[10]-pred[9] >= pred2[10] - pred2[9] else (pred2, pred)
