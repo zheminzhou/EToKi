@@ -1100,7 +1100,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             for g in old_to_add :
                 if g[15] == 'CDS' :
                     g[0] = decodes[tags[encodes[g[0]]]]
-    prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
+    try:
+        prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
+    except :
+        print(prediction.shape)
+        print(len(old_to_add))
+        print(old_to_add)
+        sys.exit(0)
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
     for part in prediction :
