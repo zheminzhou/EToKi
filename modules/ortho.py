@@ -1101,9 +1101,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     try:
         prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
     except :
-        print(prediction.shape)
-        print(len(old_to_add))
-        print([len(t) for t in old_to_add])
+        for d in old_to_add :
+            d[0] = ''
         print(np.array(list(old_to_add)).shape)
         sys.exit(0)
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
@@ -1120,13 +1119,11 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
             pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8])
-            #pred[14] = -1
             continue
         allowed_vary = pred[12]*(1-pseudogene)
         
         pred2 = None
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-            #pred[14] == -1
             cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), '{0}:{1}:{2}-{3}'.format(pred[0], 'ND', pred[7], pred[8])
         else :
             s, e = pred[9:11]
@@ -1207,7 +1204,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             pred[9:11] = start, stop
         if cds != 'CDS' :
             pred[15] = 'pseudogene=' + cds
-        #pred[14] = pred2_id if pred2 is not None else -1
+            
     prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
     for pid, pred in enumerate(prediction) :
         if pred[0] != '' and pred[15] != 'misc_feature' :
@@ -1323,7 +1320,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff = min(max(np.mean(diff), np.log(0.02)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(4.)), np.log(8.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(5.)), np.log(10.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
