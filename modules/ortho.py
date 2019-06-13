@@ -281,7 +281,7 @@ def get_similar_pairs(prefix, clust, priorities, params) :
         for line in toWrite :
             fout.write(line)
     if len(cluGroups) :
-        clu = np.load(params['clust'].rsplit('.',1)[0] + '.npy')
+        clu = np.load(params['clust'].rsplit('.',1)[0] + '.npy', allow_pickle=True)
         clu = np.vstack([clu, cluGroups])
         clu = clu[np.argsort(-clu.T[2])]
         np.save(params['clust'].rsplit('.',1)[0] + '.npy', clu)
@@ -310,7 +310,7 @@ def filt_per_group(data) :
     mat, ref, seq_file, global_file, _ = data
     if len(mat) <= 1 :
         return [mat]
-    global_differences = dict(np.load(global_file))
+    global_differences = dict(np.load(global_file, allow_pickle=True))
     nMat = mat.shape[0]
     with MapBsn(seq_file) as conn :
         seqs = np.array([ conn.get(int(id/1000))[id%1000] for id in mat.T[5].tolist() ])
@@ -759,7 +759,7 @@ def iter_map_bsn(data) :
     size = np.ceil(np.vectorize(lambda n:len(n))(bsn.T[4])/3).astype(int)
     bsn.T[4] = [ (b[:s]*25+b[s:2*s]*5 + np.concatenate([b, np.zeros(-b.shape[0]%3, dtype=int)])[2*s:]).astype(np.uint8) for b, s in zip(bsn.T[4], size) ]
     
-    orthoGroup = np.load(orthoGroup)
+    orthoGroup = np.load(orthoGroup, allow_pickle=True)
     orthoGroup = dict([[(g[0], g[1]), 1] for g in orthoGroup] + [[(g[1], g[0]), 1] for g in orthoGroup])
     ovl_score = np.vectorize(lambda m,n:0 if m == n else orthoGroup.get((m,n), 2))(bsn[overlap.T[0], 0], bsn[overlap.T[1], 0])
     overlap = np.hstack([overlap, ovl_score[:, np.newaxis]])
@@ -788,7 +788,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     blastab, overlaps = [], {}
     #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
     for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
-        tmp = np.load(bsnPrefix + '.bsn.npz')
+        tmp = np.load(bsnPrefix + '.bsn.npz', allow_pickle=True)
         bsn, ovl = tmp['bsn'], tmp['ovl']
         bsn.T[5] += ids
         ovl[:, :2] += ids
@@ -924,7 +924,7 @@ def determineGroup(gIden, global_differences, min_iden, variation) :
 def precluster2(data) :
     bsn_file, genes, global_file = data
 
-    global_differences = dict(np.load(global_file))
+    global_differences = dict(np.load(global_file, allow_pickle=True))
     outputs = []
     with MapBsn(bsn_file+'.tab.npz') as conn :
         for gene in genes :
@@ -1073,7 +1073,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         groups = { g:[g] for g in old_genes }
         tags = None
         if clust :
-            clust = np.load(clust.rsplit('.', 1)[0] + '.npy')
+            clust = np.load(clust.rsplit('.', 1)[0] + '.npy', allow_pickle=True)
             while len(queries) :
                 c = clust[in1d(clust.T[1], list(queries))]
                 queries = set(c.T[0]) - queries
@@ -1084,7 +1084,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         groups[grp].extend(groups.pop(gene, {}))
             tags = {ggg: g for g, gg in groups.items() for ggg in gg}
         if orthoPair :
-            clust = np.load(orthoPair)
+            clust = np.load(orthoPair, allow_pickle=True)
             clust = clust[np.all(in1d(clust, queries).reshape(clust.shape), 1)]
             for g1, g2, _ in clust :
                 t1, t2 = tags[g1], tags[g2]
@@ -1248,8 +1248,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
 
 
 def get_gene_group(cluFile, bsnFile) :
-    clu = np.load(cluFile.rsplit('.',1)[0] + '.npy')
-    bsn = np.load(bsnFile)
+    clu = np.load(cluFile.rsplit('.',1)[0] + '.npy', allow_pickle=True)
+    bsn = np.load(bsnFile, allow_pickle=True)
     bsn = bsn[bsn.T[2] > 0]
     # score genes
     geneGroups = {}
@@ -1281,8 +1281,8 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
         selectedGenes.extend(geneGroups[g])
     selectedGenes = np.array(selectedGenes)
     
-    clu = np.load(cluFile.rsplit('.',1)[0] + '.npy')
-    bsn = np.load(bsnFile)
+    clu = np.load(cluFile.rsplit('.',1)[0] + '.npy', allow_pickle=True)
+    bsn = np.load(bsnFile, allow_pickle=True)
     bsn = bsn[bsn.T[2] > 0]
     
     selectedClu = clu[in1d(clu.T[0], selectedGenes)]
@@ -1523,13 +1523,13 @@ def ortho(args) :
         writeProcess.start()
         gene_scores = precluster(params['map_bsn'], params.get('global', None))
         with MapBsn(params['map_bsn']+'.tab.npz') as tab_conn :
-            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn']), params['global'], params['map_bsn']+'.conflicts.npz', first_classes, gene_scores, encodes)
+            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn'], allow_pickle=True), params['global'], params['map_bsn']+'.conflicts.npz', first_classes, gene_scores, encodes)
         writeProcess.join()
     else :
         genes = {n:s[-1] for n,s in genes.items() }
     pool2.close()
     pool2.join()
-    old_predictions = dict(np.load(params['old_prediction'])) if 'old_prediction' in params else {}
+    old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
     
     write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     
