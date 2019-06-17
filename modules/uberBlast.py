@@ -185,13 +185,13 @@ def cigar2score(data) :
                     qBlk.append(qSeq[qId:qId+n])
                     rBlk.append([-1]*n)
                 qId += n
-    nGap, bGap, mGap = len(gap), np.sum(gap), max(gap+[0])
+    nGap, bGap, mGap = len(gap), np.sum(gap), np.sum([g for g in gap if g > 3])
     qAln = np.concatenate(qBlk)
     rAln = np.concatenate(rBlk)
     if mode == 1 :
         nMatch = np.sum(qAln == rAln)
         nMismatch = qAln.size - nMatch
-        return float(nMatch)/(nMatch + nMismatch+bGap-mGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - (bGap-mGap)*gapExtend
+        return float(nMatch)/(nMatch + nMismatch+bGap-mGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - (bGap)*gapExtend
     else :
         qAln, rAln = qAln[frame:], rAln[frame:]
         if qAln.size % 3 :
@@ -201,7 +201,7 @@ def cigar2score(data) :
             match = (qAln == rAln)
             nMatch = np.sum(np.sum(match, 0) * (9./7., 9./7., 3./7.))
             nMismatch = np.sum(rAln >= 0) - nMatch
-            return float(nMatch)/(nMatch + nMismatch+bGap-mGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - (bGap-mGap)*gapExtend
+            return float(nMatch)/(nMatch + nMismatch+bGap-mGap), nMatch*3 - nMismatch*1 - nGap*(gapOpen-gapExtend) - (bGap)*gapExtend
         else :
             s = (~np.any(rAln < 0, 1), )
             qAln, rAln = qAln[s], rAln[s]
@@ -211,7 +211,7 @@ def cigar2score(data) :
             nMatch = np.sum(qAA == rAA)*3.
             nTotal = qAA.size * 3. + bGap-mGap
             score = np.sum(blosum62[(qAA << 5) + rAA])
-            return nMatch/nTotal, score - nGap*(gapOpen-gapExtend) - (bGap-mGap)*gapExtend
+            return nMatch/nTotal, score - nGap*(gapOpen-gapExtend) - (bGap)*gapExtend
 nucEncoder = np.repeat(2, 255).astype(int)
 nucEncoder[(np.array(['A', 'C', 'G', 'T']).view(asc2int),)] = (0, 1, 3, 4)
 gtable = np.array(list('KNXKNTTXTTXXXXXRSXRSIIXMIQHXQHPPXPPXXXXXRRXRRLLXLLXXXXXXXXXXXXXXXXXXXXXXXXXEDXEDAAXAAXXXXXGGXGGVVXVVXYXXYSSXSSXXXXXXCXWCLFXLF')).view(asc2int).astype(int)-65

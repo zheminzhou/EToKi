@@ -524,8 +524,9 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             for gene, score in genes.items() :
                 if gene not in new_groups :
                     mat = tmpSet.get(gene)
+                    cfl = conflicts.get(int(gene), {})
                     _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                    region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
+                    region_score = mat.T[4]/mat[bestPerGenome[matInGenome], 4]
                     if region_score.size >= bestPerGenome.size * 2 :
                         used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
                             
@@ -533,10 +534,10 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                             if m[5] in used2 :
                                 kept[id] = False
                             else :
-                                used2.update( { int(k/10) for k in conflicts.get(int(gene), {}).get(m[5],[]) + [m[5]*10] } )
+                                used2.update( { int(k/10) for k in cfl.get(m[5],[]) } )
                         mat = mat[kept]
                         _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
-                        region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
+                        region_score = mat.T[4]/mat[bestPerGenome[matInGenome], 4]
                     if region_score.size > bestPerGenome.size * 3 and len(region_score) > 1000 :
                         region_score2 = sorted(region_score, reverse=True)
                         cut = region_score2[bestPerGenome.size*3-1]
@@ -549,26 +550,27 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
                 new_groups[gene] = working_group[0]
                 if len(working_group) > 1 :
+                    cfl = conflicts.get(int(gene), {})
                     for id, matches in enumerate(working_group[1:]) :
                         ng = np.round(gene + 0.001*(id+2), 3)
                         new_groups[ng] = matches
-                        conflicts[ng] = { mid:conflicts[gene].pop(mid, {}) for mid in matches.T[5] }
+                        conflicts[ng] = { mid:cfl.pop(mid, {}) for mid in matches.T[5] }
                         scores[ng] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
                         first_classes[ng] = first_classes[gene][:]
         else :
             for gene, score in genes.items() :
                 if gene not in new_groups :
                     mat = tmpSet.get(gene)
+                    cfl = conflicts.get(int(gene), {})
                     _, bestPerGenome, matInGenome = np.unique(mat.T[1], return_index=True, return_inverse=True)
                     region_score = np.min([mat.T[2]/mat[bestPerGenome[matInGenome], 2], mat.T[4]/mat[bestPerGenome[matInGenome], 4]], axis=0)
                     mat = mat[region_score>=params['clust_identity']]
                     used2, kept = set([]), np.ones(mat.shape[0], dtype=bool)
-                    
                     for id, m in enumerate(mat) :
                         if m[5] in used2 :
                             kept[id] = False
                         else :
-                            used2.update( { int(k/10) for k in conflicts.get(gene, {}).get(m[5],[]) + [m[5]*10] } )
+                            used2.update( { int(k/10) for k in cfl.get(m[5],[]) + [m[5]*10] } )
                             
                     genomes = np.unique(mat[~kept, 1])
                     mat = mat[kept]
@@ -590,7 +592,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
             paralog = False
             supergroup, used2 = {}, {}
             idens = 0.
-            
+            #if gene == 24480 :
+                #print('')
             for m in mat :
                 gid = m[5]
                 conflict = used.get(gid, None) if gid in used else used2.get(gid, None)
@@ -618,7 +621,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         else  :
                             used2[g2] = gene+1 if gs == 2 else 0
                     
-            if idens < params['clust_identity'] * mat[0, 4] or idens < (params['clust_identity']-0.02)*10000 :
+            if idens < (params['clust_identity']-0.02)*10000 :
                 scores.pop(gene)
                 genes.pop(gene)
                 conflicts.pop(gene)
@@ -786,7 +789,6 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     mats, mat_cnts = [], 0
     
     blastab, overlaps = [], {}
-    #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
     for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
         tmp = np.load(bsnPrefix + '.bsn.npz', allow_pickle=True)
         bsn, ovl = tmp['bsn'], tmp['ovl']
@@ -932,33 +934,32 @@ def precluster2(data) :
             if len(matches) <= 1 :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
-            matches = matches[np.argsort(-matches.T[2])]
-            matches.T[4] = (10000 * matches.T[3]/np.max(matches.T[3])).astype(int)
+            matches = matches[np.argsort(-(1000*matches.T[2]/np.max(matches.T[2]) + matches.T[3]))]
+            matches.T[4] = (10000 * matches.T[3]/matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             matches = matches[ingroup]
+            #matches = matches[np.argsort(-matches.T[2])]
             s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
             outputs.append([ gene, matches, s ])
     return outputs
 
 def precluster(bsn_file, global_file) :
     gene_scores = {}
-    #matIds = []
     with MapBsn(bsn_file + '.tab.npz') as conn, MapBsn(bsn_file + '.tmp.npz', 'w') as conn2 :
         genes = np.array(sorted(conn.keys()))
         for ite in xrange(0, len(genes), 10000) :
             logger('Prefiltering: {0}/{1}'.format(ite, len(genes)))
             genes2 = genes[ite:ite+10000]
+            
             toUpdates = pool2.imap_unordered(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
             #toUpdates = map(precluster2, [(bsn_file, gs, global_file) for gs in np.split(genes2, np.arange(50, genes2.size, 50)) ])
             for toUpdate in toUpdates :
                 for gene, data, score in toUpdate :
-                    #matIds.append(data.T[5])
                     gene_scores[int(gene)] = score
                     conn2.save(gene, data)
     os.rename(bsn_file + '.tmp.npz', bsn_file + '.tab.npz')
-    #matIds = np.concatenate(matIds)
-    return gene_scores #, np.bincount(matIds).astype(np.bool_)
+    return gene_scores
 
 def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, gtable, clust=None, orthoPair=None) :
     alleles = {}
@@ -1098,13 +1099,8 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             for g in old_to_add :
                 if g[15] == 'CDS' :
                     g[0] = decodes[tags[encodes[g[0]]]]
-    try:
-        prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
-    except :
-        for d in old_to_add :
-            d[0] = ''
-        print(np.array(list(old_to_add)).shape)
-        sys.exit(0)
+
+    prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
     prediction[prediction.T[4] == prediction.T[0], 4] = ''
     
     for part in prediction :
@@ -1118,14 +1114,21 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
-            pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8])
+            pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8], pred[9], pred[10])
             continue
         allowed_vary = pred[12]*(1-pseudogene)
         
+        if pred[4] :
+            map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], pred[4].rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
+        else :
+            map_tag = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], '{0}', pred[7], pred[8], pred[9], pred[10])
+            
+        
         pred2 = None
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), '{0}:{1}:{2}-{3}'.format(pred[0], 'ND', pred[7], pred[8])
+            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), map_tag.format('ND')
         else :
+            
             s, e = pred[9:11]
             if pred[11] == '+' :
                 for i, pp in enumerate(prediction[pid+1:pid+5]) :
@@ -1164,10 +1167,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 else :
                     alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
-            if pred[4] :
-                pred[13] = '{0}:({4}){1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8], pred[4].rsplit(':', 1)[-1])
-            else :
-                pred[13] = '{0}:{1}:{2}-{3}'.format(pred[0], alleles[pred[0]][seq2], pred[7], pred[8])
+            pred[13] = map_tag.format(alleles[pred[0]][seq2])
             
             for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
                 if (len(seq) - frame) % 3 > 0 :
@@ -1319,8 +1319,9 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
                         global_differences[key] = [i]
     for pair, data in global_differences.items() :
         diff = np.log(1.005-np.array(data)/10000.)
-        mean_diff = min(max(np.mean(diff), np.log(0.02)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff)**2))*3, np.log(5.)), np.log(10.))
+        mean_diff2 = np.mean(diff)
+        mean_diff = min(max(mean_diff2, np.log(0.02)), np.log(0.5))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff2)**2))*3, np.log(5.)), np.log(10.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
@@ -1407,7 +1408,7 @@ def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
     iterIden = np.round(np.arange(1., identity_target-0.005, -0.01), 5)
-    iterCov = np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
+    iterCov = np.repeat(params['coverage'], iterIden.shape[0]) #np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
     for iden, cov in zip(iterIden, iterCov) :
         params.update({'identity':iden, 'coverage':np.round(cov, 2)})
         iden2 = min(1., iden+0.005)
@@ -1507,7 +1508,7 @@ def ortho(args) :
             params['global'] = params['prefix']+'.global.npy'
             np.save(params['global'], \
                     get_global_difference(get_gene_group(params['clust'], params['self_bsn']), \
-                                          params['clust'], params['self_bsn'], geneInGenomes, nGene=500) )
+                                          params['clust'], params['self_bsn'], geneInGenomes, nGene=1000) )
             
         if params.get('map_bsn', None) is None :
             params['map_bsn']= params['prefix']+'.map_bsn'
