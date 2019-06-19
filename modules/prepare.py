@@ -168,12 +168,13 @@ class preprocess(object) :
             else :
                 max_base = float(parameters['max_base'])
                 for lib_type in ('MP', 'PE', 'SE') :
-                    ss = stat[lib_type]
-                    n_base = sum([s[0] for s in ss])
-                    sample_freq = float(max_base)/n_base
-                    for s in ss :
-                        s.append(sample_freq)
-                    max_base = 0. if n_base >= max_base else max_base - n_base
+                    if lib_type in stat :
+                        ss = stat[lib_type]
+                        n_base = sum([s[0] for s in ss])
+                        sample_freq = float(max_base)/n_base
+                        for s in ss :
+                            s.append(sample_freq)
+                        max_base = 0. if n_base >= max_base else max_base - n_base
             if 0 < sample_freq2 < 1 :
                 logger('Read depth too high. Subsampling.')
             
