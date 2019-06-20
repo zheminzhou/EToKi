@@ -3,9 +3,9 @@ from glob import glob
 from time import sleep
 from subprocess import Popen, PIPE, STDOUT
 try:
-    from .configure import externals, logger, readFasta, xrange
+    from .configure import externals, logger, readFasta, xrange, uopen
 except :
-    from configure import externals, logger, readFasta, xrange
+    from configure import externals, logger, readFasta, xrange, uopen
 
 # mainprocess
 class mainprocess(object) :
@@ -443,9 +443,9 @@ class postprocess(object) :
         return evaluation
     def __readAssembly(self, assembly) :
         seq = {}
-        with open(assembly) as fin :
+        with uopen(assembly) as fin :
             header = fin.read(1)
-            fin.seek(0, 0)
+        with uopen(assembly) as fin :
             if header == '@' :
                 for id, line in enumerate(fin) :
                     if id % 4 == 0 :
@@ -464,7 +464,7 @@ class postprocess(object) :
                         fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[2][site:(site+100)] for site in xrange(0, len(s[2]), 100)])))
             else :
                 fasfile = assembly
-                for line in enumerate(fin) :
+                for id, line in enumerate(fin) :
                     if line.startswith('>') :
                         name = line[1:].strip().split()[0]
                         seq[name] = [0, 0., []]
@@ -476,9 +476,15 @@ class postprocess(object) :
         return seq, fasfile
 
     def do_kraken(self, assembly) :
-        cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}'.format(
-            assembly=assembly, **parameters
-        )
+        if assembly.lower().endswith('.gz') :
+            cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --gzip-compressed --report {assembly}.kraken {assembly}'.format(
+                assembly=assembly, **parameters
+            )
+        else :
+            cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}'.format(
+                assembly=assembly, **parameters
+            )
+            
         Popen(cmd, stderr=PIPE, stdout=PIPE, shell=True, universal_newlines=True).communicate()
         species = {}
         with open('{0}.kraken'.format(assembly)) as fin :
