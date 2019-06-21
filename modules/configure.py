@@ -190,6 +190,7 @@ def download_krakenDB() :
     subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).wait()
     logger('Unpackaging minikraken2.')
     subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).wait()
+    subprocess.Popen('mv minikraken2_v2_8GB_*/* ./', shell=True).wait()
     os.unlink('minikraken2_v2_8GB.tgz')
     
     os.chdir(curdir)
@@ -267,7 +268,7 @@ def install_externals() :
         diamond_url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.24/diamond-linux64.tar.gz'
         logger('Downloading diamond package from {0}'.format(diamond_url))
         subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging kraken2 package')
+        logger('Unpackaging diamond package')
         subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
         os.unlink('diamond-linux64.tar.gz')
         os.unlink('diamond_manual.pdf')

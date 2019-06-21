@@ -439,7 +439,7 @@ class postprocess(object) :
         evaluation = dict(assembly=assembly, fasta=fasfile)
         evaluation.update(self.do_evaluation(seq))
         if parameters['runKraken'] and os.path.exists(parameters['kraken_database']) :
-            evaluation.update({'kraken': self.do_kraken(fasfile)})
+            evaluation.update({'kraken': self.do_kraken(assembly, seq)})
         return evaluation
     def __readAssembly(self, assembly) :
         seq = {}
@@ -475,15 +475,14 @@ class postprocess(object) :
                     s[0] = len(s[2])
         return seq, fasfile
 
-    def do_kraken(self, assembly) :
-        if assembly.lower().endswith('.gz') :
-            cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --gzip-compressed --report {assembly}.kraken {assembly}'.format(
-                assembly=assembly, **parameters
-            )
-        else :
-            cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}'.format(
-                assembly=assembly, **parameters
-            )
+    def do_kraken(self, assembly, seq) :
+        with open(assembly+'.filter', 'w') as fout :
+            for n, s in seq.items() :
+                if s[0] > 1000 :
+                    fout.write('>{0}\n{1}\n'.format(n, s[2]))
+        cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}.filter'.format(
+            assembly=assembly, **parameters
+        )
             
         Popen(cmd, stderr=PIPE, stdout=PIPE, shell=True, universal_newlines=True).communicate()
         species = {}
