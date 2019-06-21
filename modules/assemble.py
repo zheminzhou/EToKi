@@ -65,7 +65,7 @@ class mainprocess(object) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
                     if clean :
-                        cmd = '{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 8 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
+                        cmd = '{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} sort -@ 8 -O bam -l 0 -T {prefix} - > {o}'.format(
                                 r = r, o = o1, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         for line in st_run[1].split('\n') :
