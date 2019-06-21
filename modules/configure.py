@@ -314,6 +314,7 @@ def prepare_externals(conf=None) :
     externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
     externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'.format(ETOKI=ETOKI)
+    externals['pigz'] = 'pigz' if checkExecutable(['pigz']) else 'gzip'
     return externals
 
 def add_args(a) :
