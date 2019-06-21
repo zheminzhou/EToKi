@@ -30,7 +30,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("pigz -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
+                p = Popen("{pigz} -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname, **externals), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
