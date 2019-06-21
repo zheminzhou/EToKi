@@ -67,7 +67,7 @@ class uopen(object) :
     def __init__(self, fname, label='r') :
         self.fout = None
         if label.find('r')>=0 :
-            self.fstream = subprocess.Popen(['pigz', '-cd', fname], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout if fname.lower().endswith('gz') else open(fname)
+            self.fstream = subprocess.Popen([externals['pigz'], '-cd', fname], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout if fname.lower().endswith('gz') else open(fname)
         elif label.find('w') >= 0 :
             if sys.version.startswith('3') :
                 self.fout = gzip.open(fname, 'wb')
