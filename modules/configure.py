@@ -296,7 +296,7 @@ def configure(args) :
         download_krakenDB()
     for fname, flink in sorted(externals.items()) :
         flinks = flink.split()
-        if fname not in {'kraken_database', 'enbler_filter'} :
+        if fname not in {'kraken_database', 'enbler_filter', 'pigz'} :
             if not checkExecutable(flinks) :
                 logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
                 sys.exit(0)
