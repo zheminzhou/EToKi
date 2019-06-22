@@ -254,6 +254,7 @@ def prepare(args) :
             else :
                 report.extend(['--se', '{0}'.format(lib[-1])])
     print(' '.join(report))
+    return report
 
 def add_args(a) :
     parser = argparse.ArgumentParser(description='''

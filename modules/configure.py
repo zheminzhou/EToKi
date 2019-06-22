@@ -174,6 +174,8 @@ def logger(log, pipe=sys.stderr) :
 
 def checkExecutable(commands) :
     try :
+        if not  os.path.exists(commands[-1]) :
+            return False
         return subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1
     except  :
         return False
