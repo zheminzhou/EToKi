@@ -123,8 +123,8 @@ def readFastq(fastq) :
     return sequence, qual
 
 complement = {'A':'T', 'T':'A', 'G':'C', 'C':'G', 'N':'N'}
-def rc(seq) :
-    return ''.join([complement.get(s, 'N') for s in reversed(seq.upper())])
+def rc(seq, missingValue='N') :
+    return ''.join([complement.get(s, missingValue) for s in reversed(seq.upper())])
 
 
 baseConv = np.empty(255, dtype=int)

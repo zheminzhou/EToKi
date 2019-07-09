@@ -427,7 +427,7 @@ def align(argv) :
     pool = Pool(args.n_proc)
     #print(args.reference)
     refMask = prepReference(args.prefix, args.reference[1], **externals)
-    alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, externals['minimap2'])
+    alignments = runAlignment(args.prefix, args.reference, [args.reference] + args.queries, args.core, externals['minimap2'])
     outputs = {'mappings': dict(alignments)}
     if args.matrix or args.alignment :
         outputs.update(getMatrix(args.prefix, args.reference[1], alignments, args.core, args.matrix, args.alignment))

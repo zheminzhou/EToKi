@@ -39,6 +39,7 @@ def get_distance2(idx) :
     rll = n_loci - np.max([(n_loci - ql)*3, int((n_loci - ql)+n_loci*0.03+0.5)])
     rl[rl < rll] = rll
     rl[rl > ql ] = ql
+    rl[rl < 0.5] = 0.5   
     d = ((rl - s).astype(float)*n_loci/rl+0.5).astype(int)+1
     dists = np.vstack([np.repeat(idx, idx), np.arange(idx), d]).astype(int).T
     return dists[np.argmin(dists.T[2])]
@@ -70,6 +71,7 @@ def get_distance3(idx) :
     rll = n_loci - np.max([(n_loci - ql)*3, int((n_loci - ql)+n_loci*0.03+0.5)])
     rl[rl < rll] = rll
     rl[rl > ql ] = ql
+    rl[rl < 0.5] = 0.5
     d = ((rl - s).astype(float)*n_loci/rl+0.5).astype(int)
     dists = np.vstack([np.repeat(idx, idx), np.arange(idx), d, s, np.repeat(ql, idx)]).astype(int).T
     return dists[np.argmin(dists.T[2])]
@@ -81,7 +83,7 @@ def get_distance(idx) :
     if idx == 0 or idx >= mat.shape[0] :
         return np.zeros(shape=[0, 4], dtype=int)
     profile = mat[idx]
-    ql = np.max(1.0, np.sum(profile[1:] > 0).astype(float))
+    ql = np.max([1.0, np.sum(profile[1:] > 0).astype(float)])
     d1 = (n_loci * np.sum((profile[1:] != mat[:idx, 1:]) & (profile[1:] > 0), 1)/ql+0.5).astype(int)+1
     d2 = n_loci - np.sum((profile[1:] == mat[:idx, 1:]) & (profile[1:] > 0), 1)+1
     d1[d1>d2] = d2[d1>d2]
@@ -149,12 +151,12 @@ def hierCC(args) :
     else :
         presence = None
     if os.path.isfile(old_cluster) :
-        od = np.load(old_cluster)
+        od = np.load(old_cluster, allow_pickle=True)
         cls = od['hierCC']
         if params.immutable :
             if 'presence' in od :
                 old_presence = od['presence'] 
-                if old_presence is not None and old_presence.size > 0 :
+                if old_presence is not None and len(old_presence.shape) > 0 and old_presence.size > 0 :
                     for c in old_presence :
                         if c[0] > 0 :
                             presence[encode[c[0]], :] = c
