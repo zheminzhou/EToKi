@@ -1,0 +1,13 @@
+[TYPE] CODON 1
+[MODEL] m1
+[submodel] 2.5 0.3
+[indelmodel] NB {indelLen} 1
+[geneticcode] 11
+[indelrate]   {indelRate}
+
+{trees}
+
+[PARTITIONS] seq
+{partitions}
+
+[EVOLVE] seq 1 seq

@@ -1,0 +1,13 @@
+[TYPE] NUCLEOTIDE 1
+[MODEL] m1
+[submodel] HKY 2.5
+[statefreq] 0.25 0.25 0.25 0.25
+[indelmodel] NB {indelLen} 1
+[indelrate]   {indelRate}
+
+{trees}
+
+[PARTITIONS] seq
+{partitions}
+
+[EVOLVE] seq 1 seq
