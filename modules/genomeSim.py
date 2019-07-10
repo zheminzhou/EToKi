@@ -521,7 +521,7 @@ def genomeSim(a) :
 
     parser.add_argument('--growthRate', help='change of population size over time. DEFAULT: 0 ', default=0., type=float)
     parser.add_argument('--tipAccelerate', help='grandient decreasing of indel events back to time. ', default=100., type=float)
-    parser.add_argument('--recLen', help='expected bps of recombination stretches', default=2000, type=float)
+    parser.add_argument('--recLen', help='expected bps of recombination stretches', default=5000, type=float)
     parser.add_argument('--rec', help='expected proportion of recombined sites in pairwise comparisons. [DEFAULT: 0.2]', default=0.2, type=float)
     parser.add_argument('--hgt_i', help='expected proportion of homoplastic gene insertion [default: same as rec]', default=-1, type=float)
     parser.add_argument('--hgt_d', help='expected proportion of homoplastic gene deletion [default: same as hgt_i]', default=-1, type=float)
