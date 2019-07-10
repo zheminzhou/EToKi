@@ -968,7 +968,7 @@ def precluster(bsn_file, global_file) :
 
 def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     prediction = pd.read_csv(prediction, sep='\t', header=None)
-    prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
+    prediction = prediction.assign(s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
     neighbors = [ set([]) for i in np.arange(np.max(prediction.T[2])+1) ]
     orthologs = np.vstack([['', ''], np.copy(prediction[:, [0,3]])])
     orthologs[prediction.T[2].astype(int)] = prediction[:, [0,3]]
@@ -997,7 +997,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
                     j = ids[n]
                     ni, nj = np.array(list(neighbors[i])), np.array(list(neighbors[j]))
                     oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
-                    s = oi.size + oj.size - np.unique([oi, oj]).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
+                    s = oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
                     d = (2.*nNeighbor) - s
                     distances.append([d, co_genomes[m] != co_genomes[n], i, j])
                     if co_genomes[m] == co_genomes[n] and d *1.5 > 2.*nNeighbor :
