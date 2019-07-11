@@ -33,13 +33,14 @@ def get_similarity(method, cluster, stepwise) :
     return similarity
 
 def get_silhouette(profile, cluster, stepwise, ave_gene_length=1.) :
-    logger('Calculating Silhouette score ...')
+    logger('Calculating pairwise distance ...')
     np.save('evalHCC.profile.npy', profile)
     indices = np.array([[profile.shape[0]*(v/10.)**2+0.5, profile.shape[0]*((v+1)/10.)**2+0.5] for v in np.arange(10, dtype=float)], dtype=int)
     subfiles = pool.map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices])
     prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
     prof_dist += prof_dist.T
     np.save('evalHCC.dist.npy', prof_dist)
+    logger('Calculating Silhouette score ...')
     silhouette = np.array(pool.map(get_silhouette2, [ ['evalHCC.dist.npy', tag] for tag in cluster.T ]))
     for subfile in subfiles + ['evalHCC.profile.npy', 'evalHCC.dist.npy'] :
         os.unlink(subfile)
@@ -82,7 +83,10 @@ def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
     with uopen(profile) as fin :
         logger('Loading profiles ...')                
         profile_header = fin.readline().strip().split('\t')
-        cols = [0] + np.where([not h.startswith('#') for h in profile_header])[0].tolist()
+        ST_col = np.where([p.find('#ST')>=0 for p in profile_header])[0].tolist()
+        if len(ST_col) <= 0 :
+            ST_col = [0]
+        cols = ST_col + np.where([not h.startswith('#') for h in profile_header])[0].tolist()
         profile = pd.read_csv(fin, sep='\t', header=None, index_col=0, usecols=cols)
         profile_names = profile.index.values
         profile = profile.values
