@@ -249,12 +249,12 @@ def read_matrix(fname) :
             for (b_key, site, w) in zip(b_keys, mat, weights) :
                 b_key = tuple(b_key)
                 if min(b_key) == 0 :
-                    bk2 = site[cols]
+                    bk2 = np.concatenate([site[cols], ['']])
                     bk2[bk2 == '-'] = ''
                     category, b_key = np.unique(bk2, return_inverse=True)
                     if category[0] == '' :
                         category[0] = '-'
-                    b_key = tuple(b_key.tolist())
+                    b_key = tuple(b_key[:-1].tolist())
                 else :
                     category = []
                 if b_key in snps :

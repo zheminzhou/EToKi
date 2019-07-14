@@ -116,7 +116,7 @@ def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
     silhouette = get_silhouette(profile, cluster, stepwise, ave_gene_length)
 
     np.savez_compressed('evalHCC.npz', shannon=shannon, similarity=similarity, silhouette=silhouette)
-    logger('Done. Results saved in evalHCC.npz')                        
+    logger('Done. Results saved in evalHCC.npz')
 
 
 import multiprocessing
