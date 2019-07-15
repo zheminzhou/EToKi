@@ -995,7 +995,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
             for m, i in enumerate(ids) :
                 for n in np.arange(m+1, ids.size) :
                     j = ids[n]
-                    ni, nj = np.array(list(neighbors[i])), np.array(list(neighbors[j]))
+                    ni, nj = np.array(list(neighbors[i]), dtype=int), np.array(list(neighbors[j]), dtype=int)
                     oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
                     s = oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
                     d = (2.*nNeighbor) - s
