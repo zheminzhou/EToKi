@@ -966,6 +966,58 @@ def precluster(bsn_file, global_file) :
     return gene_scores
 
 
+
+def ite_synteny_resolver(data) :
+    grp_tag, orthologs, neighbors, nNeighbor = data
+    ids = np.where(orthologs.T[0] == grp_tag)[0]
+    genomes, co_genomes = np.unique(orthologs[ids, 1], return_inverse=True)
+    if genomes.size == 1 :
+        return [grp_tag, None]
+
+    distances, conflicts = [], {}
+    for m, i in enumerate(ids) :
+        for n in np.arange(m+1, ids.size) :
+            j = ids[n]
+            ni, nj = np.array(list(neighbors[i]), dtype=int), np.array(list(neighbors[j]), dtype=int)
+            oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
+            s = oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
+            d = (2.*nNeighbor) - s
+            distances.append([d, co_genomes[m] != co_genomes[n], i, j])
+            if co_genomes[m] == co_genomes[n] and d *1.5 > 2.*nNeighbor :
+                conflicts[(i, j)] = conflicts[(j, i)] = 1
+    if conflicts :
+        distances.sort()
+        groups = { id:[id] for id in ids }
+        tags = { id:id for id in ids }
+        for idx, (d, _, i, j) in enumerate(distances) :
+            if tags[i] == tags[j] : continue
+            if (i, j) in conflicts :
+                distances = distances[idx:]
+                break
+            ti, tj = tags[i], tags[j]
+            skip = False
+            for m in groups[ti] :
+                for n in groups[tj] :
+                    if (m, n) in conflicts :
+                        skip = True
+                        break
+            if not skip :
+                gg = groups.pop(tj)
+                for g in gg :
+                    tags[g] = tags[i]
+                groups[ti].extend(gg)
+        diffs = {}
+        for d, _, i, j in distances :
+            if (i, j) in conflicts :
+                diffs[tags[j]] = diffs[tags[i]] = 1
+        if len(diffs) >= len(groups) :
+            return [grp_tag, groups]
+            #for t, i in groups.items() :
+                #orthologs[i, 0] = orthologs[i[0], 0] + '/{0}'.format(t)
+        else :
+            return [grp_tag, None]
+    return [None, None]
+
 def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     prediction = pd.read_csv(prediction, sep='\t', header=None)
     prediction = prediction.assign(s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
@@ -982,58 +1034,17 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     paralog_groups = np.unique(paralog_groups[0][paralog_groups[1]>1, 0])
     toDel = [None]
     while len(toDel) :
-        paralog_groups = paralog_groups[np.in1d(paralog_groups, toDel, invert=True)]
         toDel = []
-        for grp_tag in paralog_groups :
-            ids = np.where(orthologs.T[0] == grp_tag)[0]
-            genomes, co_genomes = np.unique(orthologs[ids, 1], return_inverse=True)
-            if genomes.size == 1 :
+        #outs = list(map(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in paralog_groups ]))
+        outs = pool2.map(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in paralog_groups ])
+        for grp_tag, groups in outs :
+            if groups is not None :
+                for t, i in groups.items() :
+                    orthologs[i, 0] = orthologs[i[0], 0] + '/{0}'.format(t)
+            if grp_tag is not None :
                 toDel.append(grp_tag)
-                continue
-
-            distances, conflicts = [], {}
-            for m, i in enumerate(ids) :
-                for n in np.arange(m+1, ids.size) :
-                    j = ids[n]
-                    ni, nj = np.array(list(neighbors[i]), dtype=int), np.array(list(neighbors[j]), dtype=int)
-                    oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
-                    s = oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
-                    d = (2.*nNeighbor) - s
-                    distances.append([d, co_genomes[m] != co_genomes[n], i, j])
-                    if co_genomes[m] == co_genomes[n] and d *1.5 > 2.*nNeighbor :
-                        conflicts[(i, j)] = conflicts[(j, i)] = 1
-            if conflicts :
-                distances.sort()
-                groups = { id:[id] for id in ids }
-                tags = { id:id for id in ids }
-                for idx, (d, _, i, j) in enumerate(distances) :
-                    if tags[i] == tags[j] : continue
-                    if (i, j) in conflicts :
-                        distances = distances[idx:]
-                        break
-                    ti, tj = tags[i], tags[j]
-                    skip = False
-                    for m in groups[ti] :
-                        for n in groups[tj] :
-                            if (m, n) in conflicts :
-                                skip = True
-                                break
-                    if not skip :
-                        gg = groups.pop(tj)
-                        for g in gg :
-                            tags[g] = tags[i]
-                        groups[ti].extend(gg)
-                diffs = {}
-                for d, _, i, j in distances :
-                    if (i, j) in conflicts :
-                        diffs[tags[j]] = diffs[tags[i]] = 1
-                if len(diffs) >= len(groups) :
-                    for t, i in groups.items() :
-                        orthologs[i, 0] = orthologs[i[0], 0] + '/{0}'.format(t)
-                else :
-                    #print(groups)
-                    pass
-                toDel.append(grp_tag)
+        paralog_groups = paralog_groups[np.in1d(paralog_groups, toDel, invert=True)]
+            
     prediction.T[0] = orthologs[prediction.T[2].astype(int), 0]
     prediction = pd.DataFrame(prediction).sort_values(by=[0, 2, 7])
     prediction.to_csv(prefix+'.synteny.Prediction', sep='\t', index=False, header=False)
@@ -1610,12 +1621,12 @@ def ortho(args) :
         writeProcess.join()
     else :
         genes = {n:s[-1] for n,s in genes.items() }
-    pool2.close()
-    pool2.join()
     old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
     
     if not params['synteny'] :
         params['prediction'] = synteny_resolver(params['prefix'], params['prediction'])
+    pool2.close()
+    pool2.join()
     write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     
 if __name__ == '__main__' :
