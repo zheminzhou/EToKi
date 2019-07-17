@@ -510,6 +510,7 @@ class postprocess(object) :
         n_seq = len(seq)
         n_base = sum([s[0] for s in seq])
         n50, acc = 0, [0, 0]
+        l50 = 0
         for l50, s in enumerate(seq) :
             acc[0], acc[1] = acc[0] + s[0], acc[1] + s[0]*s[1]
             if acc[0] * 2 >= n_base :

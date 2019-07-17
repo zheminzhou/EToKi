@@ -178,7 +178,7 @@ def iter_readGFF(data) :
 def readGFF(fnames, gtable) :
     if not isinstance(fnames, list) : fnames = [fnames]
     combo = pool.map(iter_readGFF, [[fn, gtable] for fn in fnames])
-    #combo = list(map(iter_readGFF, fnames))
+    #combo = list(map(iter_readGFF, [[fn, gtable] for fn in fnames]))
 
     seq, cds = {}, {}
     for fname, (ss, cc) in zip(fnames, combo) :
@@ -246,11 +246,11 @@ def get_similar_pairs(prefix, clust, priorities, params) :
             continue
         if ss < se and part[0] != part[1] and iden >= params['clust_identity'] and qs%3 == ss%3 and (ql-qe)%3 == (sl-se)%3 :
             if ql <= sl :
-                if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[(part[0])][0] >= priorities[(part[1])][0] :
+                if qe - qs + 1 >= np.sqrt(params['clust_match_prop']) * sl and priorities[part[0]][0] >= priorities[part[1]][0] :
                     cluGroups.append([int(part[1]), int(part[0]), int(iden*10000.)])
                     presence[part[0]] = 0
                     continue
-            elif se - ss + 1 >= np.sqrt(params['clust_match_prop']) * ql and priorities[(part[0])][0] <= priorities[(part[1])][0] :
+            elif se - ss + 1 >= np.sqrt(params['clust_match_prop']) * ql and priorities[part[0]][0] <= priorities[part[1]][0] :
                 cluGroups.append([int(part[0]), int(part[1]), int(iden*10000.)])
                 presence[part[1]] = 0
                 continue
@@ -432,8 +432,8 @@ def filt_per_group(data) :
     else :
         return [mat]
 
-def get_gene(allScores, first_classes, ortho_groups, cnt=1) :
-    ranking = {gene:first_classes.get(gene)[0] for gene in allScores.keys() if gene in first_classes}
+def get_gene(allScores, priorities, ortho_groups, cnt=1) :
+    ranking = {gene:priorities.get(gene)[0] for gene in allScores.keys() if gene in priorities}
     if len(ranking) > 0 :
         min_rank = min(ranking.values())
         scores = { gene:allScores[gene] for gene, r in ranking.items() if r == min_rank }
@@ -469,7 +469,7 @@ def load_conflict(data) :
         conflicts.append([g, id, d[idx1:idx2]])
     return conflicts
 
-def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classes, scores, encodes) :
+def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, priorities, scores, encodes) :
     ortho_groups = np.vstack([ortho_groups[:, :2], ortho_groups[:, [1,0]]])
     conflicts = {}
     new_groups = {}
@@ -481,7 +481,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
     while len(scores) > 0 :
         # get top 100 genes
         ortho_groups = ortho_groups[np.all(in1d(ortho_groups, list(scores.keys())).reshape(ortho_groups.shape), 1)]
-        genes = get_gene(scores, first_classes, ortho_groups, cnt=100)
+        genes = get_gene(scores, priorities, ortho_groups, cnt=100)
         if len(genes) <= 0 :
             continue
         to_run, (min_score, min_rank) = [], genes[-1][1:]
@@ -556,8 +556,8 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
                         ng = np.round(gene + 0.001*(id+2), 3)
                         new_groups[ng] = matches
                         conflicts[ng] = { mid:cfl.pop(mid, {}) for mid in matches.T[5] }
-                        scores[ng] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
-                        first_classes[ng] = first_classes[gene][:]
+                        scores[ng] = np.sum(np.abs(matches[np.unique(matches.T[1], return_index=True)[1]].T[2]))
+                        priorities[ng] = priorities[gene][:]
         else :
             for gene, score in genes.items() :
                 if gene not in new_groups :
@@ -580,7 +580,7 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
         if len(genes) :
             for gene in genes :
                 matches = new_groups.get(gene)
-                scores[gene] = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
+                scores[gene] = np.sum(np.abs(matches[np.unique(matches.T[1], return_index=True)[1]].T[2]))
 
         while len(genes) :
             tmp = [ [scores[gene], gene] for gene in genes ]
@@ -660,12 +660,12 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, first_classe
     return 
 
 def load_priority(priority_list, genes, encodes) :
-    file_priority = { encodes.get(fn, ''):id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
+    file_priority = { encodes[fn]:id for id, fnames in enumerate(priority_list.split(',')) for fn in fnames.split(':') }
     unassign_id = max(file_priority.values()) + 1
-    first_classes = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5], n ] for n, g in genes.items() }
-    return first_classes
+    priorities = { n:[ file_priority.get(g[0], unassign_id), -len(g[6]), g[5] ] for n, g in genes.items() }
+    priorities.update({ g[1]:[file_priority.get(g[1], unassign_id), 0, 0] for g in genes.values() })
+    return priorities
 
-    
 def writeGenomes(fname, seqs) :
     with open(fname, 'w') as fout :
         for g, s in seqs.items() :
@@ -673,7 +673,7 @@ def writeGenomes(fname, seqs) :
     return fname
 
 def iter_map_bsn(data) :
-    prefix, clust, id, taxon, seq, orthoGroup, params = data
+    prefix, clust, id, taxon, seq, orthoGroup, old_prediction, params = data
     gfile, out_prefix = '{0}.{1}.genome'.format(prefix, id), '{0}.{1}'.format(prefix, id)
     with open(gfile, 'w') as fout :
         for n, s in seq :
@@ -688,8 +688,10 @@ def iter_map_bsn(data) :
     os.unlink(gfile)
     blastab.T[:2] = blastab.T[:2].astype(int)
     
-    groups = []
-    groups2 = {}
+    # compare with old predictions
+    blastab = compare_prediction(blastab, old_prediction)
+
+    groups, groups2 = [], {}
     ids = np.zeros(np.max(blastab.T[15])+1, dtype=bool)
     for tab in blastab :
         if tab[16][1] >= params['match_identity'] and (tab[16][2] >= max(params['match_prop']*tab[12], params['match_len']) or \
@@ -742,7 +744,8 @@ def iter_map_bsn(data) :
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
             sc = np.max(sc)
-            msc = (sc * tab[2])*sc/np.sqrt(tab[12])
+            r = 2./(1./(float(sc)/tab[12]) + 1./tab[10])
+            msc = (sc * tab[2])*np.sqrt(sc*r)
             amsc = float(msc)/(tab[7]-tab[6]+1)
             max_sc.append([tab[6], tab[7], amsc, msc])
         for i, c in enumerate(max_sc[1:]) :
@@ -755,6 +758,8 @@ def iter_map_bsn(data) :
                     c[0] = p[1] + 1
                     c[3] = np.max(c[2] * (c[1]-c[0]+1), 0)
         group[2] = np.sum([c[3] for c in max_sc])
+        if np.max([tab[10] for tab in group[6]]) <= 0.1 :
+            group[2] = -group[2]
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
     bsn=np.array(groups, dtype=object)
@@ -772,11 +777,45 @@ def iter_map_bsn(data) :
     np.savez_compressed(out_prefix+'.bsn.npz', bsn=bsn, ovl=overlap)
     return out_prefix
 
+def compare_prediction(blastab, old_prediction) :
+    blastab = pd.DataFrame(blastab)
+    blastab = blastab.assign(s=np.min([blastab[8], blastab[9]], 0)).sort_values(by=[1, 's']).drop('s', axis=1).values
+    
+    blastab.T[10] = 0.1
+    with MapBsn(old_prediction) as op :
+        curr = [None, -1, 0]
+        for bsn in blastab :
+            if curr[1] != bsn[1] :
+                curr = [op.get(bsn[1]), bsn[1], 0]
+            if bsn[8] < bsn[9] :
+                s, e, f = bsn[8], bsn[9], {(bsn[8] - bsn[6]+1)%3+1, (bsn[9] + (bsn[12] - bsn[7])+1)%3+1}
+            else :
+                s, e, f = bsn[9], bsn[8], {-(bsn[8] - bsn[6]+1)%3-1, -(bsn[9] + (bsn[12] - bsn[7])-1)%3-1}
+            while curr[2] < curr[0].shape[0] and  s > curr[0][curr[2]][2] :
+                    curr[2] += 1
+
+            for p in curr[0][curr[2]:] :
+                if e < p[1] : 
+                    break
+                elif p[3] == '+' :
+                    if p[1]%3+1 not in f and (p[2]+1)%3+1 not in f :
+                        continue
+                else :
+                    if -(p[1] - 1)%3-1 not in f and -(p[2])%3-1 not in f :
+                        continue
+                ovl = min(e, p[2]) - max(s, p[1]) + 1.
+                
+                if ovl >= 0.6*(p[2]-p[1]+1) or ovl >= 0.6*(e-s+1) :
+                    ovl = ovl/(p[2] - p[1]+1)
+                    if ovl > bsn[10] :
+                        bsn[10] = ovl
+            
+    return pd.DataFrame(blastab).sort_values(by=[0, 1, 11]).values
 
 baseConv = np.zeros(255, dtype=np.uint8)
 baseConv[(np.array(['A', 'C', 'G', 'T']).view(asc2int),)] = (1, 2, 3, 4)
 
-def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, clf_conn, saveSeq) :
+def get_map_bsn(prefix, clust, genomes, orthoGroup, old_prediction, conn, seq_conn, mat_conn, clf_conn, saveSeq) :
     if len(genomes) == 0 :
         sys.exit(1)
 
@@ -791,8 +830,8 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, conn, seq_conn, mat_conn, cl
     mats, mat_cnts = [], 0
     
     blastab, overlaps = [], {}
-    for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
-    #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
+    for bId, bsnPrefix in enumerate(pool.imap_unordered(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, old_prediction, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
+    #for bId, bsnPrefix in enumerate(map(iter_map_bsn, [(prefix, clust, id, taxon, seq, orthoGroup, old_prediction, params) for id, (taxon, seq) in enumerate(taxa.items())])) :
         tmp = np.load(bsnPrefix + '.bsn.npz', allow_pickle=True)
         bsn, ovl = tmp['bsn'], tmp['ovl']
         bsn.T[5] += ids
@@ -898,16 +937,17 @@ def writeGenes(fname, genes, priority) :
     groups = []
     with open(fname, 'w') as fout :
         for n in sorted(priority.items(), key=itemgetter(1)) :
-            s = genes[n[0]][6]
-            len_s, hcode = len(s), genes[n[0]][5]
-            if len_s :
-                if len_s not in uniques :
-                    uniques = { len_s:{ hcode:n[0] } }
-                elif hcode in uniques[ len_s ] :
-                    groups.append([ uniques[len_s][hcode], n[0], 10000 ])
-                    continue
-                uniques[ len_s ][ hcode ] = n[0]
-                fout.write( '>{0}\n{1}\n'.format(n[0], s) )
+            if n[0] in genes :
+                s = genes[n[0]][6]
+                len_s, hcode = len(s), genes[n[0]][5]
+                if len_s :
+                    if len_s not in uniques :
+                        uniques = { len_s:{ hcode:n[0] } }
+                    elif hcode in uniques[ len_s ] :
+                        groups.append([ uniques[len_s][hcode], n[0], 10000 ])
+                        continue
+                    uniques[ len_s ][ hcode ] = n[0]
+                    fout.write( '>{0}\n{1}\n'.format(n[0], s) )
     return fname, groups
 
 def determineGroup(gIden, global_differences, min_iden, variation) :
@@ -938,13 +978,12 @@ def precluster2(data) :
             if len(matches) <= 1 :
                 outputs.append( [gene, matches, matches[0, 2]] )
                 continue
-            matches = matches[np.argsort(-(1000*matches.T[2]/np.max(matches.T[2]) + matches.T[3]))]
+            matches = matches[np.argsort(-(1000*np.abs(matches.T[2])/np.max(np.abs(matches.T[2])) + matches.T[3]))]
             matches.T[4] = (10000 * matches.T[3]/matches[0, 3]).astype(int)
             gIden = np.hstack([matches[:, [1, 4]], np.arange(matches.shape[0])[:, np.newaxis]])
             ingroup = determineGroup(gIden, global_differences, params['clust_identity'], params['allowed_variation'])
             matches = matches[ingroup]
-            #matches = matches[np.argsort(-matches.T[2])]
-            s = np.sum(matches[np.unique(matches.T[1], return_index=True)[1]].T[2])
+            s = np.sum(np.abs(matches[np.unique(matches.T[1], return_index=True)[1]].T[2]))
             outputs.append([ gene, matches, s ])
     return outputs
 
@@ -1040,7 +1079,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
         for grp_tag, groups in outs :
             if groups is not None :
                 for t, i in groups.items() :
-                    orthologs[i, 0] = orthologs[i[0], 0] + '/{0}'.format(t)
+                    orthologs[i, 0] = orthologs[i[0], 0] + '#{0}'.format(t)
             if grp_tag is not None :
                 toDel.append(grp_tag)
         paralog_groups = paralog_groups[np.in1d(paralog_groups, toDel, invert=True)]
@@ -1193,7 +1232,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
     else :
         prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
-    prediction[prediction.T[4] == prediction.T[0], 4] = ''
+    prediction[prediction.T[4] == np.array([p.rsplit('/', 1)[0].rsplit('#', 1)[0] for p in prediction.T[0]]), 4] = ''
     
     for part in prediction :
         if part[0] not in alleles :
@@ -1211,16 +1250,14 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         allowed_vary = pred[12]*(1-pseudogene)
         
         if pred[4] :
-            map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], pred[4].rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
+            map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], p.rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
         else :
             map_tag = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], '{0}', pred[7], pred[8], pred[9], pred[10])
             
-        
         pred2 = None
         if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
             cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), map_tag.format('ND')
         else :
-            
             s, e = pred[9:11]
             if pred[11] == '+' :
                 for i, pp in enumerate(prediction[pid+1:pid+5]) :
@@ -1261,39 +1298,45 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
             pred[13] = map_tag.format(alleles[pred[0]][seq2])
             
-            for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
-                if (len(seq) - frame) % 3 > 0 :
-                    aa_seq = aa_seq[:-1]
-                cds = 'CDS'
-                
-                s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
-                start = s0 if s0 >= 0 else s1
-                if start < 0 :
-                    cds, start = 'nostart', int(lp/3)
-                stop = aa_seq.find('X', start)
-                while 0 <= stop < int((lp+allowed_vary)/3) :
-                    s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
-                    if s0 >= 0 :
-                        start = s0
-                        stop = aa_seq.find('X', start)
-                    else :
-                        break
-                if stop < 0 :
-                    cds = 'nostop'
-                elif (stop - start + 1)*3 < pred[12] - allowed_vary :
-                    cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
+            p = pred[0].rsplit('/', 1)[0].rsplit('#', 1)[0]
+            if len(seq2) < pseudogene*len(clust_ref[encodes[p]]) :
+                cds = 'structral_variation:{0:.2f}%'.format(100.*len(seq2)/len(clust_ref[encodes[p]]))
+            else :
+                cdss = []
+                for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
+                    if (len(seq) - frame) % 3 > 0 :
+                        aa_seq = aa_seq[:-1]
+                    cds = 'CDS'
                     
-                if cds == 'CDS' :
-                    if pred[11] == '+' :
-                        start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
+                    s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
+                    start = s0 if s0 >= 0 else s1
+                    if start < 0 :
+                        cds, start = 'nostart', int(lp/3)
+                    stop = aa_seq.find('X', start)
+                    while 0 <= stop < int((lp+allowed_vary)/3) :
+                        s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
+                        if s0 >= 0 :
+                            start = s0
+                            stop = aa_seq.find('X', start)
+                        else :
+                            break
+                    if stop < 0 :
+                        cds = 'nostop'
+                    elif (stop - start + 1)*3 < pred[12] - allowed_vary :
+                        cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
+                        
+                    if cds == 'CDS' :
+                        if pred[11] == '+' :
+                            start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
+                        else :
+                            start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
+                        break
                     else :
-                        start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
-                    break
-                else :
-                    start, stop = s, e
-                    if frame > 0 :
-                        cds = 'frameshift'
-            pred[9:11] = start, stop
+                        start, stop = s, e
+                        cdss.append(cds)
+                        if frame > 0 :
+                            cds = cdss[0].replace('premature_stop', 'frameshift') if cdss[0].find('premature_stop') >= 0 else 'frameshift'
+                pred[9:11] = start, stop
         if cds != 'CDS' :
             pred[15] = 'pseudogene=' + cds
             
@@ -1566,34 +1609,40 @@ def ortho(args) :
     
     genomes, genes = readGFF(params['GFFs'], params['gtable'])
     genes = addGenes(genes, params['genes'], params['gtable'])
+    
+    genomes, genes, encodes, labelFile = encodeNames(genomes, genes, params['genes'], params['prefix'], params.get('encode', None))
+    priorities = load_priority(params.get('priority', ''), genes, encodes)
+    geneInGenomes = { g:i[0] for g, i in genes.items() }
+    
     if params.get('old_prediction', None) is None :
         params['old_prediction'] = params['prefix']+'.old_prediction.npz'
         old_predictions = {}
         for n, g in genes.items() :
-            if g[1] != '' :
-                if g[1] not in old_predictions :
-                    old_predictions[g[1]] = []
-                old_predictions[g[1]].append([n, g[2], g[3], g[4], g[5] if not len(g[6]) else 0 ])
+            if g[1] != encodes[''] :
+                contig = str(g[1])
+                if contig not in old_predictions :
+                    old_predictions[contig] = []
+                old_predictions[contig].append([n, g[2], g[3], g[4], g[5] if len(g[6]) else 0 ])
         for gene, g in old_predictions.items() :
             old_predictions[gene] = np.array(sorted(g, key=lambda x:x[1]), dtype=object)
-        np.savez_compressed(params['old_prediction'], **old_predictions)
+        with MapBsn(params['old_prediction'], 'w') as op :
+            for k, v in old_predictions.items() :
+                op.save(k, v)
+            #np.savez_compressed(params['old_prediction'], **old_predictions)
         del old_predictions, n, g
     
-    genomes, genes, encodes, labelFile = encodeNames(genomes, genes, params['genes'], params['prefix'], params.get('encode', None))
-    geneInGenomes = { g:i[0] for g, i in genes.items() }
     if params.get('prediction', None) is None :
         params['prediction'] = params['prefix'] + '.Prediction'
-        first_classes = load_priority( params.get('priority', ''), genes, encodes )
 
         if params.get('clust', None) is None :
-            params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, first_classes)
+            params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, priorities)
             del genes
             logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop']))
             params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread'], translate=False))
         
         if params.get('self_bsn', None) is None :
             params['self_bsn'] = params['prefix']+'.self_bsn.npy'
-            np.save(params['self_bsn'], get_similar_pairs(params['prefix'], params['clust'], first_classes, params))
+            np.save(params['self_bsn'], get_similar_pairs(params['prefix'], params['clust'], priorities, params))
         genes = { int(n):s for n, s in readFasta(params['clust']).items()}
         logger('Obtained {0} exemplar gene sequences from {1}'.format(len(genes), params['clust']))
 
@@ -1607,7 +1656,7 @@ def ortho(args) :
             params['map_bsn']= params['prefix']+'.map_bsn'
             
             with MapBsn(params['map_bsn']+'.tab.npz', 'w') as tab_conn, MapBsn(params['map_bsn']+'.seq.npz', 'w') as seq_conn, MapBsn(params['map_bsn']+'.mat.npz', 'w') as mat_conn, MapBsn(params['map_bsn']+'.conflicts.npz', 'w') as clf_conn :
-                get_map_bsn(params['prefix'], params['clust'], genomes, params['self_bsn'], tab_conn, seq_conn, mat_conn, clf_conn, params.get('orthology', 'rapid') != 'rapid')
+                get_map_bsn(params['prefix'], params['clust'], genomes, params['self_bsn'], params['old_prediction'], tab_conn, seq_conn, mat_conn, clf_conn, params.get('orthology', 'rapid') != 'rapid')
         pool.close()
         pool.join()
         
@@ -1617,11 +1666,13 @@ def ortho(args) :
         writeProcess.start()
         gene_scores = precluster(params['map_bsn'], params.get('global', None))
         with MapBsn(params['map_bsn']+'.tab.npz') as tab_conn :
-            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn'], allow_pickle=True), params['global'], params['map_bsn']+'.conflicts.npz', first_classes, gene_scores, encodes)
+            filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn'], allow_pickle=True), params['global'], params['map_bsn']+'.conflicts.npz', priorities, gene_scores, encodes)
         writeProcess.join()
     else :
         genes = {n:s[-1] for n,s in genes.items() }
     old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
+    revEncode = {e:d for d, e in encodes.items()}
+    old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
     
     if not params['synteny'] :
         params['prediction'] = synteny_resolver(params['prefix'], params['prediction'])
