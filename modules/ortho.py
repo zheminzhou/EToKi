@@ -1245,7 +1245,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
-            pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], alleles.get(pred[0], {}).get(seq2, 't1'), pred[7], pred[8], pred[9], pred[10])
+            pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], 't1', pred[7], pred[8], pred[9], pred[10])
             continue
         allowed_vary = pred[12]*(1-pseudogene)
         
