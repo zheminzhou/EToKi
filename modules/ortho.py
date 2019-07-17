@@ -791,7 +791,7 @@ def compare_prediction(blastab, old_prediction) :
                 s, e, f = bsn[8], bsn[9], {(bsn[8] - bsn[6]+1)%3+1, (bsn[9] + (bsn[12] - bsn[7])+1)%3+1}
             else :
                 s, e, f = bsn[9], bsn[8], {-(bsn[8] - bsn[6]+1)%3-1, -(bsn[9] + (bsn[12] - bsn[7])-1)%3-1}
-            while curr[2] < curr[0].shape[0] and  s > curr[0][curr[2]][2] :
+            while curr[2] < len(curr[0]) and  s > curr[0][curr[2]][2] :
                     curr[2] += 1
 
             for p in curr[0][curr[2]:] :
