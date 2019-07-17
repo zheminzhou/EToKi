@@ -1,3 +1,4 @@
+#! /usr/bin/python3
 import sys, os
 from modules.configure import logger
 #refMasker, profile2matrix
