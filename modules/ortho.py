@@ -758,7 +758,7 @@ def iter_map_bsn(data) :
                     c[0] = p[1] + 1
                     c[3] = np.max(c[2] * (c[1]-c[0]+1), 0)
         group[2] = np.sum([c[3] for c in max_sc])
-        if np.max([tab[10] for tab in group[6]]) <= 0.1 :
+        if np.max([tab[10] for tab in group[6]]) <= 0.3 :
             group[2] = -group[2]
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
@@ -781,7 +781,7 @@ def compare_prediction(blastab, old_prediction) :
     blastab = pd.DataFrame(blastab)
     blastab = blastab.assign(s=np.min([blastab[8], blastab[9]], 0)).sort_values(by=[1, 's']).drop('s', axis=1).values
     
-    blastab.T[10] = 0.1
+    blastab.T[10] = 0.3
     with MapBsn(old_prediction) as op :
         curr = [None, -1, 0]
         for bsn in blastab :
@@ -880,7 +880,7 @@ def get_map_bsn(prefix, clust, genomes, orthoGroup, old_prediction, conn, seq_co
 
         os.unlink(bsnPrefix + '.bsn.npz')
         logger('Merged {0}'.format(bsnPrefix))
-        if bId % 200 == 199 or bId == len(taxa) - 1 :
+        if bId % 300 == 299 or bId == len(taxa) - 1 :
             blastab = np.vstack(blastab)
             blastab = blastab[np.argsort(blastab.T[0], kind='mergesort')]
             blastab = np.split(blastab, np.cumsum(np.unique(blastab.T[0], return_counts=True)[1])[:-1])
@@ -1019,7 +1019,8 @@ def ite_synteny_resolver(data) :
             j = ids[n]
             ni, nj = np.array(list(neighbors[i]), dtype=int), np.array(list(neighbors[j]), dtype=int)
             oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
-            s = oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-oi.size, nNeighbor*2-oj.size, 0.])/3.
+            ois, ojs = np.min([nNeighbor*2, oi.size]), np.min([nNeighbor*2, oj.size])
+            s = max(0., ois + ojs - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-ois, nNeighbor*2-ojs, 0.])/3.)
             d = (2.*nNeighbor) - s
             distances.append([d, co_genomes[m] != co_genomes[n], i, j])
             if co_genomes[m] == co_genomes[n] and d *1.5 > 2.*nNeighbor :
@@ -1051,8 +1052,6 @@ def ite_synteny_resolver(data) :
                 diffs[tags[j]] = diffs[tags[i]] = 1
         if len(diffs) >= len(groups) :
             return [grp_tag, groups]
-            #for t, i in groups.items() :
-                #orthologs[i, 0] = orthologs[i[0], 0] + '/{0}'.format(t)
         else :
             return [grp_tag, None]
     return [None, None]
@@ -1067,7 +1066,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     
     for pId, predict in enumerate(prediction) :
         nId = np.concatenate([np.arange(pId-1, max(pId-nNeighbor-1, -1), -1), np.arange(pId+1, min(pId+nNeighbor+1, prediction.shape[0]))])
-        nbs = {neighbor[2] for neighbor in prediction[nId] if neighbor[5] == predict[5]}
+        nbs = {neighbor[2] for neighbor in prediction[nId] if neighbor[5] == predict[5]} - set([predict[2]])
         neighbors[predict[2]].update(nbs)
     paralog_groups = np.unique(orthologs.astype(str), axis=0, return_counts=True)
     paralog_groups = np.unique(paralog_groups[0][paralog_groups[1]>1, 0])
@@ -1078,8 +1077,8 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
         outs = pool2.map(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in paralog_groups ])
         for grp_tag, groups in outs :
             if groups is not None :
-                for t, i in groups.items() :
-                    orthologs[i, 0] = orthologs[i[0], 0] + '#{0}'.format(t)
+                for id, (t, i) in enumerate(sorted(groups.items())) :
+                    orthologs[i, 0] = orthologs[i[0], 0] + '#{0}'.format(id)
             if grp_tag is not None :
                 toDel.append(grp_tag)
         paralog_groups = paralog_groups[np.in1d(paralog_groups, toDel, invert=True)]
@@ -1089,7 +1088,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     prediction.to_csv(prefix+'.synteny.Prediction', sep='\t', index=False, header=False)
     return prefix+'.synteny.Prediction'
 
-def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, gtable, clust=None, orthoPair=None) :
+def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, untrusted, gtable, clust=None, orthoPair=None) :
     alleles = {}
     
     def addOld(opd) :
@@ -1232,7 +1231,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
         prediction = pd.DataFrame(np.vstack([prediction, np.array(list(old_to_add))])).sort_values(by=[5,9]).values
     else :
         prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
-    prediction[prediction.T[4] == np.array([p.rsplit('/', 1)[0].rsplit('#', 1)[0] for p in prediction.T[0]]), 4] = ''
+    prediction[np.array([p.rsplit('/', 1)[0].rsplit('#', 1)[0] for p in prediction.T[4]]) == np.array([p.rsplit('/', 1)[0].rsplit('#', 1)[0] for p in prediction.T[0]]), 4] = ''
     
     for part in prediction :
         if part[0] not in alleles :
@@ -1339,7 +1338,20 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 pred[9:11] = start, stop
         if cds != 'CDS' :
             pred[15] = 'pseudogene=' + cds
-            
+    cdss = {}
+    for pred in prediction :
+        if pred[0] != '' and pred[15] == 'CDS' :
+            if pred[0] not in cdss :
+                cdss[pred[0]] = [0, 0]            
+            cdss[pred[0]][0] += 1.
+            if pred[16] != '' :
+                cdss[pred[0]][1] += 1.
+    removed = {}
+    for gene, stat in cdss.items() :
+        if stat[1] < stat[0]*untrusted[1] :
+            glen = np.mean([len(s) for s in alleles[gene]])
+            if glen < untrusted[0] :
+                removed[gene] = 1
     prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
     for pid, pred in enumerate(prediction) :
         if pred[0] != '' and pred[15] != 'misc_feature' :
@@ -1368,14 +1380,23 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                         'old_locus_tag={0}:{1}-{2};'.format(pred[0].split(':', 1)[1], pred[9], pred[10]), 
                     ))
                 else :
-                    fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{8}inference=ortholog_group:{6}{7}\n'.format(
-                        pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
-                        pred[9], pred[10], pred[11], 
-                        '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
-                        #'' if pred[4] == '' else ';structure_variant={0}'.format(pred[4]), 
-                        ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
-                        '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
-                    ))
+                    if pred[0] not in removed :
+                        fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{8}inference=ortholog_group:{6}{7}\n'.format(
+                            pred[5], 'pseudogene' if pred[15].startswith('pseudogen') else pred[15], 
+                            pred[9], pred[10], pred[11], 
+                            '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
+                            ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
+                            '' if pred[16] == '' else 'old_locus_tag={0};'.format(pred[16]), 
+                        ))
+                    else :
+                        fout.write('{0}\t{1}\tEToKi-ortho\t{2}\t{3}\t.\t{4}\t.\tID={5};{8}inference=ortholog_group:{6}{7}\n'.format(
+                            pred[5], 'misc_feature', 
+                            pred[9], pred[10], pred[11], 
+                            '{0}_g_{1}'.format(prefix, pred[2]), pred[13], 
+                            ';{0}'.format(pred[15]) if pred[15].startswith('pseudogen') else '', 
+                            'note=Removed_untrusted_prediction;' if pred[16] == '' else 'note=Removed_untrusted_prediction;old_locus_tag={0};'.format(pred[16]), 
+                        ))
+                        
     allele_file.close()
     logger('Pan genome annotations have been saved in {0}'.format('{0}.EToKi.gff'.format(prefix)))
     logger('Gene allelic sequences have been saved in {0}'.format('{0}.allele.fna'.format(prefix)))
@@ -1503,6 +1524,7 @@ EToKi.py ortho
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
     parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
+    parser.add_argument('--untrusted', help='FORMAT: l,p; A gene is not reported if it is shorter than l and present in less than p of prior annotations. Default: 300,0.5', default='300,0.5')
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)
@@ -1517,6 +1539,7 @@ EToKi.py ortho
     params.match_frag_len = min(params.min_cds, params.match_frag_len)
     params.match_len1 = min(params.min_cds, params.match_len1)
     params.clust_match_prop = max(params.clust_match_prop, params.match_prop, params.match_prop1, params.match_prop2)
+    params.untrusted = [float(p) for p in params.untrusted.split(',')]
     
     if params.metagenome :
         params.noDiamond = True
@@ -1622,7 +1645,7 @@ def ortho(args) :
                 contig = str(g[1])
                 if contig not in old_predictions :
                     old_predictions[contig] = []
-                old_predictions[contig].append([n, g[2], g[3], g[4], g[5] if len(g[6]) else 0 ])
+                old_predictions[contig].append([n, g[2], g[3], g[4], g[5] if not len(g[6]) else 0 ])
         for gene, g in old_predictions.items() :
             old_predictions[gene] = np.array(sorted(g, key=lambda x:x[1]), dtype=object)
         with MapBsn(params['old_prediction'], 'w') as op :
@@ -1678,7 +1701,7 @@ def ortho(args) :
         params['prediction'] = synteny_resolver(params['prefix'], params['prediction'])
     pool2.close()
     pool2.join()
-    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
+    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['untrusted'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     
 if __name__ == '__main__' :
     ortho(sys.argv[1:])

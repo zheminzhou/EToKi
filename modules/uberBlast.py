@@ -298,6 +298,7 @@ class RunBlast(object) :
         if linear_merge[0] :
             blastab=self.linearMerge(blastab, linear_merge)
         self.fixEnd(blastab, *fix_end)
+        self.pool.close()
         if return_overlap[0] :
             overlap = self.returnOverlap(blastab, return_overlap)
             blastab = pd.DataFrame(blastab).sort_values([0,1,11]).values
