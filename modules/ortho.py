@@ -336,13 +336,14 @@ def filt_per_group(data) :
         for j, m in enumerate(mat) :
             novel = 1
             for g in groups :
-                if diff[g[0], j, 0] <= 0.01*diff[g[0], j, 1] : #(1. - params['clust_identity']**0.3333333)*diff[g[0], j, 1] :
+                if diff[g[0], j, 0] <= 0.01*diff[g[0], j, 1] : 
                     g.append(j)
                     novel = 0
                     break
             if novel :
                 groups.append([j])
         group_tag = {gg:g[0] for g in groups for gg in g}
+        group_size = {g[0]:len(g) for g in groups}
         seqs[seqs == 0] = 45
         try :
             tags = {g[0]:seqs[g[0]].tostring().decode('ascii') for g in groups}
@@ -402,9 +403,9 @@ def filt_per_group(data) :
                         node.ic = ic[0]/ic[1] if ic[1] > 0 else 0.
                     else :
                         node.ic = 0.
-                cut_node = max([[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder')], key=lambda x:(x[0], x[1]))
-                if cut_node[0] > 1 :
-                    cut_node = cut_node[2]
+                cut_node = [[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder') if n.ic > 1]
+                if len(cut_node) > 0 :
+                    cut_node = max(cut_node, key=lambda x:(x[0], x[1], x[2]))[2]
                     prev_node = cut_node.up
                     cut_node.detach()
                     t2 = cut_node
@@ -544,8 +545,6 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, priorities, 
                             cut = min(region_score2[bestPerGenome.size*5] if len(region_score) > bestPerGenome.size * 5 else params['clust_identity'], np.sqrt(params['clust_identity']))
                         mat = mat[region_score>=cut]
                     to_run.append([mat, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
-                    #if gene == 47708 or gene == 38856 :
-                        #filt_per_group(to_run[-1])
             working_groups = pool2.map(filt_per_group, to_run)
             #working_groups = [filt_per_group(d) for d in to_run]
             for (mat, _, _, _, gene), working_group in zip(to_run, working_groups) :
@@ -1340,15 +1339,18 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             pred[15] = 'pseudogene=' + cds
     cdss = {}
     for pred in prediction :
+        if pred[0] not in cdss :
+            cdss[pred[0]] = [0, 0, 0, 0]
+        cdss[pred[0]][2] += 1
+        if pred[16] != '' :
+            cdss[pred[0]][3] += 1.        
         if pred[0] != '' and pred[15] == 'CDS' :
-            if pred[0] not in cdss :
-                cdss[pred[0]] = [0, 0]            
             cdss[pred[0]][0] += 1.
             if pred[16] != '' :
                 cdss[pred[0]][1] += 1.
     removed = {}
     for gene, stat in cdss.items() :
-        if stat[1] < stat[0]*untrusted[1] :
+        if stat[1] < stat[0]*untrusted[1] or (stat[0] < 2 and stat[3] < stat[2]*untrusted[1]) :
             glen = np.mean([len(s) for s in alleles[gene]])
             if glen < untrusted[0] :
                 removed[gene] = 1
@@ -1524,7 +1526,7 @@ EToKi.py ortho
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
     parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
-    parser.add_argument('--untrusted', help='FORMAT: l,p; A gene is not reported if it is shorter than l and present in less than p of prior annotations. Default: 300,0.5', default='300,0.5')
+    parser.add_argument('--untrusted', help='FORMAT: l,p; A gene is not reported if it is shorter than l and present in less than p of prior annotations. Default: 300,0.3', default='300,0.3')
     parser.add_argument('--metagenome', help='Set to metagenome mode. equals to \n"--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"', default=False, action='store_true')
 
     parser.add_argument('--old_prediction', help='development param', default=None)

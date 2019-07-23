@@ -143,27 +143,9 @@ def hierCC(args) :
         absence = np.sum(mat <= 0, 1)
         mat = mat[np.argsort(absence, kind='mergesort')]
 
-    if params.immutable :
-        presence = np.repeat(np.sum(mat[:, 1:]>0, 1), mat.shape[1]).reshape(mat.shape)
-        presence.T[0] = mat.T[0]
-        encode = np.zeros(np.max(mat.T[0])+1, dtype=int)
-        encode[mat.T[0]] = np.arange(mat.shape[0])
-    else :
-        presence = None
     if os.path.isfile(old_cluster) :
         od = np.load(old_cluster, allow_pickle=True)
         cls = od['hierCC']
-        if params.immutable :
-            if 'presence' in od :
-                old_presence = od['presence'] 
-                if old_presence is not None and len(old_presence.shape) > 0 and old_presence.size > 0 :
-                    for c in old_presence :
-                        if c[0] > 0 :
-                            presence[encode[c[0]], :] = c
-                else :
-                    old_presence = None
-            else :
-                old_presence = None
 
         typed = {c[0]:id for id, c in enumerate(cls) if c[0] > 0}
         if len(typed) > 0 :
@@ -184,10 +166,6 @@ def hierCC(args) :
             if idx < mat.shape[0] :
                 if mat[idx, 0] in typed :
                     res[idx, :] = cls[typed[mat[idx, 0]], :]
-                    if params.immutable and old_presence is None :
-                        gl = presence[encode[res[idx, 1:]], np.arange(1, presence.shape[1])]
-                        ql = np.sum(mat[idx, 1:] > 0)
-                        presence[encode[res[idx, 1:]][gl < ql], np.arange(1, presence.shape[1])[gl < ql]] = ql
                 else :
                     to_run.append(idx)
         if len(to_run) == 0 :
@@ -196,12 +174,12 @@ def hierCC(args) :
             dists = np.vstack( pool.map(get_distance, to_run) )
             assignment(dists, res)
         else :
-            dists = np.vstack( pool.map(get_distance3, to_run) )
-            assignment3(dists, res, encode, presence)
+            dists = np.vstack( pool.map(get_distance2, to_run) )
+            assignment2(dists, res)
 
         logger('{0}: Assigned {1} of {2} types into hierCC.'.format(time.time() - ot, index, mat.shape[0]))
     res.T[0] = mat.T[0]
-    np.savez_compressed(cluster_file, hierCC=res, presence=presence)
+    np.savez_compressed(cluster_file, hierCC=res)
 
     if not params.delta :
         with uopen(params.output+'.hierCC.gz', 'w') as fout :
