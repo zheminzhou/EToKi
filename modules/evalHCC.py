@@ -36,6 +36,7 @@ def get_silhouette(profile, cluster, stepwise, ave_gene_length=1.) :
     logger('Calculating pairwise distance ...')
     np.save('evalHCC.profile.npy', profile)
     indices = np.array([[profile.shape[0]*(v/10.)**2+0.5, profile.shape[0]*((v+1)/10.)**2+0.5] for v in np.arange(10, dtype=float)], dtype=int)
+    #subfiles = list(map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices]))
     subfiles = pool.map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices])
     prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
     prof_dist += prof_dist.T
@@ -58,6 +59,7 @@ def get_silhouette2(data) :
 def parallel_distance(callup) :
     prof_file, sub_prefix, ave_gene_length, index_range = callup
     profiles = np.load(prof_file)
+
     res = profile_distance(profiles, ave_gene_length, index_range)
     subfile = sub_prefix.format(index_range[0])
     np.save(subfile, res)
