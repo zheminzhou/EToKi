@@ -1479,7 +1479,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff2 = np.mean(diff)
         mean_diff = min(max(mean_diff2, np.log(0.02)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff2)**2))*3, np.log(4.)), np.log(10.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff2)**2))*3, np.log(5.)), np.log(10.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
