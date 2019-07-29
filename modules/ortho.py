@@ -336,7 +336,7 @@ def filt_per_group(data) :
         for j, m in enumerate(mat) :
             novel = 1
             for g in groups :
-                if diff[g[0], j, 0] <= 0.01*diff[g[0], j, 1] : 
+                if diff[g[0], j, 0] <= 0.015*diff[g[0], j, 1] : 
                     g.append(j)
                     novel = 0
                     break
@@ -387,6 +387,7 @@ def filt_per_group(data) :
             gene_phy = gene_phys[id]
             for ite in xrange(3000) :
                 all_tips = {int(t) for t in gene_phy.get_leaf_names() if t != 'REF'}
+                all_tip_size = np.sum([group_size[t] for t in all_tips])
                 if np.all(incompatible[list(all_tips)].T[0, list(all_tips)] <= incompatible[list(all_tips)].T[1, list(all_tips)]) :
                     break
                 rdist = sum([c.dist for c in gene_phy.get_children()])
@@ -397,15 +398,16 @@ def filt_per_group(data) :
                         node.leaves = { int(node.name) } if node.name != 'REF' else set([])
                     else :
                         node.leaves = { n  for child in node.get_children() for n in child.leaves }
+                    node.leaf_size = np.sum([group_size[t] for t in node.leaves])
                     if len(node.leaves) : 
                         oleaves = all_tips - node.leaves
                         ic = np.sum(incompatible[list(node.leaves)].T[:, list(oleaves)], (1,2))
                         node.ic = ic[0]/ic[1] if ic[1] > 0 else 0.
                     else :
                         node.ic = 0.
-                cut_node = [[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder') if n.ic > 1]
+                cut_node = [[np.sqrt(n.leaf_size*(all_tip_size-n.leaf_size))*n.ic, n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder') if n.ic > 1]
                 if len(cut_node) > 0 :
-                    cut_node = max(cut_node, key=lambda x:(x[0], x[1]))[2]
+                    cut_node = max(cut_node, key=lambda x:(x[0], x[1], x[2]))[3]
                     prev_node = cut_node.up
                     cut_node.detach()
                     t2 = cut_node
@@ -599,12 +601,11 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, priorities, 
                     if conflict < 0 :
                         superC = pangenome[-(conflict+1)]
                         if superC not in supergroup :
-                            supergroup[superC] = [0, 0]
-                        if m[4] >= np.sqrt(params['clust_identity']) * 10000 :
-                            supergroup[superC][0] += 1
-                            supergroup[superC][1] += 2
+                            supergroup[superC] = 0
+                        if m[4] >= params['clust_identity'] * 10000 :
+                            supergroup[superC] += 2
                         else :
-                            supergroup[superC][1] += 1
+                            supergroup[superC] += 1
                     elif conflict >0 :
                         paralog = True
                     m[3] = -1
@@ -626,15 +627,15 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, priorities, 
                 continue
             mat = mat[mat.T[3] > 0]
             
-            superR = [None, -999, 0, 0]
+            superR = [None, -999, 0]
             if len(supergroup) :
-                for superC, (cnt2, cnt) in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
+                for superC, cnt in sorted(supergroup.items(), key=lambda d:d[1], reverse=True) :
                     if cnt >= 0.5 * mat.shape[0] or cnt >= 0.5 * len(panList[superC]) :
                         gl1, gl2 = panList[superC], set(mat.T[1])
                         s = len(gl1 | gl2) - len(gl1) - 3*len(gl1 & gl2)
                         if s < 0 : s = -1
-                        if [s, cnt2, cnt] > superR[1:] :
-                            superR = [superC, s, cnt2, cnt]
+                        if [s, cnt] > superR[1:] :
+                            superR = [superC, s, cnt]
             if superR[1] > 0 or superR[2] > 0 :
                 pangene = superR[0]
             elif paralog :
@@ -743,7 +744,7 @@ def iter_map_bsn(data) :
             x = baseConv[np.array(list(''.join(ms))).view(asc2int)]
             group[4][tab[6]-1:tab[6]+len(x)-1] = x
             sc = np.max(sc)
-            r = 2./(1./(float(sc)/tab[12]) + 1./tab[10])
+            r = 2./(1./(float(sc)/tab[12]) + 1./tab[10]) if float(sc)/tab[12] > tab[10] else float(sc)/tab[12]
             msc = (sc * tab[2])*np.sqrt(sc*r)
             amsc = float(msc)/(tab[7]-tab[6]+1)
             max_sc.append([tab[6], tab[7], amsc, msc])
@@ -757,8 +758,6 @@ def iter_map_bsn(data) :
                     c[0] = p[1] + 1
                     c[3] = np.max(c[2] * (c[1]-c[0]+1), 0)
         group[2] = np.sum([c[3] for c in max_sc])
-        if np.max([tab[10] for tab in group[6]]) <= 0.3 :
-            group[2] = -group[2]
     overlap = np.vstack([np.vstack([m, n]).T[(m>=0) & (n >=0)] for m in (convA[overlap.T[0]], convB[overlap.T[0]]) \
                          for n in (convA[overlap.T[1]], convB[overlap.T[1]]) ] + [np.vstack([convA, convB]).T[(convA >= 0) & (convB >=0)]])
     bsn=np.array(groups, dtype=object)
@@ -780,7 +779,7 @@ def compare_prediction(blastab, old_prediction) :
     blastab = pd.DataFrame(blastab)
     blastab = blastab.assign(s=np.min([blastab[8], blastab[9]], 0)).sort_values(by=[1, 's']).drop('s', axis=1).values
     
-    blastab.T[10] = 0.3
+    blastab.T[10] = 0.2
     with MapBsn(old_prediction) as op :
         curr = [None, -1, 0]
         for bsn in blastab :
@@ -1479,7 +1478,7 @@ def get_global_difference(geneGroups, cluFile, bsnFile, geneInGenomes, nGene = 1
         diff = np.log(1.005-np.array(data)/10000.)
         mean_diff2 = np.mean(diff)
         mean_diff = min(max(mean_diff2, np.log(0.02)), np.log(0.5))
-        sigma = min(max(np.sqrt(np.mean((diff - mean_diff2)**2))*3, np.log(5.)), np.log(10.))
+        sigma = min(max(np.sqrt(np.mean((diff - mean_diff2)**2))*3, np.log(4.)), np.log(8.))
         global_differences[pair] = (np.exp(mean_diff), np.exp(sigma))
     return pd.DataFrame(list(global_differences.items())).values
 
