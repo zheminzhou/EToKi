@@ -405,7 +405,7 @@ def filt_per_group(data) :
                         node.ic = 0.
                 cut_node = [[n.ic, n.dist, n] for n in gene_phy.iter_descendants('postorder') if n.ic > 1]
                 if len(cut_node) > 0 :
-                    cut_node = max(cut_node, key=lambda x:(x[0], x[1], x[2]))[2]
+                    cut_node = max(cut_node, key=lambda x:(x[0], x[1]))[2]
                     prev_node = cut_node.up
                     cut_node.detach()
                     t2 = cut_node
