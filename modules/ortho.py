@@ -681,10 +681,10 @@ def iter_map_bsn(data) :
 
     if params['noDiamond'] :
         blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -e 0,3 --gtable {7}'.format(\
-            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'], params['gtable'] ).split())
+            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['link_gap'], params['link_diff'], params['gtable'] ).split())
     else :
         blastab, overlap = uberBlast('-r {0} -q {1} -f -m -O --blastn --diamond --min_id {2} --min_cov {3} --min_ratio {4} --merge_gap {5} --merge_diff {6} -t 2 -s 1 -e 0,3 --gtable {7}'.format(\
-            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['synteny_gap'], params['synteny_diff'], params['gtable'] ).split())
+            gfile, clust, params['match_identity']-0.1, params['match_frag_len'], params['match_frag_prop'], params['link_gap'], params['link_diff'], params['gtable'] ).split())
     os.unlink(gfile)
     blastab.T[:2] = blastab.T[:2].astype(int)
     
@@ -1520,8 +1520,8 @@ EToKi.py ortho
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
     
-    parser.add_argument('--synteny_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
-    parser.add_argument('--synteny_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
+    parser.add_argument('--link_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
+    parser.add_argument('--link_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--allowed_variation', help='Allowed relative variation level compare to global. \nThe larger, the more variations are kept as inparalogs. Default: 1.', default=1., type=float)
     parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
