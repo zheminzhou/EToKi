@@ -1117,7 +1117,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 part[8], part[10] = part[8]-3+rr, part[10]-(3-rr)*d
 
         part[9:12] = (part[9], part[10], '+') if d > 0 else (part[10], part[9], '-')
-    
+
     allele_file = open('{0}.allele.fna'.format(prefix), 'w')
     prediction = pd.read_csv(prediction, sep='\t', header=None)
     prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
@@ -1568,9 +1568,9 @@ def iterClust(prefix, genes, geneGroup, params) :
     identity_target = params['identity']
     g = genes
     iterIden = np.round(np.arange(1., identity_target-0.005, -0.01), 5)
-    iterCov = np.repeat(params['coverage'], iterIden.shape[0]) #np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
-    for iden, cov in zip(iterIden, iterCov) :
-        params.update({'identity':iden, 'coverage':np.round(cov, 2)})
+    #np.power(params['coverage'], 0.5**np.arange(iterIden.size-1, -1, -1))
+    for iden in iterIden :
+        params.update({'identity':iden, 'coverage':np.round(params['coverage'], 2)})
         iden2 = min(1., iden+0.005)
         g, clust = getClust(prefix, g, params)
         exemplarNames = readFasta(g, headOnly=True)

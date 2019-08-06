@@ -115,6 +115,8 @@ def global_tree(items, genomeNum, hgt_i, hgt_d, rec, recLen, growthRate) :
     
     r0 = float(recLen)/(genomeLength+2000000)
     r, hi, hd = np.log(1-rec)/np.log(1-r0)/2, np.log(1-hgt_i)/np.log(1-r0)/2, np.log(1-hgt_d)/np.log(1-r0)/2
+    if r <= 0 :
+        r = 1e-9
     popSize = 1./np.exp(-growthRate)
     cmd = '{mshot} {0} 1 -T -s 0 -r 0.00000001 {1} -eN 0 {4:.10f} -eG 0 {5} -eN 10 0 -c {2} {3}'.format( \
         genomeNum, genomeLength+2000000, r*100000000, recLen/2., popSize, growthRate, **externals )
@@ -125,21 +127,26 @@ def global_tree(items, genomeNum, hgt_i, hgt_d, rec, recLen, growthRate) :
             cmd += ' -V 1 {0} {1} {2}'.format(genomeLength+1, genomeLength+2000000, hi/r)
     elif abs(r - hd) > 1e-2 :
         cmd += ' -V 1 {0} {1} {2}'.format(genomeLength+1000001, genomeLength+2000000, hd/r)
-    p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, universal_newlines=True)
+    sys.stdout.write(cmd)
+    p = subprocess.Popen(cmd.split(), universal_newlines=True, stdout=subprocess.PIPE)
     
     seqtrees, itrees, dtrees = [], [], []
     c = 0
+    
+    blks = np.array([[0, genomeLength-100000], [genomeLength-100000, 200000], [genomeLength+100000, 800000], [genomeLength+900000, 200000], [genomeLength+1100000, 900000]])
     for line in p.stdout :
         if line.startswith('[') :
             w, t = line.strip().split(']')
             w = int(w[1:])
-            if c < genomeLength - 100000 :
-                seqtrees.append([c+w, w, t])
-            elif genomeLength + 100001 <= c <= genomeLength+900000 :
-                itrees.append([w, t])
-            elif c >= genomeLength + 1100001 :
-                dtrees.append([w, t])
-            c += w
+            w2 = np.min([c+w - blks.T[0], blks.T[1]], axis=0)
+            for i, w in enumerate(w2[w2>0]) :
+                if i == 0 :
+                    seqtrees.append([c+w, w, t])
+                elif i == 2 :
+                    itrees.append([w, t])
+                elif i == 4 :
+                    dtrees.append([w, t])
+                c += w
     return seqtrees, itrees, dtrees
     
 def itemShaper(items, geneLen, igrLen) :
