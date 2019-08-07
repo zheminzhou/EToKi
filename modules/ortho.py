@@ -1165,7 +1165,6 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
 
         part[9:12] = (part[9], part[10], '+') if d > 0 else (part[10], part[9], '-')
 
-    allele_file = open('{0}.allele.fna'.format(prefix), 'w')
     prediction = pd.read_csv(prediction, sep='\t', header=None)
     prediction = prediction.assign(old_tag=np.repeat('New_prediction', prediction.shape[0]), cds=np.repeat('CDS', prediction.shape[0]), s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
 
@@ -1285,13 +1284,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 gId = encodes[part[0]]
                 if gId in clust_ref :
                     alleles[part[0]] = {clust_ref[gId]:1}
-                    allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
+                    #allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
     
     for pid, pred in enumerate(prediction) :
         if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
             pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], 't1', pred[7], pred[8], pred[9], pred[10])
             continue
-        allowed_vary = pred[12]*(1-pseudogene)
+        allowed_vary = int(pred[12]*(1-pseudogene)+0.01)
         
         if pred[4] :
             map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], p.rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
@@ -1339,7 +1338,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     alleles[pred[0]][seq2] = str(len(alleles[pred[0]])+1)
                 else :
                     alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
-                allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
+                #allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
             pred[13] = map_tag.format(alleles[pred[0]][seq2])
             
             p = pred[0].rsplit('/', 1)[0].rsplit('#', 1)[0]
@@ -1400,6 +1399,13 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             glen = np.mean([len(s) for s in alleles[gene]])
             if glen < untrusted[0] :
                 removed[gene] = 1
+
+    with open('{0}.allele.fna'.format(prefix), 'w') as allele_file :
+        for gene, seqs in alleles.items() :
+            if gene not in removed :
+                for seq, id in sorted(seqs.items(), key=lambda s:x[1]) :
+                    allele_file.write('>{0}_{1}\n{2}\n'.format(gene, id, seq))
+
     prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
     for pid, pred in enumerate(prediction) :
         if pred[0] != '' and pred[15] != 'misc_feature' :
