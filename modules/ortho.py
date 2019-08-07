@@ -1120,7 +1120,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     paralog_groups = np.unique(paralog_groups[0][paralog_groups[1]>1, 0])
 
     #toDel = []
-    #outs = list(map(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in paralog_groups ]))
+    #outs = list(map(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in paralog_groups ]))
     outs = pool2.imap_unordered(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in sorted(paralog_groups, key=lambda p:orth_cnt.get(p, 0)) ])
     for grp_tag, groups in outs :
         if groups is not None :
@@ -1285,7 +1285,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             if part[0] in encodes :
                 gId = encodes[part[0]]
                 if gId in clust_ref :
-                    alleles[part[0]] = {clust_ref[gId]:1}
+                    alleles[part[0]] = {clust_ref[gId]:str(1)}
                     #allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
     
     for pid, pred in enumerate(prediction) :
