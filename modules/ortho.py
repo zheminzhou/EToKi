@@ -589,10 +589,10 @@ def filt_genes(prefix, groups, ortho_groups, global_file, cfl_file, priorities, 
                     to_run.append([mat, np.max(np.unique(mat.T[1], return_counts=True)[1])>1, clust_ref[ mat[0][0] ], params['map_bsn']+'.seq.npz', global_file, gene])
 
             times.append(time())
-            to_run = sorted(to_run, key=lambda r:(r[1], mat.shape[0]), reverse=True)
-            working_groups = pool2.imap_unordered(filt_per_group, to_run)
+            working_groups = pool2.imap_unordered(filt_per_group, sorted(to_run, key=lambda r:(r[1], mat.shape[0]), reverse=True))
             #working_groups = [filt_per_group(d) for d in to_run]
-            for (mat, _, _, _, _, gene), working_group in zip(to_run, working_groups) :
+            for working_group in working_groups :
+                gene = working_group[0][0][0]
                 new_groups[gene] = working_group[0]
                 if len(working_group) > 1 :
                     cfl = conflicts.get(int(gene), {})
