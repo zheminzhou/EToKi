@@ -51,7 +51,7 @@ def getClust(prefix, genes, params) :
         refFile = os.path.join(dirPath, 'seq.ref')
         
         nRef = 999999999999999
-        for ite in xrange(4) :
+        for ite in xrange(3) :
             if os.path.isdir(tmpDb) :
                 shutil.rmtree(tmpDb)
             os.makedirs(tmpDb)

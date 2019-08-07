@@ -318,7 +318,7 @@ class RunBlast(object) :
         overlaps[-1, :] = [0, 1, -1]
         res = []
         while overlaps[-1, 0] >= 0 :
-            logger('Searching {0} / {1} tabs'.format(overlaps[-1, 0], len(tabs)))
+            #logger('Searching {0} / {1} tabs'.format(overlaps[-1, 0], len(tabs)))
             overlaps[:-1, :] = -1
             overlaps = tab2overlaps(tabs, ovl_l, ovl_p, len(tabs), overlaps)
             res.append(overlaps[overlaps.T[2] > 0][:])
@@ -338,7 +338,7 @@ class RunBlast(object) :
         
         nTab = len(blastab)
         for bId in xrange(0, blastab.shape[0], perBatch) :
-            logger('Update scores: {0} / {1}'.format(bId, nTab))
+            #logger('Update scores: {0} / {1}'.format(bId, nTab))
             tabs = blastab[bId:bId+perBatch]
             #scores = np.array([ cigar2score([t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1]) for t in tabs ])
             scores = np.array(list(map(cigar2score, ( [t[14], self.refSeq[str(t[1])][t[8]-1:t[9]] if t[8] < t[9] else 4 - self.refSeq[str(t[1])][t[9]-1:t[8]][::-1], self.qrySeq[str(t[0])][t[6]-1:t[7]], t[6], mode, 6, 1, table_id] for t in tabs ))))
