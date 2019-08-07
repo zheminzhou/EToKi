@@ -1108,18 +1108,20 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     orthologs = np.vstack([['', ''], np.copy(prediction[:, [0,3]])])
     orthologs[prediction.T[2].astype(int)] = prediction[:, [0,3]]
     orthologs = orthologs[:len(neighbors)]
-    orth_cnt = dict(zip(*(np.unique(orthologs.T[0], return_counts=True))))
+    orthologs2 = np.unique(orthologs, return_inverse=True)[1].reshape([-1, 2])
+    
+    orth_cnt = dict(zip(*(np.unique(orthologs2.T[0], return_counts=True))))
     
     for pId, predict in enumerate(prediction) :
         nId = np.concatenate([np.arange(pId-1, max(pId-nNeighbor-1, -1), -1), np.arange(pId+1, min(pId+nNeighbor+1, prediction.shape[0]))])
         nbs = {neighbor[2] for neighbor in prediction[nId] if neighbor[5] == predict[5]} - set([predict[2]])
         neighbors[predict[2]].update(nbs)
-    paralog_groups = np.unique(orthologs.astype(str), axis=0, return_counts=True)
+    paralog_groups = np.unique(orthologs2, axis=0, return_counts=True)
     paralog_groups = np.unique(paralog_groups[0][paralog_groups[1]>1, 0])
 
     #toDel = []
     #outs = list(map(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in paralog_groups ]))
-    outs = pool2.imap_unordered(ite_synteny_resolver, [ [grp_tag, orthologs, neighbors, nNeighbor] for grp_tag in sorted(paralog_groups, key=lambda p:orth_cnt.get(p, 0)) ])
+    outs = pool2.imap_unordered(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in sorted(paralog_groups, key=lambda p:orth_cnt.get(p, 0)) ])
     for grp_tag, groups in outs :
         if groups is not None :
             for id, (t, i) in enumerate(sorted(groups.items())) :
@@ -1403,7 +1405,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     with open('{0}.allele.fna'.format(prefix), 'w') as allele_file :
         for gene, seqs in alleles.items() :
             if gene not in removed :
-                for seq, id in sorted(seqs.items(), key=lambda s:x[1]) :
+                for seq, id in sorted(seqs.items(), key=lambda s:s[1]) :
                     allele_file.write('>{0}_{1}\n{2}\n'.format(gene, id, seq))
 
     prediction = pd.DataFrame(prediction).sort_values(by=[5,9]).values
@@ -1573,8 +1575,8 @@ EToKi.py ortho
     parser.add_argument('--match_frag_prop', help='Min proportion of each fragment for fragmented matches. Default: 0.3', default=0.3, type=float)
     parser.add_argument('--match_frag_len', help='Min length of each fragment for fragmented matches. Default: 50', default=50., type=float)
     
-    parser.add_argument('--link_gap', help='Consider two fragmented matches within N bases as a synteny block. Default: 300', default=300., type=float)
-    parser.add_argument('--link_diff', help='Form a synteny block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
+    parser.add_argument('--link_gap', help='Consider two fragmented matches within N bases as a linked block. Default: 300', default=300., type=float)
+    parser.add_argument('--link_diff', help='Form a linked block when the covered regions in the reference gene \nand the queried genome differed by no more than this value. Default: 1.2', default=1.2, type=float)
 
     parser.add_argument('--allowed_sigma', help='Allowed number of sigma for paralogous splitting. \nThe larger, the more variations are kept as inparalogs. Default: 3.', default=3., type=float)
     parser.add_argument('--pseudogene', help='A match is reported as pseudogene if its coding region is less than this amount of the reference gene. Default: 0.8', default=.8, type=float)
