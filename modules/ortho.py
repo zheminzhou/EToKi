@@ -1143,6 +1143,44 @@ def synteny_resolver(prefix, prediction, nNeighbor = 2) :
     prediction.to_csv(prefix+'.synteny.Prediction', sep='\t', index=False, header=False)
     return prefix+'.synteny.Prediction'
 
+def determineGeneStructure(data) :
+    pid, pred, seq, s, e, s2, e2, lp, allowed_vary, gtable = data
+    cds, cdss = 'CDS', []
+    for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
+        if (len(seq) - frame) % 3 > 0 :
+            aa_seq = aa_seq[:-1]
+        cds = 'CDS'
+        
+        s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
+        start = s0 if s0 >= 0 else s1
+        if start < 0 :
+            cds, start = 'nostart', int(lp/3)
+        stop = aa_seq.find('X', start)
+        while 0 <= stop < int((lp+allowed_vary)/3) :
+            s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
+            if s0 >= 0 :
+                start = s0
+                stop = aa_seq.find('X', start)
+            else :
+                break
+        if stop < 0 :
+            cds = 'nostop'
+        elif (stop - start + 1)*3 < pred[12] - allowed_vary :
+            cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
+            
+        if cds == 'CDS' :
+            if pred[11] == '+' :
+                start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
+            else :
+                start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
+            break
+        else :
+            start, stop = s, e
+            cdss.append(cds)
+            if frame > 0 :
+                cds = cdss[0].replace('premature_stop', 'frameshift') if cdss[0].find('premature_stop') >= 0 else 'frameshift'
+    return pid, cds, start, stop
+
 def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction, pseudogene, untrusted, gtable, clust=None, orthoPair=None) :
     alleles = {}
     
@@ -1225,12 +1263,12 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 continue
             elif opd[1] > e :
                 break
+            if opd[3] != pred[11] :
+                continue
             ovl = min(opd[2], e) - max(opd[1], s) + 1
             if ovl >= 300 or ovl >= 0.6 * (opd[2]-opd[1]+1) or ovl >= 0.6 * (e - s + 1) :
                 if opd[4] < 7 :
                     opd[4] = 10 * pred[2]
-                if opd[3] != pred[11] :
-                    continue
                 if pred[11] == '+' :
                     f2 = np.unique([(opd[1] - pred[9])%3, (opd[2]+1 - pred[9])%3])
                 else :
@@ -1296,102 +1334,80 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                     alleles[part[0]] = {clust_ref[gId]:str(1)}
                     #allele_file.write('>{0}_{1}\n{2}\n'.format(part[0], 1, clust_ref[gId]))
     
-    for pid, pred in enumerate(prediction) :
-        if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
-            pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], 't1', pred[7], pred[8], pred[9], pred[10])
-            continue
-        allowed_vary = int(pred[12]*(1-pseudogene)+0.01)
-        
-        if pred[4] :
-            map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], p.rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
-        else :
-            map_tag = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], '{0}', pred[7], pred[8], pred[9], pred[10])
+    for ppid in np.arange(0, len(prediction), 10000) :
+        toRun = []
+        for xid, pred in enumerate(prediction[ppid:ppid+10000]) :
+            pid = ppid + xid 
+            #for pid in np.arange(ppid, ppid+10000) :
+            #pred = prediction[pid]
+            if pred[15] == 'misc_feature' or pred[0] == '' or pred[1] == -1 : 
+                pred[13] = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], 't1', pred[7], pred[8], pred[9], pred[10])
+                continue
+            allowed_vary = int(pred[12]*(1-pseudogene)+0.01)
             
-        pred2 = None
-        if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
-            cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), map_tag.format('ND')
-        else :
-            s, e = pred[9:11]
-            if pred[11] == '+' :
-                for i, pp in enumerate(prediction[pid+1:pid+5]) :
-                    if pp[5] != pred[5] : break
-                    elif pp[15] != 'misc_feature' :
-                        pred2 = pp
-                        pred2_id = i + pid + 1
-                        break
-                if pred2 is not None:
-                    e2 = e + min(3*int((pred[13] - e)/3), 3*int((pred2[10] + 300 - e)/3))
-                else :
-                    e2 = e + min(3*int((pred[13] - e)/3), 600+pred[12] - pred[8])
-                s2 = s - min(3*int((s - 1)/3), 60+pred[7]-1)
-                seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
-                lp, rp = s - s2, e2 - e
+            if pred[4] :
+                map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], p.rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
             else :
-                for i, pp in enumerate(reversed(prediction[max(pid-5, 0):pid])) :
-                    if pp[5] != pred[5] : break
-                    elif pp[15] != 'misc_feature' :
-                        pred2 = pp
-                        pred2_id = pid - 1 - i
-                        break
-                if pred2 is not None :
-                    s2 = s - min(3*int((s - 1)/3), 3*int((s - pred2[9] + 300)/3))
-                else :
-                    s2 = s - min(3*int((s - 1)/3), 600+pred[12]-pred[8])
-
-                e2 = e + min(3*int((pred[13] - e)/3), 60+pred[7]-1)
-                seq = rc(genomes[encodes[pred[5]]][1][(s2-1):e2])
-                rp, lp = s - s2, e2 - e
-            
-            seq2 = seq[(lp):(len(seq)-rp)]
-            if seq2 not in alleles[pred[0]] :
-                if pred[4] == '' and pred[7] == 1 and pred[8] == pred[12] :
-                    alleles[pred[0]][seq2] = str(len(alleles[pred[0]])+1)
-                else :
-                    alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
-                #allele_file.write('>{0}_{1}\n{2}\n'.format(pred[0], alleles[pred[0]][seq2], seq2))
-            pred[13] = map_tag.format(alleles[pred[0]][seq2])
-            
-            p = pred[0].rsplit('/', 1)[0].rsplit('#', 1)[0]
-            if len(seq2) < pseudogene*len(clust_ref[encodes[p]]) :
-                cds = 'structral_variation:{0:.2f}%'.format(100.*len(seq2)/len(clust_ref[encodes[p]]))
+                map_tag = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], '{0}', pred[7], pred[8], pred[9], pred[10])
+                
+            pred2 = None
+            if pred[1] > 1 or (pred[10]-pred[9]+1) < pred[12] - allowed_vary :
+                cds, pred[13] = 'fragment:{0:.2f}%'.format((pred[10]-pred[9]+1)*100/pred[12]), map_tag.format('ND')
             else :
-                cdss = []
-                for frame, aa_seq in zip(pred[14], transeq({'n':seq}, transl_table=gtable, markStarts=True, frame=','.join([str(f+1) for f in pred[14]]))['n']) :
-                    if (len(seq) - frame) % 3 > 0 :
-                        aa_seq = aa_seq[:-1]
-                    cds = 'CDS'
-                    
-                    s0, s1 = aa_seq.find('M', int(lp/3), int((lp+allowed_vary)/3)), aa_seq.rfind('M', 0, int(lp/3))
-                    start = s0 if s0 >= 0 else s1
-                    if start < 0 :
-                        cds, start = 'nostart', int(lp/3)
-                    stop = aa_seq.find('X', start)
-                    while 0 <= stop < int((lp+allowed_vary)/3) :
-                        s0 = aa_seq.find('M', stop, int((lp+allowed_vary)/3))
-                        if s0 >= 0 :
-                            start = s0
-                            stop = aa_seq.find('X', start)
-                        else :
+                s, e = pred[9:11]
+                if pred[11] == '+' :
+                    for i, pp in enumerate(prediction[pid+1:pid+5]) :
+                        if pp[5] != pred[5] : break
+                        elif pp[15] != 'misc_feature' :
+                            pred2 = pp
+                            pred2_id = i + pid + 1
                             break
-                    if stop < 0 :
-                        cds = 'nostop'
-                    elif (stop - start + 1)*3 < pred[12] - allowed_vary :
-                        cds = 'premature_stop:{0:.2f}%'.format((stop - start + 1)*300/pred[12])
-                        
-                    if cds == 'CDS' :
-                        if pred[11] == '+' :
-                            start, stop = s2 + start*3 + frame, s2 + stop*3 + 2 + frame
-                        else :
-                            start, stop = e2 - stop*3 - 2 - frame, e2 - start*3 - frame
-                        break
+                    if pred2 is not None:
+                        e2 = e + min(3*int((pred[13] - e)/3), 3*int((pred2[10] + 300 - e)/3))
                     else :
-                        start, stop = s, e
-                        cdss.append(cds)
-                        if frame > 0 :
-                            cds = cdss[0].replace('premature_stop', 'frameshift') if cdss[0].find('premature_stop') >= 0 else 'frameshift'
-                pred[9:11] = start, stop
-        if cds != 'CDS' :
-            pred[15] = 'pseudogene=' + cds
+                        e2 = e + min(3*int((pred[13] - e)/3), 600+pred[12] - pred[8])
+                    s2 = s - min(3*int((s - 1)/3), 60+pred[7]-1)
+                    seq = genomes[encodes[pred[5]]][1][(s2-1):e2]
+                    lp, rp = s - s2, e2 - e
+                else :
+                    for i, pp in enumerate(reversed(prediction[max(pid-5, 0):pid])) :
+                        if pp[5] != pred[5] : break
+                        elif pp[15] != 'misc_feature' :
+                            pred2 = pp
+                            pred2_id = pid - 1 - i
+                            break
+                    if pred2 is not None :
+                        s2 = s - min(3*int((s - 1)/3), 3*int((s - pred2[9] + 300)/3))
+                    else :
+                        s2 = s - min(3*int((s - 1)/3), 600+pred[12]-pred[8])
+    
+                    e2 = e + min(3*int((pred[13] - e)/3), 60+pred[7]-1)
+                    seq = rc(genomes[encodes[pred[5]]][1][(s2-1):e2])
+                    rp, lp = s - s2, e2 - e
+                
+                seq2 = seq[(lp):(len(seq)-rp)]
+                if seq2 not in alleles[pred[0]] :
+                    if pred[4] == '' and pred[7] == 1 and pred[8] == pred[12] :
+                        alleles[pred[0]][seq2] = str(len(alleles[pred[0]])+1)
+                    else :
+                        alleles[pred[0]][seq2] = 't{0}'.format(len(alleles[pred[0]])+1)
+                pred[13] = map_tag.format(alleles[pred[0]][seq2])
+                
+                p = pred[0].rsplit('/', 1)[0].rsplit('#', 1)[0]
+                if len(seq2) < pseudogene*len(clust_ref[encodes[p]]) :
+                    cds = 'structral_variation:{0:.2f}%'.format(100.*len(seq2)/len(clust_ref[encodes[p]]))
+                else :
+                    cds = 'CDS'
+                    toRun.append([pid, pred, seq, s, e, s2, e2, lp, allowed_vary, gtable])
+                    #pid, cds, start, stop = determineGeneStructure([pid, pred, seq, s, e])
+                    #pred[9:11] = start, stop
+            if cds != 'CDS' :
+                pred[15] = 'pseudogene=' + cds
+        for pid, cds, start, stop in pool2.map(determineGeneStructure, toRun) :
+            pred = prediction[pid]
+            pred[9:11] = start, stop
+            if cds != 'CDS' :
+                pred[15] = 'pseudogene=' + cds
     cdss = {}
     for pred in prediction :
         if pred[0] not in cdss :
@@ -1406,7 +1422,10 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
     removed = {}
     for gene, stat in cdss.items() :
         if stat[1] < stat[0]*untrusted[1] or (stat[0] < 2 and stat[3] < stat[2]*untrusted[1]) :
-            glen = np.mean([len(s) for s in alleles[gene]])
+            if len(alleles[gene]) :
+                glen = np.mean([len(s) for s in alleles[gene]])
+            else :
+                glen = 0
             if glen < untrusted[0] :
                 removed[gene] = 1
 
@@ -1763,12 +1782,12 @@ def ortho(args) :
     old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
     
     if params['neighborhood'] > 0 :
-        logger('Synteny based paralog splitting starts')
+        logger('Neigbhorhood based paralog splitting starts')
         params['prediction'] = synteny_resolver(params['prefix'], params['prediction'], params['neighborhood'])
-        logger('Synteny based paralog splitting finishes')
+        logger('Neigbhorhood based paralog splitting finishes')
+    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['untrusted'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     pool2.close()
     pool2.join()
-    write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['untrusted'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     
 if __name__ == '__main__' :
     ortho(sys.argv[1:])
