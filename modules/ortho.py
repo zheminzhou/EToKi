@@ -1058,22 +1058,23 @@ def ite_synteny_resolver(data) :
     if genomes.size == 1 :
         return [grp_tag, None]
 
-    distances, conflicts = [], {}
+    distances, conflicts, inConflicts = [], {}, {}
     for m, i in enumerate(ids) :
         for n in np.arange(m+1, ids.size) :
             j = ids[n]
             ni, nj = np.array(list(neighbors[i]), dtype=int), np.array(list(neighbors[j]), dtype=int)
             oi, oj = np.unique(orthologs[ni, 0]), np.unique(orthologs[nj, 0])
-            ois, ojs = np.min([nNeighbor*2, oi.size]), np.min([nNeighbor*2, oj.size])
-            s = max(0., ois + ojs - np.unique(np.concatenate([oi, oj])).size + np.min([nNeighbor*2-ois, nNeighbor*2-ojs, 0.])/3.)
-            d = (2.*nNeighbor) - s
+            ois, ojs = np.min([6, oi.size]), np.min([6, oj.size])
+            s = 3*(oi.size + oj.size - np.unique(np.concatenate([oi, oj])).size) + np.max([6-ois, 6-ojs, 0]) + 1
+            d = 3*nNeighbor - s
             distances.append([d, co_genomes[m] != co_genomes[n], i, j])
-            if co_genomes[m] == co_genomes[n] and d *1.5 > 2.*nNeighbor :
+            if co_genomes[m] == co_genomes[n] and d > 0 :
                 conflicts[(i, j)] = conflicts[(j, i)] = 1
+                inConflicts[i] = inConflicts[j] = 1
+
     if conflicts :
         distances.sort()
-        groups = { id:[id] for id in ids }
-        tags = { id:id for id in ids }
+        groups, tags = { id:[[id], []] if id in inConflicts else [[], [id]] for id in ids }, { id:id for id in ids }
         for idx, (d, _, i, j) in enumerate(distances) :
             if tags[i] == tags[j] : continue
             if (i, j) in conflicts :
@@ -1081,27 +1082,34 @@ def ite_synteny_resolver(data) :
                 break
             ti, tj = tags[i], tags[j]
             skip = False
-            for m in groups[ti] :
-                for n in groups[tj] :
+            for m in groups[ti][0] :
+                for n in groups[tj][0] :
                     if (m, n) in conflicts :
                         skip = True
                         break
+                if skip :
+                    break
+
             if not skip :
                 gg = groups.pop(tj)
-                for g in gg :
+                for g in gg[0] :
                     tags[g] = tags[i]
-                groups[ti].extend(gg)
+                for g in gg[1] :
+                    tags[g] = tags[i]
+                groups[ti][0].extend(gg[0])
+                groups[ti][1].extend(gg[1])
         diffs = {}
         for d, _, i, j in distances :
             if (i, j) in conflicts :
                 diffs[tags[j]] = diffs[tags[i]] = 1
+
         if len(diffs) >= len(groups) :
-            return [grp_tag, groups]
+            return [grp_tag, { id:grp[0]+grp[1] for id, grp in groups.items() }]
         else :
             return [grp_tag, None]
     return [None, None]
 
-def synteny_resolver(prefix, prediction, nNeighbor = 3) :
+def synteny_resolver(prefix, prediction, nNeighbor = 2) :
     prediction = pd.read_csv(prediction, sep='\t', header=None)
     prediction = prediction.assign(s=np.min([prediction[9], prediction[10]], 0)).sort_values(by=[5, 's']).drop('s', axis=1).values
     neighbors = [ set([]) for i in np.arange(np.max(prediction.T[2])+1) ]
@@ -1113,7 +1121,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
     orth_cnt = dict(zip(*(np.unique(orthologs2.T[0], return_counts=True))))
     
     for pId, predict in enumerate(prediction) :
-        nId = np.concatenate([np.arange(pId-1, max(pId-nNeighbor-1, -1), -1), np.arange(pId+1, min(pId+nNeighbor+1, prediction.shape[0]))])
+        nId = np.concatenate([np.arange(pId-1, max(pId-4, -1), -1), np.arange(pId+1, min(pId+4, prediction.shape[0]))])
         nbs = {neighbor[2] for neighbor in prediction[nId] if neighbor[5] == predict[5]} - set([predict[2]])
         neighbors[predict[2]].update(nbs)
     paralog_groups = np.unique(orthologs2, axis=0, return_counts=True)
@@ -1554,7 +1562,7 @@ EToKi.py ortho
     
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_ortho', default='EToKi_ortho')
     parser.add_argument('-o', '--orthology', help='Method to define orthologous groups. \nnj [default], ml (for small dataset) or sbh (extremely large datasets)', default='nj')
-    parser.add_argument('-s', '--synteny', help='Do NOT use synteny to resolve paralogs', default=False, action='store_true')
+    parser.add_argument('-n', '--neighborhood', help='No. of orthologous neighborhood for paralog splitting. Set to 0 to disable this step. ', default=2, type=int)
 
     parser.add_argument('-t', '--n_thread', help='Number of threads. Default: 20', default=20, type=int)
     parser.add_argument('--min_cds', help='Minimum length of a reference CDS. Default: 150.', default=150., type=float)
@@ -1754,9 +1762,9 @@ def ortho(args) :
     revEncode = {e:d for d, e in encodes.items()}
     old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
     
-    if not params['synteny'] :
+    if params['neighborhood'] > 0 :
         logger('Synteny based paralog splitting starts')
-        params['prediction'] = synteny_resolver(params['prefix'], params['prediction'])
+        params['prediction'] = synteny_resolver(params['prefix'], params['prediction'], params['neighborhood'])
         logger('Synteny based paralog splitting finishes')
     pool2.close()
     pool2.join()
