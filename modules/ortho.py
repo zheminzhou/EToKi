@@ -1121,7 +1121,7 @@ def synteny_resolver(prefix, prediction, nNeighbor = 3) :
 
     #toDel = []
     #outs = list(map(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in paralog_groups ]))
-    outs = pool2.imap_unordered(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in sorted(paralog_groups, key=lambda p:orth_cnt.get(p, 0)) ])
+    outs = pool2.map(ite_synteny_resolver, [ [grp_tag, orthologs2, neighbors, nNeighbor] for grp_tag in sorted(paralog_groups, key=lambda p:orth_cnt.get(p, 0)) ])
     for grp_tag, groups in outs :
         if groups is not None :
             for id, (t, i) in enumerate(sorted(groups.items())) :
