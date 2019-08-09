@@ -1724,7 +1724,7 @@ def ortho(args) :
         params['old_prediction'] = params['prefix']+'.old_prediction.npz'
         old_predictions = {}
         for n, g in genes.items() :
-            if g[1] != encodes[''] :
+            if '' not in encodes or g[1] != encodes[''] :
                 contig = str(g[1])
                 if contig not in old_predictions :
                     old_predictions[contig] = []
