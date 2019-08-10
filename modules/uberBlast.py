@@ -272,10 +272,13 @@ class RunBlast(object) :
         self.min_ratio = min_ratio
         self.table_id = table_id
         self.n_thread = n_thread
-        if useProcess :
+        if useProcess == True :
             self.pool = Pool(n_thread)
-        else :
+        elif useProcess == False :
             self.pool = ThreadPool(n_thread)
+        else :
+            self.pool = useProcess
+
         blastab = []
         self.dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
         try :
@@ -290,6 +293,8 @@ class RunBlast(object) :
             if blastab :
                 blastab = pd.concat(blastab, ignore_index=True)
                 blastab = np.hstack([blastab.values, np.arange(blastab.shape[0], dtype=int)[:, np.newaxis]])
+        if useProcess != self.pool :
+            self.pool.close()
         
         if re_score :
             blastab=self.reScore(ref, qry, blastab, re_score, self.min_id, self.table_id)
@@ -298,7 +303,6 @@ class RunBlast(object) :
         if linear_merge[0] :
             blastab=self.linearMerge(blastab, linear_merge)
         self.fixEnd(blastab, *fix_end)
-        self.pool.close()
         if return_overlap[0] :
             overlap = self.returnOverlap(blastab, return_overlap)
             blastab = pd.DataFrame(blastab).sort_values([0,1,11]).values
@@ -714,7 +718,7 @@ class RunBlast(object) :
         return blastab
 
 
-def uberBlast(args) :
+def uberBlast(args, extPool=None) :
     import argparse
     parser = argparse.ArgumentParser(description='Five different alignment methods. ')
     parser.add_argument('-r', '--reference',     help='[INPUT; REQUIRED] filename for the reference. This is normally a genomic assembly. ', required=True)
@@ -749,6 +753,8 @@ def uberBlast(args) :
     parser.add_argument('-p', '--process', help='[DEFAULT: False] Use processes instead of threads. ', action='store_true', default=False)
     
     args = parser.parse_args(args)
+    if extPool is not None :
+        args.process =extPool
     methods = []
     for method in ('blastn', 'ublast', 'ublastSELF', 'minimap', 'minimapASM', 'mmseqs', 'diamond', 'diamondSELF') :
         if args.__dict__[method] :

@@ -228,10 +228,10 @@ def get_similar_pairs(prefix, clust, priorities, params) :
                     s_j += s
     if params['noDiamond'] :
         self_bsn = uberBlast('-r {0} -q {0} --blastn --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p --gtable {5}'.format(\
-            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split())
+            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split(), pool)
     else :
         self_bsn = uberBlast('-r {0} -q {0} --blastn --diamondSELF -s 1 --min_id {1} --min_cov {2} -t {3} --min_ratio {4} -e 3,3 -p --gtable {5}'.format(\
-            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split())
+            clust, params['match_identity'] - 0.1, params['match_frag_len']-10, params['n_thread'], params['match_frag_prop']-0.1, params['gtable']).split(), pool)
     self_bsn.T[:2] = self_bsn.T[:2].astype(int)
     presence, ortho_pairs = {}, {}
     save = []
@@ -1732,16 +1732,17 @@ def ortho(args) :
         for gene, g in old_predictions.items() :
             old_predictions[gene] = np.array(sorted(g, key=lambda x:x[1]), dtype=object)
         with MapBsn(params['old_prediction'], 'w') as op :
-            for k, v in old_predictions.items() :
-                op.save(k, v)
-            #np.savez_compressed(params['old_prediction'], **old_predictions)
-        del old_predictions, n, g
+            for n, g in old_predictions.items() :
+                op.save(n, g)
+        old_predictions.clear()
+        del old_predictions, n, g, i
     
     if params.get('prediction', None) is None :
         params['prediction'] = params['prefix'] + '.Prediction'
 
         if params.get('clust', None) is None :
             params['genes'], groups = writeGenes('{0}.genes'.format(params['prefix']), genes, priorities)
+            genes.clear()
             del genes
             logger('Run MMSeqs linclust to get exemplar sequences. Params: {0} identities and {1} align ratio'.format(params['clust_identity'], params['clust_match_prop']))
             params['clust'] = iterClust(params['prefix'], params['genes'], groups, dict(identity=params['clust_identity'], coverage=params['clust_match_prop'], n_thread=params['n_thread'], translate=False))
@@ -1775,16 +1776,19 @@ def ortho(args) :
             filt_genes(params['prefix'], tab_conn, np.load(params['self_bsn'], allow_pickle=True), params['global'], params['map_bsn']+'.conflicts.npz', priorities, gene_scores, encodes)
         writeProcess.join()
     else :
-        genes = {n:s[-1] for n,s in genes.items() }
+        if params.get('clust', None) :
+            genes = { int(n):s for n, s in readFasta(params['clust']).items()}
+        else :
+            genes = {n:s[-1] for n,s in genes.items() }
         
-    old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
-    revEncode = {e:d for d, e in encodes.items()}
-    old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
-    
     if params['neighborhood'] > 0 :
         logger('Neigbhorhood based paralog splitting starts')
         params['prediction'] = synteny_resolver(params['prefix'], params['prediction'], params['neighborhood'])
         logger('Neigbhorhood based paralog splitting finishes')
+
+    old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
+    revEncode = {e:d for d, e in encodes.items()}
+    old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
     write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['untrusted'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     pool2.close()
     pool2.join()
