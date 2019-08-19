@@ -1735,7 +1735,7 @@ def ortho(args) :
             for n, g in old_predictions.items() :
                 op.save(n, g)
         old_predictions.clear()
-        del old_predictions, n, g, i
+        del old_predictions, n, g
     
     if params.get('prediction', None) is None :
         params['prediction'] = params['prefix'] + '.Prediction'
@@ -1788,7 +1788,7 @@ def ortho(args) :
 
     old_predictions = dict(np.load(params['old_prediction'], allow_pickle=True)) if 'old_prediction' in params else {}
     revEncode = {e:d for d, e in encodes.items()}
-    old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() }
+    old_predictions = { revEncode[int(contig)]:[np.concatenate([ [revEncode[g[0]]], g[1:]]) for g in genes ] for contig, genes in old_predictions.items() if int(contig)>=0 and genes[0][0] >= 0}
     write_output(params['prefix'], params['prediction'], genomes, genes, encodes, old_predictions, params['pseudogene'], params['untrusted'], params['gtable'], params.get('clust', None), params.get('self_bsn', None))
     pool2.close()
     pool2.join()
