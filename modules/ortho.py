@@ -339,7 +339,7 @@ def filt_per_group(data) :
                 if i1 != i2 :
                     mut, aln = diffX[i1, i2]
                     if aln >= params['match_frag_len'] :
-                        gd = (np.max([0.005, 2.0/aln]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
+                        gd = (np.max([params['self_id'], 2.0/aln]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
                         dX = mut/aln/(gd[0]*np.exp(gd[1]*np.sqrt(params['allowed_sigma'])))
                     else :
                         dX = 2
@@ -359,10 +359,10 @@ def filt_per_group(data) :
             mut, aln = diff[i1, i2]
             
             if aln >= params['match_frag_len'] :
-                gd = (np.max([0.005, 2.0/aln]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
+                gd = (np.max([params['self_id'], 2.0/aln]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
                 distances[i1, i2, :] = [(mut/aln/(gd[0]*np.exp(gd[1]*params['allowed_sigma'])))/gd[0], 1/gd[0]]
             else :
-                gd = (np.max([0.005, 2.0/params['match_frag_len']]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
+                gd = (np.max([params['self_id'], 2.0/params['match_frag_len']]), 0.) if m1[1] == m2[1] else global_differences.get(tuple(sorted([m1[1], m2[1]])), (0.5, 0.6))
                 distances[i1, i2, :] = [2./gd[0], 1/gd[0]]
                 diff[i1, i2] = [1, 2]
             distances[i2, i1, :] = distances[i1, i2, :]
@@ -1003,7 +1003,7 @@ def determineGroup(gIden, global_differences, min_iden, nSigma) :
         if m1[1] >= (min_iden-0.02)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (0.005, 1.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 0.6) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (params['self_id'], 1.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 0.6) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/(gs[0]*np.exp(nSigma*gs[1]))
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1632,6 +1632,10 @@ EToKi.py ortho
         params.match_identity = 0.98
         params.orthology = 'sbh'
     params.incompleteCDS = params.incompleteCDS.lower()
+    if params.neighborhood == 0 :
+        params.self_id = 0.001
+    else :
+        params.self_id = 0.005
     return params
 
 def encodeNames(genomes, genes, geneFiles, prefix, labelFile=None) :
