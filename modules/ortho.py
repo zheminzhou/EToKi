@@ -1003,7 +1003,7 @@ def determineGroup(gIden, global_differences, min_iden, nSigma) :
         if m1[1] >= (min_iden-0.02)*10000 :
             m2 = gIden[i1+1:][ingroup[gIden[i1+1:, 2]] != True]
             if m2.size :
-                gs = np.vectorize(lambda g1, g2: (params['self_id'], 1.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 0.6) ))(m2.T[0], m1[0])
+                gs = np.vectorize(lambda g1, g2: (params['self_id'], 0.) if g1 == g2 else global_differences.get(tuple(sorted([g1, g2])), (0.5, 0.6) ))(m2.T[0], m1[0])
                 sc = (1.-m2.T[1].astype(float)/m1[1])/(gs[0]*np.exp(nSigma*gs[1]))
                 ingroup[m2[sc < 1, 2].astype(int)] = True
             else :
@@ -1346,7 +1346,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
             allowed_vary = int(pred[12]*(1-pseudogene)+0.01)
             
             if pred[4] :
-                map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], p.rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
+                map_tag = '{0}:({1}){2}:{3}-{4}:{5}-{6}'.format(pred[0], pred[4].rsplit(':', 1)[-1], '{0}', pred[7], pred[8], pred[9], pred[10])
             else :
                 map_tag = '{0}:{1}:{2}-{3}:{4}-{5}'.format(pred[0], '{0}', pred[7], pred[8], pred[9], pred[10])
                 
