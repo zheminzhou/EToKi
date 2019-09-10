@@ -1421,7 +1421,7 @@ def write_output(prefix, prediction, genomes, clust_ref, encodes, old_prediction
                 cdss[pred[0]][1] += 1.
     removed = {}
     for gene, stat in cdss.items() :
-        if stat[1] < stat[0]*untrusted[1] and stat[3] < stat[2]*untrusted[1] :
+        if (stat[1]+0.5) <= 0.5 + stat[0]*untrusted[1] and (stat[3]+0.5) <= 0.5 + stat[2]*untrusted[1] :
             if len(alleles[gene]) :
                 glen = np.mean([len(s) for s in alleles[gene]])
             else :
