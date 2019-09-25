@@ -90,10 +90,6 @@ python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out
 ~~~~~~~~~~~
 python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out_L1_R2.fastq.gz --se examples/prep_out_L1_SE.fastq.gz -p examples/asm_out2 --assembler megahit
 ~~~~~~~~~~~
-### Find orthologous groups from public annotations
-~~~~~~~~~~~
-python EToKi.py ortho -P examples/GCF_000010485.combined.gff.gz -p examples/ST131 examples/*.gff.gz
-~~~~~~~~~~~
 ### Prepare reference alleles and a local database for 7 Gene MLST scheme
 ~~~~~~~~~~~
 python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples/Escherichia.Achtman.references.fasta -d examples/Escherichia.Achtman.convert.tab
@@ -268,101 +264,7 @@ optional arguments:
   --kraken              Run kmer based species prediction on contigs.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## ortho  - pan-genome (and wgMLST scheme) prediction
-**EToKi ortho** aligns reference genes to genomes or genome assemblies, to generate similarity-based gene predictions for these genomes. Genes that are similar to the same reference gene are assigned to a single orthologous group, which is further refined using a phylogeny-aware algorithm. The workflow is:
-1. Retrieve **seed genes** from genome annotations of GFF format. These can be from published annotations or *ab initio* predictions created by, eg, prodigal or prokka. 
-2. Cluster seed genes into groups using MMseqs linclust. A collection of **exemplar genes** is assembled by selecting the centroid sequence of each group. 
-3. Align exemplar genes to queried genomes using both BLASTn and uSearch (optional), to identify homologous regions that are similar to each exemplar gene. 
-4. Identify and process putative paralogs. Sets of homologous regions containing potential paralogs are identified if there are duplicate matches to a single genome. These regions are iteratively sub-clustered based on their phylogenetic topology: 
-    * Firstly, each set of sets of homologous regions are aligned together. 
-    * Second, the resulting alignment is used to generate a neighbor-joining tree (RapidNJ; default) or Maximum likelihood tree (FastTree). 
-    * Third, the ETE3 package is used to partition this tree into a set of subtrees that maximises the nucleotide diversity (at least 5%) between subtrees. Each resulting subtree is evaluated iteratively until no two regions from the same genome are included in a single subtree, or until the maximum inter-subtree diversity is less than 5%. 
-    * Finally, the original set of homologous regions is replaced by all of its sub-trees.
-5. After the division process, all the homolog sets are scored and ranked according to the summarised alignment scores of their homolog regions. Homolog sets are discarded if they have regions which overlap with the regions within other sets that had greater scores.
-
-~~~~~~~~~~~~~
-usage: EToKi.py ortho [-h] [-g GENES] [-P PRIORITY] [-p PREFIX] [-o ORTHOLOGY]
-                      [-t N_THREAD] [--min_cds MIN_CDS]
-                      [--incompleteCDS INCOMPLETECDS]
-                      [--clust_identity CLUST_IDENTITY]
-                      [--clust_match_prop CLUST_MATCH_PROP] [--fast]
-                      [--match_identity MATCH_IDENTITY]
-                      [--match_prop MATCH_PROP] [--match_len MATCH_LEN]
-                      [--match_prop1 MATCH_PROP1] [--match_len1 MATCH_LEN1]
-                      [--match_prop2 MATCH_PROP2] [--match_len2 MATCH_LEN2]
-                      [--match_frag_prop MATCH_FRAG_PROP]
-                      [--match_frag_len MATCH_FRAG_LEN]
-                      [--synteny_gap SYNTENY_GAP]
-                      [--synteny_diff SYNTENY_DIFF]
-                      [--allowed_variation ALLOWED_VARIATION] [--metagenome]
-                      [N [N ...]]
-
-EToKi.py ortho
-(1) Retieves genes and genomic sequences from GFF files and FASTA files.
-(2) Groups genes into clusters using mmseq.
-(3) Maps gene clusters back to genomes.
-(4) Discard paralogous alignments.
-(5) Discard orthologous clusters if they had regions which overlapped with the regions within other sets that had greater scores.
-(6) Re-annotate genomes using the remaining orthologs.
-
-positional arguments:
-  N                     GFF files containing both annotations and sequences.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -g GENES, --genes GENES
-                        Comma delimited files for additional genes.
-  -P PRIORITY, --priority PRIORITY
-                        Comma delimited, ordered list of filenames that contain genes with reliable starts and ends.
-                        Genes listed in these files are preferred in all stages.
-  -p PREFIX, --prefix PREFIX
-                        prefix for the outputs. Default: EToKi_ortho
-  -o ORTHOLOGY, --orthology ORTHOLOGY
-                        Method to define orthologous groups.
-                        nj [default], ml (for small dataset) or rapid (extremely large datasets)
-  -t N_THREAD, --n_thread N_THREAD
-                        Number of threads. Default: 30
-  --min_cds MIN_CDS     Minimum length of a reference CDS. Default: 150.
-  --incompleteCDS INCOMPLETECDS
-                        Allowed types of imperfection for reference genes. Default: ''.
-                        's': allows unrecognized start codon.
-                        'e': allows unrecognized stop codon.
-                        'i': allows stop codons in the coding region.
-                        'f': allows frameshift in the coding region.
-                        Multiple keywords can be used together. e.g., use 'sife' to allow random sequences.
-  --clust_identity CLUST_IDENTITY
-                        minimum identities of mmseqs clusters. Default: 0.95
-  --clust_match_prop CLUST_MATCH_PROP
-                        minimum matches in mmseqs clusters. Default: 0.85
-  --fast                disable uBLAST search. Fast but less sensitive when nucleotide identities < 0.9
-  --match_identity MATCH_IDENTITY
-                        minimum identities in BLAST search. Default: 0.5
-  --match_prop MATCH_PROP
-                        minimum match proportion for normal genes in BLAST search. Default: 0.65
-  --match_len MATCH_LEN
-                        minimum match length for normal genes in BLAST search. Default: 300
-  --match_prop1 MATCH_PROP1
-                        minimum match proportion for short genes in BLAST search. Default: 0.8
-  --match_len1 MATCH_LEN1
-                        minimum match length for short genes in BLAST search. Default: 0
-  --match_prop2 MATCH_PROP2
-                        minimum match proportion for long genes in BLAST search. Default: 0.5
-  --match_len2 MATCH_LEN2
-                        minimum match length for long genes in BLAST search. Default: 500
-  --match_frag_prop MATCH_FRAG_PROP
-                        Min proportion of each fragment for fragmented matches. Default: 0.3
-  --match_frag_len MATCH_FRAG_LEN
-                        Min length of each fragment for fragmented matches. Default: 60
-  --synteny_gap SYNTENY_GAP
-                        Consider two fragmented matches within N bases as a synteny block. Default: 300
-  --synteny_diff SYNTENY_DIFF
-                        Form a synteny block when the covered regions in the reference gene
-                        and the queried genome differed by no more than this value. Default: 1.2
-  --allowed_variation ALLOWED_VARIATION
-                        Allowed relative variation level compare to global.
-                        The larger, the more variations are kept. Default: 1.
-  --metagenome          Set to metagenome mode. equals to
-                        "--fast --incompleteCDS sife --clust_identity 0.99 --clust_match_prop 0.8 --match_identity 0.98 --orthology rapid"
-~~~~~~~~~~~~~
+**EToKi ortho** has now been migrated to a [separate repository](https://github.com/zheminzhou/PEPPA) and renamed as **PEPPA**. 
 
 ## MLSTdb - Set up exemplar alleles and database for MLST schemes
 **EToKi MLSTdb** converts existing allelic sequences into two files: (1) a multi-fasta file of exemplar allelic sequences and (2) a lookup table for the **EToKi MLSType** method. 
