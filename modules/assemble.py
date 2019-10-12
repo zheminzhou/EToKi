@@ -399,7 +399,7 @@ class mainprocess(object) :
                         pp = part[7].split(';')
                         dp = float(pp[0][3:])
                         af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
-                        if af <= 15 and dp >= 3 and dp * af/100. <= exp_mut_depth :
+                        if af <= 20 and dp >= 2 and dp * af/100. <= exp_mut_depth :
                             if part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome']) :
                                 site = int(part[1])-1
                                 qual = chr(int(pp[4][3:])+33)
