@@ -359,7 +359,7 @@ class mainprocess(object) :
                     part = line.strip().split()
                     if len(part) > 2 and float(part[2]) > 0 :
                         sites[part[0]][int(part[1]) - 1] += float(part[2])
-        sites = {n:[s.size, np.mean(s), 0.] for n, s in sites.items()}
+        sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
         depth = np.array(list(sites.values()))
         depth = depth[np.argsort(-depth.T[0])]
         size = np.sum(depth.T[0])
@@ -416,7 +416,7 @@ class mainprocess(object) :
                 except :
                     fout.write(line)
         for n, s, e in indels :
-            sequence[n][1][s:e] = '!'
+            sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
             
         if self.snps is not None :
             for n, snvs in self.snps.items() :
