@@ -387,29 +387,37 @@ class mainprocess(object) :
         cont_depth = [float(d) for d in parameters['cont_depth'].split(',')]
         logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]*ave_depth))
         logger('Contigs with more than {0} depth will be treated as duplicates'.format(cont_depth[1]*ave_depth))
-
+        indels = []
         with open('{0}.mapping.vcf'.format(prefix)) as fin, open('{0}.mapping.difference'.format(prefix), 'w') as fout :
             for line in fin :
                 if line.startswith('#') : continue
                 part = line.strip().split('\t')
                 if sites[part[0]][2] < cont_depth[0] or sites[part[0]][2] >= cont_depth[1] :
                     continue
+                if part[-1] == '1/1':
+                    if len(part[3]) > 1 :
+                        indels.append([part[0], max(0, int(site)-1), int(site)-1+len(part[3])+2])
+                    elif len(part[4]) > 1 and part[4] != '<DUP>' :
+                        indels.append([part[0], max(0, int(site)-2), int(site)-1+len(part[3])+2])
+
                 try:
                     if part[-1] == '0/0' and len(part[3]) == 1 and len(part[4]) == 1 :
                         pp = part[7].split(';')
                         dp = float(pp[0][3:])
                         af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
-                        if af <= 20 and dp >= 2 and dp * af/100. <= exp_mut_depth :
-                            if part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome']) :
-                                site = int(part[1])-1
-                                qual = chr(int(pp[4][3:])+33)
-                                sequence[part[0]][1][site] = qual
+                        if af <= 20 and dp >= 2 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
+                            site = int(part[1])-1
+                            qual = chr(int(pp[4][3:])+33)
+                            sequence[part[0]][1][site] = qual
                         else :
                             fout.write(line)
                     else :
                         fout.write(line)
                 except :
                     fout.write(line)
+        for n, s, e in indels :
+            sequence[n][1][s:e] = '!'
+            
         if self.snps is not None :
             for n, snvs in self.snps.items() :
                 for site, snv in snvs :
