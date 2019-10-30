@@ -31,9 +31,9 @@ for line in sys.stdin :
         else :
             gap = [int(g) for g in re.findall(r'(\d+)H', part[5])]
             aln = len(part[9])
-        if len(gap) > 1 and min(gap) >= 10 :
+        if len(gap) > 1 and min(gap) >= 8 :
             continue
-        if sum(gap) >= 4 * aln :
+        if sum(gap) >= 1.5 * aln :
             continue
         dist = (aln*2. - score)/6.
         if dist >= aln*cutoff :

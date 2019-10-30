@@ -63,12 +63,12 @@ def parseBAMs(fnames, sites) :
     os.unlink(tmpFile.name)
     
     sampleDepths = np.sum(knownSamples[:, :, :], 2)
-    sampleMean = np.mean(sampleDepths, 0)
-    siteWeight = np.min([(1-poisson.cdf(sampleMean/np.sqrt(2), sampleDepths))/(1-poisson.cdf(sampleMean/np.sqrt(2), sampleMean/np.sqrt(2))), \
-                         poisson.cdf(sampleMean*np.sqrt(2), sampleDepths)/poisson.cdf(sampleMean*np.sqrt(2), sampleMean*np.sqrt(2))], 0)
+    sampleMean = np.max([np.median(sampleDepths, 0), sampleDepths.shape[0]/np.sum(1/(sampleDepths+0.5), 0) - 0.5], 0)
+    siteWeight = np.min([(1-poisson.cdf(sampleMean/np.sqrt(2), sampleDepths))/(1-poisson.cdf(sampleMean/np.sqrt(2), max(1, sampleMean/np.sqrt(2)))), \
+                         poisson.cdf(sampleMean*np.sqrt(2), sampleDepths)/poisson.cdf(sampleMean*np.sqrt(2), max(1, sampleMean*np.sqrt(2)))], 0)
     siteWeight[siteWeight > 1] = 1
-    for sw, sd, sm in zip(siteWeight.T, sampleDepths.T, sampleMean.T) :
-        sw[sd > sm*np.sqrt(2)] /= sd[sd > sm*np.sqrt(2)]/(sm*np.sqrt(2))
+    #for sw, sd, sm in zip(siteWeight.T, sampleDepths.T, sampleMean.T) :
+        #sw[sd > sm*np.sqrt(2)] /= sd[sd > sm*np.sqrt(2)]/(sm*np.sqrt(2))
     knownSites[:, 1:] = siteWeight
     return knownSamples
 
@@ -95,7 +95,7 @@ def readTree(fname, knownNodes) :
 def getLikelihood(initState, genoState, weightedSamples, pGenotype, recRate, misRate) :
     nSite, nType, nSample, nGenotype = initState.shape
     genoState[:] = .25*recRate
-    genoState[initState == 1] = 1-.75*recRate
+    genoState[:] += (1-recRate)*initState
     genoState *= (pGenotype.T*(1-misRate)).T
     return getLikelihood2(initState, genoState, weightedSamples, misRate ) # - pGenotype.size - misRate.size - np.sum(np.sum(np.sum(initState, axis=(2,3))>0, 1) * knownSites.T)
 
@@ -125,12 +125,12 @@ def likelihood(allPaths, states, observations, rate, defaultRate) :
         
         for pi in nPaths :
             path = paths[pi]
-            rate[:] = defaultRate
+            rate[:] = defaultRate/4.
             for i in range(nGenotype) :
                 p = path[i]
                 rate[p] += state[p, :, i]
             rate = np.log(rate)
-            pLK = np.sum((rate - np.sum(rate, 0)/4)*obs)
+            pLK = np.sum(rate*obs) #np.sum((rate - np.sum(rate, 0)/4)*obs)
             if pLK > siteLK :
                 siteLK = pLK
         lk += siteLK
@@ -153,20 +153,25 @@ def getLikelihood2(initState, genoState, weightedSamples, misRate) :
         lk += likelihood(allPaths, states, observations, np.zeros([nType, nSample], dtype=float), defaultRate)
     return lk
 
-def updateGenotypes(genotypes, initState, branches, knownMatrix, nChoice=1) :
+def updateGenotypes(genotypes, genolocs, initState, branches, knownMatrix, nChoice=1) :
     initState2 = np.copy(initState)
     genotypes2 = np.copy(genotypes)
+    genolocs2 = np.copy(genolocs)
     nGenotype = genotypes.shape[0]
     nSite = np.arange(initState.shape[0])
     ids = np.random.choice(nGenotype, replace=False, size=nChoice)
-    acc = np.cumsum(branches.T[3])
-    brIds = [ np.argmax(r < acc) for r in np.random.rand(nChoice) ]
+    #acc = np.cumsum(branches.T[3])
+    #brIds = [ np.argmax(r < acc) for r in np.random.rand(nChoice) ]
+    brIds = np.random.choice(branches.shape[0], nChoice) #, p=branches.T[3])
+    brLoc = np.random.rand(nChoice)
+    
     genotypes2[ids] = brIds
-    for id, brId in zip(ids, brIds) :
+    genolocs2[ids] = brLoc
+    for id, brId, bl in zip(ids, brIds, brLoc) :
         initState2[:, :, :, id] = 0
-        initState2[nSite, knownMatrix[int(branches[brId][0])], :, id] = 1
-        initState2[nSite, knownMatrix[int(branches[brId][1])], :, id] = 1
-    return genotypes2, initState2
+        initState2[nSite, knownMatrix[int(branches[brId][0])], :, id] =  1-bl
+        initState2[nSite, knownMatrix[int(branches[brId][1])], :, id] += bl
+    return genotypes2, genolocs2, initState2
     
 
 if __name__ == '__main__' :
@@ -174,8 +179,7 @@ if __name__ == '__main__' :
     
     bamFiles = bamFile.split(',')
     # number of possible genotypes
-    nGenotype = 4
-    nType = 4
+    nGenotype = 2
     nSample = len(bamFiles)
     
     if not os.path.isfile('test1') :
@@ -196,16 +200,19 @@ if __name__ == '__main__' :
         misRate = np.array([0.01] * nSample), 
         pGenotype = np.random.rand(nSample*nGenotype).reshape([nSample, nGenotype]), 
         genotypes = np.zeros(nGenotype, dtype=int), 
+        genolocs = np.zeros(nGenotype, dtype=float), 
     )
     globalParams['pGenotype'] /= np.sum(globalParams['pGenotype'], 1).reshape(globalParams['pGenotype'].shape[0], 1)
-    
+    globalParams['pGenotype'] = globalParams['pGenotype'][:, np.argsort(-np.sum(globalParams['pGenotype'], 0))]
     # states
-    initState = np.zeros([nSite, nType, nSample, nGenotype], dtype=int) 
-    genoState = np.zeros([nSite, nType, nSample, nGenotype])
+    initState = np.zeros([nSite, 4, nSample, nGenotype]) 
+    genoState = np.zeros([nSite, 4, nSample, nGenotype])
     
     weightedSamples = (knownSamples.T * knownSites[:, 1:].astype(float).T).T
     
-    globalParams['genotypes'], initState = updateGenotypes(globalParams['genotypes'], initState, branches, knownMatrix, nChoice=nGenotype)
+    globalParams['genotypes'], globalParams['genolocs'], initState = updateGenotypes(globalParams['genotypes'], globalParams['genolocs'], \
+                                                                                     initState, branches, knownMatrix, \
+                                                                                     nChoice=nGenotype)
     import time
     
     lk = getLikelihood(initState, genoState, weightedSamples, globalParams['pGenotype'], globalParams['recRate'], globalParams['misRate'])
@@ -214,15 +221,17 @@ if __name__ == '__main__' :
     nChain = 100000
     for ite in xrange(nChain) :
         # update initState
-        for i in range(3) :
-            newGenotypes, newInitState = updateGenotypes(globalParams['genotypes'], initState, branches, knownMatrix, nChoice=1)
-            if np.sum(newGenotypes) != np.sum(globalParams['genotypes']) :
-                newLK = getLikelihood(newInitState, genoState, weightedSamples, globalParams['pGenotype'], globalParams['recRate'], globalParams['misRate'])
-                if newLK >= lk or np.random.ranf() < np.exp(newLK-lk) :
-                    globalParams['genotypes'][:] = newGenotypes
-                    initState = newInitState
+        for i in range(5) :
+            newGenotypes, newGenolocs, newInitState = updateGenotypes(globalParams['genotypes'], globalParams['genolocs'], initState, branches, knownMatrix, nChoice=1)
+            #if np.sum(newGenotypes) != np.sum(globalParams['genotypes']) :
+            newLK = getLikelihood(newInitState, genoState, weightedSamples, globalParams['pGenotype'], globalParams['recRate'], globalParams['misRate'])
+            if newLK >= lk or np.random.ranf() < np.exp(newLK-lk) :
+                globalParams['genotypes'][:] = newGenotypes
+                globalParams['genolocs'][:] = newGenolocs
+                initState = newInitState
+                lk = newLK
         # update parameters
-        newRecRate = min(max((np.random.ranf()-0.5)*2*0.02 + globalParams['recRate'], 0.01), 0.99)
+        newRecRate = min(max((np.random.ranf()-0.5)*2*0.02 + globalParams['recRate'], 0.001), 0.99)
         if newRecRate != globalParams['recRate'] :  
             newLK = getLikelihood(initState, genoState, weightedSamples, globalParams['pGenotype'], newRecRate, globalParams['misRate'])
             if newLK >= lk or np.random.ranf() < np.exp(newLK-lk) :
@@ -230,7 +239,7 @@ if __name__ == '__main__' :
                 lk = newLK
         newMisRate = np.copy(globalParams['misRate'])
         mrId = np.random.choice(newMisRate.shape[0]) if newMisRate.shape[0] > 0 else 0
-        rr = min(max((np.random.ranf()-0.5)*2*0.02 + newMisRate[mrId], 0.01), 0.99)
+        rr = min(max((np.random.ranf()-0.5)*2*0.02 + newMisRate[mrId], 0.001), 0.99)
         if rr != newMisRate[mrId] :
             newMisRate[mrId] = rr
             newLK = getLikelihood(initState, genoState, weightedSamples, globalParams['pGenotype'], globalParams['recRate'], newMisRate)
@@ -247,6 +256,12 @@ if __name__ == '__main__' :
                 newPGenotype[pgId][tId] += pgTr
                 newLK = getLikelihood(initState, genoState, weightedSamples, newPGenotype, globalParams['recRate'], globalParams['misRate'])
                 if newLK >= lk or np.random.ranf() < np.exp(newLK-lk) :
+                    ids = np.argsort(-np.sum(newPGenotype, 0))
+                    if np.any(np.diff(ids) != 1) :
+                        newPGenotype = newPGenotype[:, ids]
+                        initState = initState[:, :, :, ids]
+                        genoState = genoState[:, :, :, ids]
+                        globalParams['genotypes'] = globalParams['genotypes'][ids]
                     globalParams['pGenotype'][:] = newPGenotype
                     lk = newLK
-        print(ite, lk, globalParams, [ knownNodes[int(branches[gt][1])] for gt in globalParams['genotypes'] ])
+        print(ite, lk, [ knownNodes[int(branches[gt][1])] for gt in globalParams['genotypes'] ], globalParams['genolocs'], globalParams, )
