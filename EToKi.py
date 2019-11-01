@@ -7,7 +7,7 @@ from modules.configure import logger
 commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['prepare',   'trim, collapse, downsize and rename the short reads.'],                       #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
-            ['ortho',     'pan-genome (and wgMLST scheme) prediction'],        #
+#            ['ortho',     'pan-genome (and wgMLST scheme) prediction'],        #
             ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
 #            ['cgMLST',    'pick core genes from wgMLST genes'], 
@@ -29,7 +29,7 @@ def etoki():
             raise ValueError
         try :
             exec('from modules.{0} import {0}'.format(sys.argv[1]))
-        except ImportError as e :
+        except (ImportError, SyntaxError) as e :
             logger(str(e))
             raise ValueError
         else:
