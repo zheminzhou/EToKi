@@ -1,4 +1,4 @@
-import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re, requests
+import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 import multiprocessing
 import multiprocessing.pool
 
