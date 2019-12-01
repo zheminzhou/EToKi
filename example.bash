@@ -13,7 +13,7 @@ python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
 -p examples/asm_out2 --assembler megahit
 
 ### Map reads onto reference, with pre-filtering with ingroups and outgroups
-python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
+python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz --metagenome \
 --pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
 -p examples/map_out -r examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz \
 -i examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz -o examples/GCF_000005845.2_ASM584v2_genomic.fna.gz
@@ -23,9 +23,6 @@ python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples
 
 ### Calculate 7 Gene MLST genotype for a queried genome
 python EToKi.py MLSType -i examples/GCF_001566635.1_ASM156663v1_genomic.fna -r examples/Escherichia.Achtman.references.fasta -k G749 -o stdout -d examples/Escherichia.Achtman.convert.tab
-
-### Construct HierCC (hierarchical clustering of cgMLST) for Yersinia cgMLST
-python EToKi.py hierCC -p examples/Yersinia.cgMLST.profile.gz --o examples/Yersinia.cgMLST.hierCC
 
 ### Run EBEis (EnteroBase Escherichia in silico Serotyping)
 python EToKi.py EBEis -t Escherichia -q examples/GCF_000010485.1_ASM1048v1_genomic.fna -p SE15
@@ -37,10 +34,11 @@ python EToKi.py clust -p examples/Escherichia.Achtman.alleles_clust -i examples/
 python EToKi.py uberBlast -q examples/Escherichia.Achtman.alleles.fasta -r examples/GCF_001566635.1_ASM156663v1_genomic.fna -o examples/G749_7Gene.bsn --blastn --ublast --minimap --mmseq -s 2 -f
 
 ### align multiple genomes onto one reference
-python EToKi.py align -r GCF_000010485:examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz -p examples/phylo \
+python EToKi.py align -r GCF_000010485:examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz -p examples/phylo_out \
 GCF_000005845:examples/GCF_000005845.2_ASM584v2_genomic.fna.gz \
 GCF_000214765:examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz \
 GCF_001566635:examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz
 
 ### Build ML tree using RAxML and place all SNPs onto branches in the tree
-python EToKi.py phylo -t snp2mut -p phylo_out -s examples/phylo.matrix.gz
+cd examples && python ../EToKi.py phylo -t snp2mut -p phylo_out -s phylo_out.matrix.gz && cd ..
+
