@@ -215,6 +215,45 @@ def install_externals() :
     curdir = os.path.abspath(os.curdir)
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
+
+
+    if not getExecutable([externals['pilon']]) :
+        url = 'https://github.com/broadinstitute/pilon/releases/download/v1.23/pilon-1.23.jar'
+        logger('Downloading pilon-1.23.jar package from {0}'.format(url))
+        subprocess.Popen('curl -Lo pilon-1.23.jar {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Done\n')
+
+    if not getExecutable([externals['diamond']]) :
+        url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.29/diamond-linux64.tar.gz'
+        logger('Downloading diamond package from {0}'.format(url))
+        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging diamond package'.format(url))
+        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split()).communicate()
+        os.unlink('diamond-linux64.tar.gz')
+        os.unlink('diamond_manual.pdf')
+        logger('Done\n')
+
+    if not getExecutable([externals['spades']]) :
+        url = 'http://cab.spbu.ru/files/release3.13.0/SPAdes-3.13.0-Linux.tar.gz'
+        logger('Downloading SPAdes-3.13.0 package from {0}'.format(url))
+        subprocess.Popen('curl -Lo SPAdes-3.13.0-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging SPAdes-3.13.0-Linux package'.format(url))
+        subprocess.Popen('tar -xzf SPAdes-3.13.0-Linux.tar.gz'.split()).communicate()
+        os.unlink('SPAdes-3.13.0-Linux.tar.gz')
+        subprocess.Popen('ln -fs SPAdes-3.13.0-Linux/bin/spades.py ./spades.py'.split()).communicate()
+        logger('Done\n')
+
+    if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]):
+        url = 'https://netcologne.dl.sourceforge.net/project/bbmap/BBMap_38.73.tar.gz'
+        logger('Downloading BBmap package from {0}'.format(url))
+        subprocess.Popen('curl -Lo BBMap_38.73.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging BBmap package'.format(url))
+        subprocess.Popen('tar -xzf BBMap_38.73.tar.gz'.split()).communicate()
+        os.unlink('BBMap_38.73.tar.gz')
+        subprocess.Popen('ln -fs bbmap/bbduk.sh ./bbduk.sh'.split()).communicate()
+        subprocess.Popen('ln -fs bbmap/bbmerge.sh ./bbmerge.sh'.split()).communicate()
+        logger('Done\n')
+
     
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'

@@ -1,1 +1,1 @@
-bbmap-folder/bbmerge.sh
+bbmap/bbmerge.sh
