@@ -22,6 +22,7 @@ python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz --metagenome \
 python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples/Escherichia.Achtman.references.fasta -d examples/Escherichia.Achtman.convert.tab
 
 ### Calculate 7 Gene MLST genotype for a queried genome
+gzip -cd examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz > examples/GCF_001566635.1_ASM156663v1_genomic.fna && \
 python EToKi.py MLSType -i examples/GCF_001566635.1_ASM156663v1_genomic.fna -r examples/Escherichia.Achtman.references.fasta -k G749 -o stdout -d examples/Escherichia.Achtman.convert.tab
 
 ### Run EBEis (EnteroBase Escherichia in silico Serotyping)

@@ -71,6 +71,12 @@ class uopen(object) :
                 self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
             else :
                 self.fstream = gzip.open(fname, 'wb')
+        elif label.find('a') >= 0 :
+            if sys.version.startswith('3') :
+                self.fout = gzip.open(fname, 'ab')
+                self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
+            else :
+                self.fstream = gzip.open(fname, 'ab')
     def __enter__(self) :
         return self.fstream
     def __exit__(self, type, value, traceback) :
@@ -210,16 +216,6 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
     
-    if not getExecutable(externals['gatk'].split()) :
-        gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
-        logger('Downloading gatk package from {0}'.format(gatk_url))
-        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging gatk package')
-        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('gatk-4.1.0.0.zip')
-        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).communicate()
-        logger('Done\n')
-
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
         logger('Downloading ncbi-blast package from {0}'.format(blast_url))
@@ -262,6 +258,29 @@ def install_externals() :
         subprocess.Popen('ln -fs mmseqs2/bin/mmseqs ./mmseqs'.split()).communicate()
         logger('Done\n')
 
+    if not getExecutable([externals['lastal']]) or not getExecutable([externals['lastdb']]) :
+        last_url = 'http://last.cbrc.jp/last-1021.zip'
+        logger('Downloading LAST package from {0}'.format(last_url))
+        subprocess.Popen('curl -Lo last-1021.zip {0}'.format(last_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging LAST package'.format(last_url))
+        subprocess.Popen('unzip -o last-1021.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('last-1021.zip')
+        logger('Installing LAST package'.format(last_url))
+        subprocess.Popen('make'.split(), cwd='last-1021/src', stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('ln -fs last-1021/src/lastal ./lastal'.split()).communicate()
+        subprocess.Popen('ln -fs last-1021/src/lastdb ./lastdb'.split()).communicate()
+        logger('Done\n')
+     
+    if not getExecutable(externals['gatk'].split()) :
+        gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
+        logger('Downloading gatk package from {0}'.format(gatk_url))
+        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging gatk package')
+        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('gatk-4.1.0.0.zip')
+        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).communicate()
+        logger('Done\n')
+
     if not getExecutable(externals['kraken2'].split()) :
         kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
         logger('Downloading kraken2 package from {0}'.format(kraken2_url))
@@ -284,7 +303,7 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['usearch']]) :
-        logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html')
+        logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html\nAnd copy it into the externals/usearch')
     logger('')
     os.chdir(curdir)
 # -------------------------------------------------------------- #

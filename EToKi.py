@@ -31,7 +31,6 @@ def etoki():
     subparser = parser.add_subparsers(title='sub-commands', dest='cmd')
     for cmd, help in commands :
         subparser.add_parser(cmd, help=help)
-    #parser.add_argument('options', nargs='*')
     arg, others = parser.parse_known_args(sys.argv[1:2])
     if arg.cmd is None :
         parser.print_help()
