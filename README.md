@@ -37,6 +37,7 @@ bwa
 bowtie2
 minimap2
 kraken2 & minikraken2
+lastal & lastdb
 pilercr
 trf
 ~~~~~~~~~~
@@ -146,14 +147,14 @@ usage: EToKi.py configure [-h] [--install] [--usearch USEARCH]
                           [--download_krakenDB]
                           [--link_krakenDB KRAKEN_DATABASE] [--path PATH]
 
-Install or modify 3rd party programs.
+Install or modify the 3rd party programs.
 
 optional arguments:
   -h, --help            show this help message and exit
   --install             install 3rd party programs
   --usearch USEARCH     usearch is required for ortho and MLSType. A 32-bit
                         version of usearch can be downloaded from
-                        https://www.drive5.com/usearch/.
+                        https://www.drive5.com/usearch/
   --download_krakenDB   When specified, miniKraken2 (8GB) will be downloaded
                         into the EToKi folder. You can also use
                         --link_krakenDB to use a pre-installed kraken2
@@ -161,9 +162,9 @@ optional arguments:
   --link_krakenDB KRAKEN_DATABASE
                         Kraken is optional in the assemble module. You can
                         specify your own database here
-  --path PATH, -p PATH  Specify path to the 3rd party programs manually. format: 
-                        <program>=<path>. This parameter can be specified
-                        multiple times`
+  --path PATH, -p PATH  Specify path to the 3rd party programs manually.
+                        Format: <program>=<path>. This parameter can be
+                        specified multiple times
 ~~~~~~~~~~~~~~~~~
 
 ## prepare - trim, collapse, downsize and rename the short reads
