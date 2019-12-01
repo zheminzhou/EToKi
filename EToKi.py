@@ -19,12 +19,12 @@ commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
             ['EBEis',     'in silico serotype prediction for Escherichia coli and Shigella spp.'],                             #
             ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
-            ['clust',     'linear-time clustering of short sequences using mmseqs linclust']]                          #
+            ['clust',     'linear-time clustering of short sequences using mmseqs linclust'],                          #
+            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
 #            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
 #            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
 #            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
-#            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
-
+]
 
 def etoki():
     parser = MyParser('EToKi')
@@ -36,6 +36,7 @@ def etoki():
         parser.print_help()
         sys.exit(2)
     try :
+        sys.argv[0] += ' ' + arg.cmd
         exec('from modules.{0} import {0}'.format(arg.cmd))
         eval(arg.cmd)(sys.argv[2:])
     except ValueError as e :
