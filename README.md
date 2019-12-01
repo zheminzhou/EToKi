@@ -76,11 +76,11 @@ python EToKi.py configure --path fasttree=/path/to/fasttree --path raxml=/path/t
 
 ### Trim genomic reads
 ~~~~~~~~~~~
-python EToKi.py prepare --pe examples/A_R1.fastq.gz,examples/A_R2.fastq.gz -p examples/prep_out
+python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/prep_out
 ~~~~~~~~~~~
 ### Merge and trim metagenomic reads
 ~~~~~~~~~~~
-python EToKi.py prepare --pe examples/OAGR_ModernL7_10K_R1.fastq.gz,examples/OAGR_ModernL7_10K_R2.fastq.gz -p examples/QAGR_ModernL7_trim --noRename --merge
+python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/meta_out --noRename --merge
 ~~~~~~~~~~~
 ### Assemble genomic reads using SPAdes
 ~~~~~~~~~~~
@@ -88,7 +88,16 @@ python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out
 ~~~~~~~~~~~
 ### Assemble genomic reads using MEGAHIT
 ~~~~~~~~~~~
-python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out_L1_R2.fastq.gz --se examples/prep_out_L1_SE.fastq.gz -p examples/asm_out2 --assembler megahit
+python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
+--pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
+-p examples/asm_out2 --assembler megahit
+~~~~~~~~~~~
+### Map reads onto reference, with pre-filtering with ingroups and outgroups
+~~~~~~~~~~~
+python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz --metagenome \
+--pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
+-p examples/map_out -r examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz \
+-i examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz -o examples/GCF_000005845.2_ASM584v2_genomic.fna.gz
 ~~~~~~~~~~~
 ### Prepare reference alleles and a local database for 7 Gene MLST scheme
 ~~~~~~~~~~~
@@ -96,11 +105,8 @@ python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples
 ~~~~~~~~~~~
 ### Calculate 7 Gene MLST genotype for a queried genome
 ~~~~~~~~~~~
+gzip -cd examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz > examples/GCF_001566635.1_ASM156663v1_genomic.fna && \
 python EToKi.py MLSType -i examples/GCF_001566635.1_ASM156663v1_genomic.fna -r examples/Escherichia.Achtman.references.fasta -k G749 -o stdout -d examples/Escherichia.Achtman.convert.tab
-~~~~~~~~~~~
-### Construct HierCC (hierarchical clustering of cgMLST) for Yersinia cgMLST
-~~~~~~~~~~~
-python EToKi.py hierCC -p examples/Yersinia.cgMLST.profile.gz --o examples/Yersinia.cgMLST.hierCC
 ~~~~~~~~~~~
 ### Run EBEis (EnteroBase Escherichia in silico serotyping)
 ~~~~~~~~~~~
@@ -114,17 +120,16 @@ python EToKi.py clust -p examples/Escherichia.Achtman.alleles_clust -i examples/
 ~~~~~~~~~~~
 python EToKi.py uberBlast -q examples/Escherichia.Achtman.alleles.fasta -r examples/GCF_001566635.1_ASM156663v1_genomic.fna -o examples/G749_7Gene.bsn --blastn --ublast --minimap --mmseq -s 2 -f
 ~~~~~~~~~~~
+### align multiple genomes onto one reference
+~~~~~~~~~~~
+python EToKi.py align -r GCF_000010485:examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz -p examples/phylo_out \
+GCF_000005845:examples/GCF_000005845.2_ASM584v2_genomic.fna.gz \
+GCF_000214765:examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz \
+GCF_001566635:examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz
+~~~~~~~~~~~
 ### Build ML tree using RAxML and place all SNPs onto branches in the tree
 ~~~~~~~~~~~
-python EToKi.py phylo -t all -p phylo_out -m examples/phylo_rec.fasta
-~~~~~~~~~~~
-### Identify recombination stretches from the SNP matrix, and revise the branch lengths of a tree
-~~~~~~~~~~~
-python EToKi.py RecHMM -d phylo_out.mutations.gz -p examples/rec_out
-~~~~~~~~~~~
-### Strip out recombinant SNPs from a SNP matrix
-~~~~~~~~~~~
-python EToKi.py RecFilter -s phylo_out.matrix.gz -t phylo_out.labelled.nwk -r examples/rec_out.recombination.region -p examples/rec_out.nonrec
+cd examples && python ../EToKi.py phylo -t snp2mut -p phylo_out -s phylo_out.matrix.gz && cd ..
 ~~~~~~~~~~~
 
 # USAGE:
@@ -375,31 +380,9 @@ optional arguments:
                         bps.
  ~~~~~~~~~~
 
-## hierCC - generate hierarchical clusters from cgMLST profiles
-Almost all STs called from cgMLST schemes contain some missing genes because they are called from draft genomes consisting of multiple contigs. As a result, almost every new genome results in a unique cgST number, many of which only differ from other cgSTs by missing data. It is therefore not obvious how to evaluate the genetic relationships of genomes using cgMLST profiles. **EToKi hierCC** offers hierarchical clustering of cgMLST profiles into thousands of different levels, using a single-linkage cluster algorithm. Clusters representing natural divisions of bacterial population structure can be extracted as sub-sets of the hierCC scheme later on. 
-~~~~~~~~~~~
-usage: EToKi.py hierCC [-h] -p PROFILE -o OUTPUT [-i INCREMENTAL] [-d DELTA]
-                       [--immutable]
-
-hierCC takes allelic profile (as in https://pubmlst.org/data/) and
-work out specialised single linkage clustering result of all the profiles in the list.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -p PROFILE, --profile PROFILE
-                        [INPUT; REQUIRED] name of the profile file. Can be GZIPed.
-  -o OUTPUT, --output OUTPUT
-                        [OUTPUT; REQUIRED] Prefix for the output files. These include a NUMPY and TEXT verions of the same clustering result
-  -i INCREMENTAL, --incremental INCREMENTAL
-                        [INPUT; optional] The NUMPY version of an old clustering result
-  -d DELTA, --delta DELTA
-                        [optional] comma delimited list of threshold (delta). All values are included by default.
-  --immutable           [optional] Use a immutable clustering system. The designations of old profiles are immutable. Faster but leads to non-optimal assignment.
-~~~~~~~~~~~
-
 ## align - align multiple queried genomes to a single reference
 ~~~~~~~~~~~
-usage: EToKi.py align [-h] -r REFERENCE [-p PREFIX] [-a] [-m] [-c CORE]
+usage: EToKi.py align [-h] -r REFERENCE [-p PREFIX] [-a] [-m] [-l] [-c CORE]
                       [-n N_PROC]
                       queries [queries ...]
 
@@ -421,6 +404,7 @@ optional arguments:
   -a, --alignment       [OUTPUT] Generate core genomic alignments in FASTA
                         format
   -m, --matrix          [OUTPUT] Do not generate core SNP matrix
+  -l, --last            Activate to use LAST as aligner. [DEFAULT: minimap2]
   -c CORE, --core CORE  [PARAM] percentage of presences for core genome.
                         [DEFAULT: 0.95]
   -n N_PROC, --n_proc N_PROC
@@ -466,88 +450,6 @@ optional arguments:
   --core CORE, -c CORE  Core genome proportion. Default: 0.95
   --n_proc N_PROC, -n N_PROC
                         Number of processes. Default: 7.
-~~~~~~~~~~~
-
-
-## RecHMM -  identify recombination stretches from a SNP matrix
-**RecHMM** was initially implemented in R and described in supplementary material of [Zhou, Z. et al., PNAS, 2014](https://www.pnas.org/content/111/33/12199). RecHMM implements a modified version of Hidden Markov Model (HMM) to separate sites imported by recombination from those which are vertically inherited. 
-
-Here we have implemented RecHMM in EToKi. The changes are:
-1. The phylogeny and mutation placement module is separated into **EToKi phylo**. 
-2. The code is re-implemented in Python Numpy and are much more efficient. 
-3. The EM procedure is distributed across multiple processes. 
-4. The HMM model is redesigned to include two extra states (4 in total). This new implementation can identify not only recombination from external sources, but also intra-population transfers. 
-~~~~~~~~~~~
-usage: EToKi.py RecHMM [-h] --data DATA [--model MODEL] [--task TASK]
-                       [--init INIT] [--prefix PREFIX] [--cool_down COOL_DOWN]
-                       [--n_proc N_PROC] [--bootstrap BOOTSTRAP] [--report]
-                       [--marginal MARGINAL] [--tree TREE] [--clean]
-                       [--local_r LOCAL_R] [--local_nu LOCAL_NU]
-                       [--local_delta LOCAL_DELTA]
-
-Parameters for RecHMM.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --data DATA, -d DATA  A list of mutations generated by EnPhyl
-  --model MODEL, -m MODEL
-                        Read a saved best model.
-  --task TASK, -t TASK  task to run.
-                        0: One rec category from external sources.
-                        1: Three rec categories considering internal, external and mixed sources [default].
-  --init INIT, -i INIT  Initiate models with guesses of recombinant proportions.
-                        Default: 0.05,0.5,0.95
-  --prefix PREFIX, -p PREFIX
-                        Prefix for all the outputs
-  --cool_down COOL_DOWN, -c COOL_DOWN
-                        Delete the worst model every N iteration. Default:5
-  --n_proc N_PROC, -n N_PROC
-                        Number of processes. Default: 5.
-  --bootstrap BOOTSTRAP, -b BOOTSTRAP
-                        Number of Randomizations for confidence intervals.
-                        Default: 1000.
-  --report, -r          Only report the model and do not calculate external stretches.
-  --marginal MARGINAL, -M MARGINAL
-                        Find recombinant regions using marginal likelihood rather than [DEFAULT] maximum likelihood method.
-                        [DEFAULT] 0 to use Viterbi algorithm to find most likely path.
-                         Otherwise (0, 1) use forward-backward algorithm, and report regions with >= M posterior likelihoods as recombinant stretches.
-  --tree TREE, -T TREE  [INPUT, OPTIONAL] A labelled tree. Only used to generate corresponding mutational tree.
-  --clean, -v           Do not show intermediate results during the iterations.
-  --local_r LOCAL_R, -lr LOCAL_R
-                        Specify a comma-delimited list of branches that share a different R/theta (Frequency of rec) ratio than the global consensus. Can be specified multiple times.
-                        Use "*" to assign different value for each branch.
-  --local_nu LOCAL_NU, -ln LOCAL_NU
-                        Specify a comma-delimited list of branches that share a different Nu (SNP density in rec) than the global consensus. Can be specified multiple times.
-                        Use "*" to assign different value for each branch.
-  --local_delta LOCAL_DELTA, -ld LOCAL_DELTA
-                        Specify a comma-delimited list of branches that share a different Delta (Length of rec stretches) than the global consensus. Can be specified multiple times.
-                        Use "*" to assign different value for each branch.
-~~~~~~~~~~~
-
-
-## RecFilter - Remove recombinant regions from a SNP matrix
-**EToKi RecFilter** automatically remove tracts of SNPs from an input matrix that are identified as having been imported by homologous recombinations. It currently supports as input outputs from RecHMM, [ClonalFrameML](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1004041) and [Gubbins](https://academic.oup.com/nar/article/43/3/e15/2410982). It also accepts simulated results from [SimBac](https://www.ncbi.nlm.nih.gov/pubmed/27713837). 
-
-Traditionally, SNPs affected by recombination are removed from the SNP matrix straight away. This is fine when recombination only affects a low proportion of the core genome. However, when a large proportion of the genome is affected by recombination, removing sites without counting the region as "missing" significantly shortens the branch lengths of a downstream phylogeny. **RecFilter** counts removed recombinant regions as missing data and increases the weights of the remaining mutational SNPs on the same branch, thus improves branch-length estimation. 
-~~~~~~~~~~~
-usage: EToKi.py RecFilter [-h] --prefix PREFIX --snp MATRIX --tree TREE --rec
-                          REC [--prob PROB] [--clonalframeml] [--simbac]
-                          [--gubbins]
-
-Generate a matrix of only vertically inherited SNPs.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --prefix PREFIX, -p PREFIX
-                        prefix for the output
-  --snp MATRIX, -s MATRIX
-                        SNP matrix
-  --tree TREE, -t TREE  Labeled tree
-  --rec REC, -r REC     Recombinant stretches
-  --prob PROB, -b PROB  Minimum probability for rec stretches. Default: 0.5
-  --clonalframeml       The recombinant stretches are in ClonalFrameML format.
-  --simbac              The recombinant stretches are in SimBac break format.
-  --gubbins             convert VCF format to SNP matrix format.
 ~~~~~~~~~~~
 
 
