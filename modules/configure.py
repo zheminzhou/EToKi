@@ -178,14 +178,14 @@ def getExecutable(commands) :
     try :
         cmd = check_sys_path(commands[-1])
         if not cmd  :
-            return []
+            return None
         commands[-1] = cmd
-        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate() <= 1 :
+        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 :
             return commands
         else :
-            return []
+            return None
     except  :
-        return []
+        return None
 
 def download_krakenDB() :
     curdir = os.path.abspath(os.curdir)
