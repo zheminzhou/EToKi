@@ -1,11 +1,8 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
-import multiprocessing
-import multiprocessing.pool
-
 from datetime import datetime
+
 if sys.version_info[0] < 3:
     from cStringIO import StringIO
-    xrange = xrange
     asc2int = np.uint8
 else :
     from io import StringIO
@@ -127,8 +124,7 @@ def rc(seq, missingValue='N') :
     return ''.join([complement.get(s, missingValue) for s in reversed(seq.upper())])
 
 
-baseConv = np.empty(255, dtype=int)
-baseConv.fill(-100)
+baseConv = np.repeat(-100, 255)
 baseConv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
 def transeq(seq, frame=7, transl_table=None, markStarts=False) :
     frames = {'F': [1,2,3],
@@ -172,13 +168,24 @@ def logger(log, pipe=sys.stderr) :
     pipe.flush()
 
 
-def checkExecutable(commands) :
+def getExecutable(commands) :
+    def check_sys_path(cmd) :
+        for path in [''] + os.environ["PATH"].split(os.pathsep):
+            exe_file = os.path.join(path, cmd)
+            if os.path.exists(exe_file):
+                return exe_file
+        return None
     try :
-        if not  os.path.exists(commands[-1]) :
-            return False
-        return subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1
+        cmd = check_sys_path(commands[-1])
+        if not cmd  :
+            return []
+        commands[-1] = cmd
+        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate() <= 1 :
+            return commands
+        else :
+            return []
     except  :
-        return False
+        return []
 
 def download_krakenDB() :
     curdir = os.path.abspath(os.curdir)
@@ -189,10 +196,10 @@ def download_krakenDB() :
     os.chdir(os.path.join(moveTo, 'minikraken2'))
     minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_v2_8GB_201904_UPDATE.tgz'
     logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))    
-    subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).wait()
+    subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
     logger('Unpackaging minikraken2.')
-    subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).wait()
-    subprocess.Popen('mv minikraken2_v2_8GB_*/* ./', shell=True).wait()
+    subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).communicate()
+    subprocess.Popen('mv minikraken2_v2_8GB_*/* ./', shell=True).communicate()
     os.unlink('minikraken2_v2_8GB.tgz')
     
     os.chdir(curdir)
@@ -203,82 +210,82 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
     
-    if not checkExecutable([externals['blastn']]) or not checkExecutable([externals['makeblastdb']]) :
-        blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
-        logger('Downloading ncbi-blast package from {0}'.format(blast_url))
-        subprocess.Popen('curl -Lo ncbi-blast-2.8.1+-x64-linux.tar.gz {0}'.format(blast_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging ncbi-blast package'.format(blast_url))
-        subprocess.Popen('tar -xzf ncbi-blast-2.8.1+-x64-linux.tar.gz'.split()).wait()
-        os.unlink('ncbi-blast-2.8.1+-x64-linux.tar.gz')
-        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/blastn ./blastn'.split()).wait()
-        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/makeblastdb ./makeblastdb'.split()).wait()
-        logger('Done\n')
-    
-    if not checkExecutable([externals['megahit']]) :
-        megahit_url = 'https://github.com/voutcn/megahit/releases/download/v1.1.4/megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'
-        logger('Downloading megahit package from {0}'.format(megahit_url))
-        subprocess.Popen('curl -Lo megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz {0}'.format(megahit_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging megahit package'.format(megahit_url))
-        subprocess.Popen('tar -xzf megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'.split()).wait()
-        os.unlink('megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz')
-        subprocess.Popen('ln -fs megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin/megahit ./megahit'.split()).wait()
-        logger('Done\n')
-
-    if not checkExecutable([externals['bowtie2']]) :
-        bowtie2_url = 'https://github.com/BenLangmead/bowtie2/releases/download/v2.3.4.3/bowtie2-2.3.4.3-linux-x86_64.zip'
-        logger('Downloading bowtie2 package from {0}'.format(bowtie2_url))
-        subprocess.Popen('curl -Lo bowtie2-2.3.4.3-linux-x86_64.zip {0}'.format(bowtie2_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging bowtie2 package')
-        subprocess.Popen('unzip -o bowtie2-2.3.4.3-linux-x86_64.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
-        os.unlink('bowtie2-2.3.4.3-linux-x86_64.zip')
-        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2 ./bowtie2'.split()).wait()
-        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2-build ./bowtie2-build'.split()).wait()
-        logger('Done\n')
-
-    if not checkExecutable([externals['mmseqs']]) :
-        mmseqs_url = 'https://github.com/soedinglab/MMseqs2/releases/download/7-4e23d/MMseqs2-Linux-SSE4_1.tar.gz'
-        logger('Downloading mmseqs package from {0}'.format(mmseqs_url))
-        subprocess.Popen('curl -Lo MMseqs2-Linux-SSE4_1.tar.gz {0}'.format(mmseqs_url).split(), stderr=subprocess.PIPE).wait()
-        logger('Unpackaging mmseqs package')
-        subprocess.Popen('tar -xzf MMseqs2-Linux-SSE4_1.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
-        os.unlink('MMseqs2-Linux-SSE4_1.tar.gz')
-        subprocess.Popen('ln -fs mmseqs2/bin/mmseqs ./mmseqs'.split()).wait()
-        logger('Done\n')
-
-    if not checkExecutable(externals['gatk'].split()) :
+    if not getExecutable(externals['gatk'].split()) :
         gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
         logger('Downloading gatk package from {0}'.format(gatk_url))
-        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).wait()
+        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging gatk package')
-        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('gatk-4.1.0.0.zip')
-        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).wait()
+        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).communicate()
         logger('Done\n')
 
-    if not checkExecutable(externals['kraken2'].split()) :
+    if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
+        blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
+        logger('Downloading ncbi-blast package from {0}'.format(blast_url))
+        subprocess.Popen('curl -Lo ncbi-blast-2.8.1+-x64-linux.tar.gz {0}'.format(blast_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging ncbi-blast package'.format(blast_url))
+        subprocess.Popen('tar -xzf ncbi-blast-2.8.1+-x64-linux.tar.gz'.split()).communicate()
+        os.unlink('ncbi-blast-2.8.1+-x64-linux.tar.gz')
+        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/blastn ./blastn'.split()).communicate()
+        subprocess.Popen('ln -fs ncbi-blast-2.8.1+/bin/makeblastdb ./makeblastdb'.split()).communicate()
+        logger('Done\n')
+    
+    if not getExecutable([externals['megahit']]) :
+        megahit_url = 'https://github.com/voutcn/megahit/releases/download/v1.1.4/megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'
+        logger('Downloading megahit package from {0}'.format(megahit_url))
+        subprocess.Popen('curl -Lo megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz {0}'.format(megahit_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging megahit package'.format(megahit_url))
+        subprocess.Popen('tar -xzf megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz'.split()).communicate()
+        os.unlink('megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin.tar.gz')
+        subprocess.Popen('ln -fs megahit_v1.1.4_LINUX_CPUONLY_x86_64-bin/megahit ./megahit'.split()).communicate()
+        logger('Done\n')
+
+    if not getExecutable([externals['bowtie2']]) :
+        bowtie2_url = 'https://github.com/BenLangmead/bowtie2/releases/download/v2.3.4.3/bowtie2-2.3.4.3-linux-x86_64.zip'
+        logger('Downloading bowtie2 package from {0}'.format(bowtie2_url))
+        subprocess.Popen('curl -Lo bowtie2-2.3.4.3-linux-x86_64.zip {0}'.format(bowtie2_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging bowtie2 package')
+        subprocess.Popen('unzip -o bowtie2-2.3.4.3-linux-x86_64.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('bowtie2-2.3.4.3-linux-x86_64.zip')
+        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2 ./bowtie2'.split()).communicate()
+        subprocess.Popen('ln -fs bowtie2-2.3.4.3-linux-x86_64/bowtie2-build ./bowtie2-build'.split()).communicate()
+        logger('Done\n')
+
+    if not getExecutable([externals['mmseqs']]) :
+        mmseqs_url = 'https://github.com/soedinglab/MMseqs2/releases/download/7-4e23d/MMseqs2-Linux-SSE4_1.tar.gz'
+        logger('Downloading mmseqs package from {0}'.format(mmseqs_url))
+        subprocess.Popen('curl -Lo MMseqs2-Linux-SSE4_1.tar.gz {0}'.format(mmseqs_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging mmseqs package')
+        subprocess.Popen('tar -xzf MMseqs2-Linux-SSE4_1.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('MMseqs2-Linux-SSE4_1.tar.gz')
+        subprocess.Popen('ln -fs mmseqs2/bin/mmseqs ./mmseqs'.split()).communicate()
+        logger('Done\n')
+
+    if not getExecutable(externals['kraken2'].split()) :
         kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
         logger('Downloading kraken2 package from {0}'.format(kraken2_url))
-        subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(kraken2_url).split(), stderr=subprocess.PIPE).wait()
+        subprocess.Popen('curl -Lo v2.0.7-beta.tar.gz {0}'.format(kraken2_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging kraken2 package')
-        subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('v2.0.7-beta.tar.gz')
-        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).wait()
-        subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).wait()
+        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).communicate()
+        subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).communicate()
         logger('Done\n')
 
-    if not checkExecutable(externals['diamond'].split()) :
+    if not getExecutable(externals['diamond'].split()) :
         diamond_url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.24/diamond-linux64.tar.gz'
         logger('Downloading diamond package from {0}'.format(diamond_url))
-        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).wait()
+        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging diamond package')
-        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('diamond-linux64.tar.gz')
         os.unlink('diamond_manual.pdf')
         logger('Done\n')
 
-    if not checkExecutable([externals['usearch']]) :
+    if not getExecutable([externals['usearch']]) :
         logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html')
-        logger('')
+    logger('')
     os.chdir(curdir)
 # -------------------------------------------------------------- #
 ETOKI = os.path.dirname(os.path.dirname(__file__))
@@ -297,10 +304,11 @@ def configure(args) :
     for fname, flink in sorted(externals.items()) :
         flinks = flink.split()
         if fname not in {'kraken_database', 'enbler_filter', 'pigz'} :
-            if not checkExecutable(flinks) :
+            if not getExecutable(flinks) :
                 logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
-                sys.exit(0)
-            logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
+                #sys.exit(0)
+            else :
+                logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
     if not os.path.exists(externals['kraken_database']) :
         logger('''WARNING - kraken_database is not present. 
 You can still use EToKi except the parameter "--kraken" in EToKi assemble will not work.
@@ -316,7 +324,7 @@ def prepare_externals(conf=None) :
     externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
     externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'.format(ETOKI=ETOKI)
-    externals['pigz'] = 'pigz' if checkExecutable(['pigz']) else 'gzip'
+    externals['pigz'] = getExecutable(['pigz'])[0] if getExecutable(['pigz']) else getExecutable(['gzip'])[0]
     return externals
 
 def add_args(a) :

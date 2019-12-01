@@ -1,18 +1,21 @@
 #! /usr/bin/python3
 import sys, os
+import argparse
 from modules.configure import logger
-#refMasker, profile2matrix
-#            ['metaCaller','secondary SNP caller for metagenomic samples with intra-species diversity'], 
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
 
 commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['prepare',   'trim, collapse, downsize and rename the short reads.'],                       #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
-#            ['ortho',     'pan-genome (and wgMLST scheme) prediction'],        #
             ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
-#            ['cgMLST',    'pick core genes from wgMLST genes'], 
             ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
-#            ['evalHCC',   'evaluate HierCC to find the most stable clusters'], 
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
             ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
@@ -24,31 +27,20 @@ commands = [['configure', 'install and/or configure 3rd party programs'],    #
 
 
 def etoki():
-    try:
-        if len(sys.argv) <= 1 :
-            raise ValueError
-        try :
-            exec('from modules.{0} import {0}'.format(sys.argv[1]))
-        except (ImportError, SyntaxError) as e :
-            logger(str(e))
-            raise ValueError
-        else:
-            sys.argv[0] = ' '.join(sys.argv[:2])
-            
+    parser = MyParser('EToKi')
+    subparser = parser.add_subparsers(title='sub-commands', dest='cmd')
+    for cmd, help in commands :
+        subparser.add_parser(cmd, help=help)
+    #parser.add_argument('options', nargs='*')
+    arg, others = parser.parse_known_args()
+    if arg.cmd is None :
+        parser.print_help()
+        sys.exit(2)
+    try :
+        exec('from modules.{0} import {0}'.format(arg.cmd))
+        eval(arg.cmd)(others)
     except ValueError as e :
-        sys.stdout.write('''
-Program: EToKi (Enterobase Tool Kit)
-
-Usage:   EToKi.py <command> [options]
-
-Commands:
-'''
-              + '\n'.join(['    {0} {1}'.format(cmd[0].ljust(12), cmd[1]) for cmd in commands]) + 
-'''
-Use EToKi.py <command> -h to get help for each command.
-''')
-    else :
-        eval(sys.argv[1])(sys.argv[2:])
+        parser.print_help()
 
 
 if __name__ == '__main__' :
