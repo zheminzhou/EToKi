@@ -15,15 +15,15 @@ commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
             ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
-            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
-            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
-            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
             ['EBEis',     'in silico serotype prediction for Escherichia coli and Shigella spp.'],                             #
-            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
             ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
             ['clust',     'linear-time clustering of short sequences using mmseqs linclust']]                          #
+#            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
+#            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
+#            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
+#            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
 
 
 def etoki():
@@ -32,13 +32,13 @@ def etoki():
     for cmd, help in commands :
         subparser.add_parser(cmd, help=help)
     #parser.add_argument('options', nargs='*')
-    arg, others = parser.parse_known_args()
+    arg, others = parser.parse_known_args(sys.argv[1:2])
     if arg.cmd is None :
         parser.print_help()
         sys.exit(2)
     try :
         exec('from modules.{0} import {0}'.format(arg.cmd))
-        eval(arg.cmd)(others)
+        eval(arg.cmd)(sys.argv[2:])
     except ValueError as e :
         parser.print_help()
 

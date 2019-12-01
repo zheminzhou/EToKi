@@ -388,8 +388,7 @@ You can run multiple tasks by sending a comma delimited task list.
 There are also some pre-defined task combo:
 all: matrix,phylogeny,ancestral,mutation
 aln2phy: matrix,phylogeny [default]
-snp2anc: phylogeny,ancestral
-mat2mut: ancestral,mutation''', default='aln2phy')
+snp2mut: phylogeny,ancestral''', default='aln2phy')
 
     parser.add_argument('--prefix', '-p', help='prefix for all outputs.', required=True)
     parser.add_argument('--alignment', '-m', help='aligned sequences in either fasta format or Xmfa format. Required for "matrix" task.', default='')
@@ -404,8 +403,7 @@ mat2mut: ancestral,mutation''', default='aln2phy')
     args.tasks = dict(
         all = 'matrix,phylogeny,ancestral,mutation',
         aln2phy = 'matrix,phylogeny',
-        snp2anc = 'phylogeny,ancestral',
-        mat2mut = 'ancestral,mutation',
+        snp2mut = 'phylogeny,ancestral,mutation',
     ).get(args.tasks, args.tasks).split(',')
 
     return args

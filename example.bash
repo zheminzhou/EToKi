@@ -1,17 +1,22 @@
 ### Trim genomic reads
-python EToKi.py prepare --pe examples/A_R1.fastq.gz,examples/A_R2.fastq.gz -p examples/prep_out
+python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/prep_out
 
 ### Merge and trim metagenomic reads
-python EToKi.py prepare --pe examples/OAGR_ModernL7_10K_R1.fastq.gz,examples/OAGR_ModernL7_10K_R2.fastq.gz -p examples/QAGR_ModernL7_trim --noRename --merge
+python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/meta_out --noRename --merge
 
 ### Assemble genomic reads using SPAdes
 python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out_L1_R2.fastq.gz --se examples/prep_out_L1_SE.fastq.gz -p examples/asm_out
 
 ### Assemble genomic reads using MEGAHIT
-python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out_L1_R2.fastq.gz --se examples/prep_out_L1_SE.fastq.gz -p examples/asm_out2 --assembler megahit
+python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
+--pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
+-p examples/asm_out2 --assembler megahit
 
-### Find orthologous groups from public annotations
-python EToKi.py ortho -P examples/GCF_000010485.combined.gff.gz --min_cds 60 --fast --incompleteCDS s -p examples/ST131 examples/*.gff.gz
+### Map reads onto reference, with pre-filtering with ingroups and outgroups
+python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
+--pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
+-p examples/map_out -r examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz \
+-i examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz -o examples/GCF_000005845.2_ASM584v2_genomic.fna.gz
 
 ### Prepare reference alleles and a local database for 7 Gene MLST scheme
 python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples/Escherichia.Achtman.references.fasta -d examples/Escherichia.Achtman.convert.tab
@@ -31,11 +36,11 @@ python EToKi.py clust -p examples/Escherichia.Achtman.alleles_clust -i examples/
 ### Do a joint BLASTn-like search using BLASTn, uSearch (uBLASTp), Mimimap and mmseqs
 python EToKi.py uberBlast -q examples/Escherichia.Achtman.alleles.fasta -r examples/GCF_001566635.1_ASM156663v1_genomic.fna -o examples/G749_7Gene.bsn --blastn --ublast --minimap --mmseq -s 2 -f
 
+### align multiple genomes onto one reference
+python EToKi.py align -r GCF_000010485:examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz -p examples/phylo \
+GCF_000005845:examples/GCF_000005845.2_ASM584v2_genomic.fna.gz \
+GCF_000214765:examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz \
+GCF_001566635:examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz
+
 ### Build ML tree using RAxML and place all SNPs onto branches in the tree
-python EToKi.py phylo -t all -p phylo_out -m examples/phylo_rec.fasta
-
-### Identify recombination sketches from the SNP matrix, and revise the branch lengths of the tree
-python EToKi.py RecHMM -d phylo_out.mutations.gz -p examples/rec_out
-
-### Strip out recombinant SNPs from a SNP matrix
-python EToKi.py RecFilter -s phylo_out.matrix.gz -t phylo_out.labelled.nwk -r examples/rec_out.recombination.region -p examples/rec_out.nonrec
+python EToKi.py phylo -t snp2mut -p phylo_out -s examples/phylo.matrix.gz
