@@ -1,1 +1,1 @@
-bbmap-folder/repair.sh
+bbmap/repair.sh

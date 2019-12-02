@@ -217,7 +217,7 @@ def install_externals() :
     os.chdir(moveTo)
 
 
-    if not getExecutable([externals['pilon']]) :
+    if not getExecutable(externals['pilon'].split()) :
         url = 'https://github.com/broadinstitute/pilon/releases/download/v1.23/pilon-1.23.jar'
         logger('Downloading pilon-1.23.jar package from {0}'.format(url))
         subprocess.Popen('curl -Lo pilon-1.23.jar {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
@@ -243,7 +243,7 @@ def install_externals() :
         subprocess.Popen('ln -fs SPAdes-3.13.0-Linux/bin/spades.py ./spades.py'.split()).communicate()
         logger('Done\n')
 
-    if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]):
+    if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]) or not getExecutable([externals['repair']]):
         url = 'https://netcologne.dl.sourceforge.net/project/bbmap/BBMap_38.73.tar.gz'
         logger('Downloading BBmap package from {0}'.format(url))
         subprocess.Popen('curl -Lo BBMap_38.73.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
@@ -252,6 +252,7 @@ def install_externals() :
         os.unlink('BBMap_38.73.tar.gz')
         subprocess.Popen('ln -fs bbmap/bbduk.sh ./bbduk.sh'.split()).communicate()
         subprocess.Popen('ln -fs bbmap/bbmerge.sh ./bbmerge.sh'.split()).communicate()
+        subprocess.Popen('ln -fs bbmap/repair.sh ./repair.sh'.split()).communicate()
         logger('Done\n')
 
     
