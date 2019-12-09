@@ -2,6 +2,7 @@ import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io,
 from datetime import datetime
 
 if sys.version_info[0] < 3:
+    xrange = xrange
     from cStringIO import StringIO
     asc2int = np.uint8
 else :

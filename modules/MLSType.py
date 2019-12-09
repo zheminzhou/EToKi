@@ -499,7 +499,7 @@ class blastParser(object) :
                 alleles[region['locus']] = region
             if region['accepted'] & 2 > 0 :
                 region['accepted'] = region['accepted'] & (~1)
-        for locus, allele in alleles.items() :
+        for locus, allele in list(alleles.items()) :
             if allele['accepted'] & 65 == 64 :
                 allele_len = allele['coordinates'][2] - allele['coordinates'][1] + 1
                 for ale in allele.get('secondary', {}) :
