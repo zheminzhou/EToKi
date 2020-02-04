@@ -234,6 +234,17 @@ def install_externals() :
         os.unlink('diamond_manual.pdf')
         logger('Done\n')
 
+    if not getExecutable([externals['flye']]) :
+        url = 'https://github.com/fenderglass/Flye/archive/2.6.tar.gz'
+        logger('Downloading Flye from {0}'.format(url))
+        subprocess.Popen('curl -Lo Flye.2.6.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging Flye'.format(url))
+        subprocess.Popen('tar -xzf Flye.2.6.tar.gz'.split()).communicate()
+        os.unlink('Flye.2.6.tar.gz')
+        subprocess.Popen('make'.split(), cwd='Flye-2.6', stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('ln -fs Flye-2.6/bin/flye ./flye'.split()).communicate()
+        logger('Done\n')
+
     if not getExecutable([externals['spades']]) :
         url = 'http://cab.spbu.ru/files/release3.13.0/SPAdes-3.13.0-Linux.tar.gz'
         logger('Downloading SPAdes-3.13.0 package from {0}'.format(url))
