@@ -915,7 +915,10 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
         import tempfile
         with tempfile.NamedTemporaryFile(dir='.') as tf :
             tf_fas = '{0}.fasta'.format(tf.name)
-            subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            if reference.upper().endswith('GZ') :
+                subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            else :
+                subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
             repeats = mask_tandem(tf_fas) + mask_crispr(tf_fas, tf.name)
             os.unlink(tf_fas)
         alignments = alignAgainst([prefix +'.' + ref_tag.rsplit('.', 1)[0] + '.0', aligner, prefix + '.mmi', [ref_tag, reference], [ref_tag, reference]])

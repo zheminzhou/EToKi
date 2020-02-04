@@ -235,12 +235,12 @@ def read_matrix(fname) :
                 w_cols = np.char.startswith(part, '#!W')
                 names = part[cols]
                 break
-        for mat in pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1], chunksize=10000) :
+        for mat in pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1], chunksize=10000, engine='c', dtype=str, low_memory=False, na_filter=False) :
             mat = mat.values
             logger('{0}\t{1}\t{2}\t{3}\t{4}'.format(\
                 mat[0, 0], mat[0, 1], \
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, len(sites), len(snps)))
-            bk = validate[mat[:, cols].astype('str').view(asc2int)].reshape(mat.shape[0], -1, cols.shape[0])
+            bk = validate[mat[:, cols].astype('str').T.view(asc2int).T].reshape(mat.shape[0], -1, cols.shape[0])
             bk = np.moveaxis(bk, 1, 2)
             if bk.shape[2] > 1 :
                 bk[(bk[:, :, 1] != 0) & (bk[:, :, 0] == 45), 0] = 0
@@ -396,6 +396,7 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     parser.add_argument('--tree', '-z', help='phylogenetic tree. Required for "ancestral" task', default='')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
+    parser.add_argument('--nj', help='use rapidNJ instead of RAxML.', default=False, action='store_true')
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
     args = parser.parse_args(a)
@@ -508,6 +509,29 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
         retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
     return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(retvalue, dtype=np.uint8) if infer =='viterbi' else retvalue
 
+def write_fasta(prefix, names, snps) :
+    invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
+    for snp in snps :
+        if snp[3] == 0 and snp[2][0] in invariants :
+            invariants[ snp[2][0] ] += snp[1]
+
+    snp2 = [ snp for snp in snps if snp[3] == 1 and snp[2][0] in invariants ]
+
+    snp_array = np.array([s[2] for s in snp2 for x in np.arange(s[1])]).T
+    with open(prefix + '.fasta', 'w') as fout :
+        for id, n in enumerate(names) :
+            fout.write('>{0}\n{1}\n'.format(n, ''.join(np.frompyfunc(chr, 1, 1)(snp_array[id]))))
+    return prefix+'.fasta', invariants
+
+def run_rapidnj(prefix, fastafile) :
+    cmd = '{rapidnj} -i fa {0}'.format(fastafile, **externals)
+    run = Popen(cmd.split(), stdout=PIPE, universal_newlines=True)
+    tree = run.communicate()[0]
+    fname = '{0}.unrooted.nwk'.format(prefix)
+    with open(fname, 'w') as fout :
+        fout.write(tree.replace("'", '')+'\n')
+    return fname
+
 def phylo(args) :
     args = add_args(args)
     global pool
@@ -524,13 +548,17 @@ def phylo(args) :
 
     # build tree
     if 'phylogeny' in args.tasks :
-        phy, weights, asc = write_phylip(args.prefix+'.tre', names, snps)
-        if phy != '' :
-            args.tree = run_raxml(args.prefix +'.tre', phy, weights, asc, 'CAT', args.n_proc)
+        args.tree = args.prefix+'.tre'
+        if not args.nj :
+            phy, weights, asc = write_phylip(args.tree, names, snps)
+            if phy != '' :
+                args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc)
+            else :
+                with open(args.tree, 'w') as fout :
+                    fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
         else :
-            args.tree = args.prefix + '.tre'
-            with open(args.tree, 'w') as fout :
-                fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
+            fastafile, invariants = write_fasta(args.tree, names, snps)
+            run_rapidnj(args.tree, fastafile)
         args.tree = get_root(args.prefix, args.tree)
     elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
