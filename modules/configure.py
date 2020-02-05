@@ -241,8 +241,8 @@ def install_externals() :
         logger('Unpackaging Flye'.format(url))
         subprocess.Popen('tar -xzf Flye.2.6.tar.gz'.split()).communicate()
         os.unlink('Flye.2.6.tar.gz')
-        subprocess.Popen('make'.split(), cwd='Flye-2.6', stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('ln -fs Flye-2.6/bin/flye ./flye'.split()).communicate()
+        subprocess.Popen('make', shell=True, cwd='Flye-2.6').communicate()
+        subprocess.Popen('ln -fs Flye-2.6/bin/flye ./flye', shell=True).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :

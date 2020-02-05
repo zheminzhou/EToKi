@@ -1,4 +1,5 @@
 import os, io, sys, re, shutil, numpy as np, pandas as pd
+from collections import OrderedDict
 from glob import glob
 from time import sleep
 from subprocess import Popen, PIPE, STDOUT
@@ -9,18 +10,22 @@ except :
 
 # mainprocess
 class mainprocess(object) :
-    def launch (self, reads) :
+    def launch (self, reads, longReads=[]) :
         self.snps = None
         result = parameters.pop('reference', None)
-        if not result :
+        if not result and len(reads) > 0 :
             if parameters['assembler'] == 'spades' :
                 result = self.do_spades(reads)
             else :
                 result = self.do_megahit(reads)
+        if sum([len(lr) for lr in longReads]) > 0 :
+            result = self.do_flye(longReads, result, parameters['metagenome'])
+
         if parameters['outgroup'] or parameters['excluded'] :
             parameters['excluded'] = self.identify_outgroups(result, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
-        if not parameters['noPolish'] :
+        for ite in np.arange(int(parameters['numPolish'])) :
             result = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            
         if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
         return result
@@ -161,6 +166,72 @@ class mainprocess(object) :
             sys.exit(7351685)
         shutil.copyfile( '{outdir}/final.contigs.fa'.format(outdir=outdir), output_file )
         logger('MEGAHIT contigs in {0}'.format(output_file))
+        return output_file
+
+    def do_flye(self, reads, contigs, isMetagenome) :
+        isMetagenome = '--meta' if isMetagenome else ''
+        outdir = prefix + '.flye'
+        output_file = prefix + '.flye.fasta'
+
+        if os.path.isdir(outdir) :
+            shutil.rmtree(outdir)
+
+        if len(reads[0]) and len(reads[1]) :
+            read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
+                          '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
+            cmds = ['{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --iterations 0 --plasmids {read_input} -o {outdir}'.format( \
+                    flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
+                    '{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --resume-from polishing --plasmids {read_input} -o {outdir}'.format( \
+                    flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
+            for cmd in cmds :
+                flye_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+                flye_run.communicate()
+                if flye_run.returncode != 0:
+                    sys.exit(20123)
+        else :
+            if len(reads[0]) and not len(reads[1]) :
+                read_input = '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read]))
+            elif len(reads[1]) and not len(reads[0]) :
+                read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
+
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids {read_input} -o {outdir}'.format(
+                  flye=parameters['flye'], read_input=read_input, outdir=outdir)
+
+            flye_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run.communicate()
+            if flye_run.returncode != 0 :
+                sys.exit(20123)
+
+        if contigs :
+            asm1 = '{outdir}/assembly.fasta'.format(outdir=outdir)
+            asm2 = '{outdir}/assembly2.fasta'.format(outdir=outdir)
+            n1 = 0
+            with open(asm1, 'r') as fin, open(asm2, 'w') as fout :
+                for line in fin :
+                    if line.startswith('>') :
+                        fout.write('>x_{0}'.format(line[1:]))
+                        n1 += 1
+                    else :
+                        fout.write(line)
+            outdir2 = prefix + '.flye.hybrid'
+            if os.path.isdir(outdir2) :
+                shutil.rmtree(outdir2)
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids --subassemblies {asm} -o {outdir}'.format(
+                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
+
+            flye_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run.communicate()
+            if flye_run.returncode != 0 :
+                sys.exit(20123)
+            with open('{outdir}/assembly.fasta'.format(outdir=outdir2), 'r') as fin :
+                for line in fin :
+                    if line.startswith('>') :
+                        n1 -= 1
+            if n1 >= 0 :
+                outdir = outdir2
+        shutil.copyfile( '{outdir}/assembly.fasta'.format(outdir=outdir), output_file )
+
+        logger('Flye assembly in {0}'.format(output_file))
         return output_file
 
     def do_spades(self, reads) :
@@ -546,23 +617,20 @@ def assemble(args) :
     parameters.update(externals)
     prefix = parameters['prefix']
     
-    reads = []
-    for k, vs in zip(('pe', 'se'), (parameters['pe'], parameters['se'])) :
+    reads = OrderedDict([['PE', []],['SE', []],['PacBio', []],['ONT', []]])
+    for (k, d), vs in zip(reads.items(), (parameters['pe'], parameters['se'], parameters['pacbio'], parameters['ont'])) :
         for v in vs :
-            if k == 'pe' :
-                rnames = v.split(',')
-                if len(rnames) > 0 :
+            rnames = v.split(',')
+            if len(rnames) > 0 :
+                if k == 'PE' :
                     assert len(rnames) == 2, 'Allows 2 reads per PE library. You specified {0}'.format(len(rnames))
-                    reads.append(rnames)
-            elif k == 'se' :
-                rnames = v.split(',')
-                if len(rnames) > 0 :
-                    assert len(rnames) == 1, 'Allows one file per SE library. You specified {0}'.format(len(rnames))
-                    reads.append(rnames)
+                elif k in ('SE', 'PacBio', 'ONT') :
+                    assert len(rnames) == 1, 'Allows one file per {1} library. You specified {0}'.format(len(rnames), k)
+                d.append(rnames)
 
-    logger('Load in {0} read files from {1} libraries'.format(sum([ len(lib) for lib in reads ]), len(reads)))
+    logger('Load in {0} read files from {1} libraries'.format(sum(len(l) for lib in reads.values() for l in lib), sum(len(lib) for lib in reads.values())))
     if not parameters['onlyEval'] :
-        assembly = mainprocess().launch(reads)
+        assembly = mainprocess().launch(reads['PE'] + reads['SE'], [reads['PacBio'], reads['ONT']])
     else :
         assembly = parameters['reference']
     
@@ -584,11 +652,13 @@ And
 ''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--pe', action='append', help='comma delimited two files of PE reads. ', default=[])
     parser.add_argument('--se', action='append', help='one file of SE read. \n', default=[])
+    parser.add_argument('--pacbio', action='append', help='one file of pacbio read. \n', default=[])
+    parser.add_argument('--ont', action='append', help='one file of nanopore read. \n', default=[])
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_assemble', default='EToKi_assemble')
-    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome', default='')
+    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome. \n Long reads will always be assembled with Flye', default='')
     parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this for reference mapping module. ', default=None)
     parser.add_argument('-k', '--kmers', help='relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
-    parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa and bowtie2', default='minimap2')
+    parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa or bowtie2', default='minimap2')
     parser.add_argument('-d', '--max_diff', help='Maximum proportion of variations allowed for a aligned reads. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
     parser.add_argument('-i', '--ingroup', help='Additional references presenting intra-population genetic diversities. ', default='')
     parser.add_argument('-o', '--outgroup', help='Additional references presenting genetic diversities outside of the studied population. \nReads that are more similar to outgroups will be excluded from analysis. ', default='')
@@ -599,7 +669,7 @@ And
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
 
-    parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 2', default=2)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
