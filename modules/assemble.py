@@ -242,21 +242,28 @@ class mainprocess(object) :
         matches = matches[(matches.T[2] >= 98.5) & (matches.T[3] >= 1000)]
         matches = matches[(matches.T[0] != matches.T[1]) | (matches.T[6] != matches.T[8]) | (matches.T[7] != matches.T[9])]
         matches.T[12] = np.min([matches.T[12] - matches.T[7], matches.T[6] - 1], 0)
-        matches = matches[matches.T[12] < 1000]
-        matches[np.argsort(-matches.T[3])]
-        matches[np.argsort(matches.T[12])]
+        matches = matches[matches.T[12] < 500]
+        matches = matches[np.argsort(-matches.T[3])]
+        matches = matches[np.argsort(matches.T[12])]
         
         toRemove = []
         for mat in matches :
-            reg = [[mat[0], mat[6], mat[7]]]
+            r0 = [mat[0], mat[6], mat[7]]
             r1 = [mat[1]] + sorted([mat[8], mat[9]])
             for r2 in toRemove :
                 if r1[0] == r2[0] :
                     s, e = max(r1[1], r2[1]), min(r1[2], r2[2])
                     if (e-s+1) >= 0.8 * (r1[2] -r1[1]+1) :
-                        reg = []
+                        r0 = []
                         break
-            toRemove.extend(reg)
+                if r0[0] == r2[0] :
+                    s, e = max(r0[1], r2[1]), min(r0[2], r2[2])
+                    if (e-s+1) > 0 :
+                        r2[1:] = [min(r0[1], r2[1]), max(r0[2], r2[2])]
+                        r0 = []
+                        break
+            if r0 :
+                toRemove.append(r0)
         toRemove.sort(reverse=True)
         
         if len(toRemove) :
@@ -272,7 +279,7 @@ class mainprocess(object) :
                 seq[n] = list(''.join(s))
             for n, s, e in toRemove :
                 seq[n][(s-1):e] = []
-            with open(output_file) as fout :
+            with open(output_file, 'w') as fout :
                 for n, s in seq.items() :
                     fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
         else :
