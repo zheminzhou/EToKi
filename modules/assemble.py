@@ -197,9 +197,9 @@ class mainprocess(object) :
                 read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
 
             cmd = '{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --plasmids {read_input} -o {outdir}'.format(
-                  flye=parameters['flye'], read_input=read_input, outdir=outdir)
+                  flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
 
-            flye_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
             if flye_run.returncode != 0 :
                 sys.exit(20123)
@@ -221,7 +221,7 @@ class mainprocess(object) :
             cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids --subassemblies {asm} -o {outdir}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
 
-            flye_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
             if flye_run.returncode != 0 :
                 sys.exit(20123)
