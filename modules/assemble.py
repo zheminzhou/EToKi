@@ -24,7 +24,9 @@ class mainprocess(object) :
         if parameters['outgroup'] or parameters['excluded'] :
             parameters['excluded'] = self.identify_outgroups(result, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
         for ite in np.arange(int(parameters['numPolish'])) :
-            result = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            result, n_changes = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            if not n_changes :
+                break
             
         if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
@@ -172,10 +174,10 @@ class mainprocess(object) :
         isMetagenome = '--meta' if isMetagenome else ''
         outdir = prefix + '.flye'
         output_file = prefix + '.flye.fasta'
-
+        
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
-
+        
         if len(reads[0]) and len(reads[1]) :
             read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
                           '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
@@ -194,7 +196,7 @@ class mainprocess(object) :
             elif len(reads[1]) and not len(reads[0]) :
                 read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
 
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids {read_input} -o {outdir}'.format(
+            cmd = '{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --plasmids {read_input} -o {outdir}'.format(
                   flye=parameters['flye'], read_input=read_input, outdir=outdir)
 
             flye_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
@@ -229,8 +231,52 @@ class mainprocess(object) :
                         n1 -= 1
             if n1 >= 0 :
                 outdir = outdir2
-        shutil.copyfile( '{outdir}/assembly.fasta'.format(outdir=outdir), output_file )
-
+        flye_file = '{outdir}/assembly.fasta'.format(outdir=outdir)
+        #flye_file = contigs
+        
+        cmd = '{makeblastdb} -dbtype nucl -in {0}'.format(flye_file, **externals)
+        Popen(cmd, shell=True).communicate()
+        cmd = '{blastn} -num_threads 8 -db {0} -query {0} -outfmt "6 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue score qlen slen"'.format(flye_file, **externals)
+        p = Popen(cmd, shell=True, universal_newlines=True, stdout=PIPE)
+        matches = pd.read_csv(p.stdout, sep='\t', header=None).values
+        matches = matches[(matches.T[2] >= 98.5) & (matches.T[3] >= 1000)]
+        matches = matches[(matches.T[0] != matches.T[1]) | (matches.T[6] != matches.T[8]) | (matches.T[7] != matches.T[9])]
+        matches.T[12] = np.min([matches.T[12] - matches.T[7], matches.T[6] - 1], 0)
+        matches = matches[matches.T[12] < 1000]
+        matches[np.argsort(-matches.T[3])]
+        matches[np.argsort(matches.T[12])]
+        
+        toRemove = []
+        for mat in matches :
+            reg = [[mat[0], mat[6], mat[7]]]
+            r1 = [mat[1]] + sorted([mat[8], mat[9]])
+            for r2 in toRemove :
+                if r1[0] == r2[0] :
+                    s, e = max(r1[1], r2[1]), min(r1[2], r2[2])
+                    if (e-s+1) >= 0.8 * (r1[2] -r1[1]+1) :
+                        reg = []
+                        break
+            toRemove.extend(reg)
+        toRemove.sort(reverse=True)
+        
+        if len(toRemove) :
+            seq = OrderedDict()
+            with open(flye_file) as fin :
+                for line in fin :
+                    if line.startswith('>') :
+                        name = line[1:].strip()
+                        seq[name] = []
+                    else :
+                        seq[name].extend(line.strip().split())
+            for n, s in seq.items() :
+                seq[n] = list(''.join(s))
+            for n, s, e in toRemove :
+                seq[n][(s-1):e] = []
+            with open(output_file) as fout :
+                for n, s in seq.items() :
+                    fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
+        else :
+            shutil.copyfile( flye_file, output_file )
         logger('Flye assembly in {0}'.format(output_file))
         return output_file
 
@@ -288,7 +334,7 @@ class mainprocess(object) :
             for n, s in sorted(sequence.items()) :
                 s = ''.join(s)
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-        return '{0}.fasta'.format(prefix)
+        return '{0}.fasta'.format(prefix), 0
     
     def identify_outgroups(self, reference, ingroup='', outgroup='', excluded='') :
         excludedReads = {}
@@ -370,12 +416,10 @@ class mainprocess(object) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
 
             bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-            if reassemble :
-                pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-                Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
-            else :
-                pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-                Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+            fix_opt = '--fix all,breaks' if reassemble else '--fix all'
+            
+            pilon_cmd = '{pilon} {fix_opt} --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, fix_opt=fix_opt, **parameters)
+            Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
             
             if not os.path.isfile('{0}.mapping.vcf'.format(prefix)) :
                 pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
@@ -407,7 +451,7 @@ class mainprocess(object) :
                 for n, s in sorted(sequence.items()) :
                     s = ''.join(s)
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-            return '{0}.fasta'.format(prefix)
+            return '{0}.fasta'.format(prefix), len(snps)
 
     def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
@@ -669,8 +713,8 @@ And
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
 
-    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 2', default=2)
-    parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1)
+    parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
@@ -685,6 +729,8 @@ And
         args.max_diff = 0.1 if not args.metagenome else 0.05
     if args.metagenome :
         args.reassemble = False
+    if args.numPolish < 0 :
+        args.numPolish = 3 if args.pacbio or args.ont else 1
         
     return args
 
