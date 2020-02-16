@@ -1,5 +1,6 @@
 import sys, os, pandas as pd, numpy as np, numba as nb
-from sklearn.metrics.cluster import adjusted_rand_score
+import argparse
+from sklearn.metrics import adjusted_rand_score
 from sklearn.metrics import silhouette_score, normalized_mutual_info_score
 
 try:
@@ -32,18 +33,21 @@ def get_similarity(method, cluster, stepwise) :
     similarity[similarity<0.001] = 0.001
     return similarity
 
-def get_silhouette(profile, cluster, stepwise, ave_gene_length=1.) :
+def get_silhouette(prefix, profile, cluster, stepwise) :
     logger('Calculating pairwise distance ...')
-    np.save('evalHCC.profile.npy', profile)
+    np.save(prefix+'.profile.npy', profile)
     indices = np.array([[profile.shape[0]*(v/10.)**2+0.5, profile.shape[0]*((v+1)/10.)**2+0.5] for v in np.arange(10, dtype=float)], dtype=int)
-    #subfiles = list(map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices]))
-    subfiles = pool.map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', ave_gene_length, idx] for idx in indices])
+    #subfiles = list(map(parallel_distance, [['evalHCC.profile.npy', 'evalHCC.dist.{0}.npy', idx] for idx in indices]))
+    subfiles = pool.map(parallel_distance, [[prefix+'.profile.npy', prefix+'.dist.{0}.npy', idx] for idx in indices])
     prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
     prof_dist += prof_dist.T
-    np.save('evalHCC.dist.npy', prof_dist)
+    np.save(prefix+'.dist.npy', prof_dist)
+    for subfile in subfiles :
+        os.unlink(subfile)
+
     logger('Calculating Silhouette score ...')
-    silhouette = np.array(pool.map(get_silhouette2, [ ['evalHCC.dist.npy', tag] for tag in cluster.T ]))
-    for subfile in subfiles + ['evalHCC.profile.npy', 'evalHCC.dist.npy'] :
+    silhouette = np.array(pool.map(get_silhouette2, [ [prefix+'.dist.npy', tag] for tag in cluster.T ]))
+    for subfile in [prefix+'.profile.npy', prefix+'.dist.npy'] :
         os.unlink(subfile)
     return silhouette
 
@@ -57,15 +61,15 @@ def get_silhouette2(data) :
 
 
 def parallel_distance(callup) :
-    prof_file, sub_prefix, ave_gene_length, index_range = callup
+    prof_file, sub_prefix, index_range = callup
     profiles = np.load(prof_file)
 
-    res = profile_distance(profiles, ave_gene_length, index_range)
+    res = profile_distance(profiles, index_range)
     subfile = sub_prefix.format(index_range[0])
     np.save(subfile, res)
     return subfile
 
-def profile_distance(profiles, ave_gene_length, index_range=None) :
+def profile_distance(profiles, index_range=None) :
     if index_range is None :
         index_range = [0, profiles.shape[0]]
 
@@ -77,12 +81,24 @@ def profile_distance(profiles, ave_gene_length, index_range=None) :
         diffs = (np.sum((profiles[id+1:] != profile) & comparable, axis=1).astype(float) + .5) / (np.sum(comparable, axis=1) + 1.)
         distances[id+1:, i2] = diffs
         #distances[id, :i2] = diffs[index_range[0]:index_range[0]+id]
-    distances = (1-(1-distances)**(1./ave_gene_length))*ave_gene_length
+    distances = -np.log(1-distances)
     return distances
 
+def get_args(args) :
+    parser = argparse.ArgumentParser(description='''evalHCC evaluates HierCC results using varied statistic summaries.''', formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('-p', '--profile', help='[INPUT; REQUIRED] name of the profile file. Can be GZIPed.', required=True)
+    parser.add_argument('-c', '--cluster', help='[INPUT; REQUIRED] name of the hierCC file. Can be GZIPed.', required=True)
+    parser.add_argument('-o', '--output', help='[OUTPUT; REQUIRED] Prefix for the output files.', required=True)
+    parser.add_argument('-s', '--stepwise', help='[DEFAULT: 10] Evaluate every <stepwise> levels.', default=10, type=int)
 
-def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
-    with uopen(profile) as fin :
+    return parser.parse_args(args)    
+
+
+def evalHCC(args) :
+    args = get_args(args)
+
+#def evalHCC(profile, cluster, stepwise, ave_gene_length=1000.) :
+    with uopen(args.profile) as fin :
         logger('Loading profiles ...')                
         profile_header = fin.readline().strip().split('\t')
         ST_col = np.where([p.find('#ST')>=0 for p in profile_header])[0].tolist()
@@ -93,14 +109,14 @@ def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
         profile_names = profile.index.values
         profile = profile.values
     
-    with uopen(cluster) as fin :
+    with uopen(args.cluster) as fin :
         logger('Loading hierCC ...')                        
         cluster_header = fin.readline().strip().split('\t')
         cols = [0] + np.where([not h.startswith('#') for h in cluster_header])[0].tolist()
         cluster = pd.read_csv(fin, sep='\t', header=None, index_col=0, usecols=cols)
         cluster_names = cluster.index.values
         cluster = cluster.values
-        s = np.arange(0, cluster.shape[1], stepwise)
+        s = np.arange(0, cluster.shape[1], args.stepwise)
         cluster = cluster[:, s]
 
     presence = np.in1d(cluster_names, profile_names)
@@ -111,18 +127,26 @@ def evaluate(profile, cluster, stepwise, ave_gene_length=1000.) :
     profile_names = profile_names[profile_order]
     profile = profile[profile_order]
     
-    shannon = shannon_index(cluster)
+    with open(args.output, 'w') as fout :
+        shannon = shannon_index(cluster)
+        similarity = get_similarity('adjusted_rand_score', cluster, args.stepwise)
 
-    similarity = get_similarity('adjusted_rand_score', cluster, stepwise)
+        levels = [ id*args.stepwise for id in range(len(shannon)) ]
+        for level, s in zip(levels, shannon) :
+            fout.write('#Shannon\t{0}\t{1:.3f}\n'.format(level, np.abs(s)))
+        fout.write('\n\n#ARI\t{0}\n'.format('\t'.join([str(lvl) for lvl in levels])))
+        for level, sim in zip(levels, similarity) :
+            fout.write('{0}\t{1}\n'.format(level, '\t'.join([ '{0:.3f}'.format(s) for s in sim ])))
+        fout.write('\n\n')
+        silhouette = get_silhouette(args.output, profile, cluster, args.stepwise)
+        for level, s in zip(levels, silhouette) :
+            fout.write('#Silhouette\t{0}\t{1:.3f}\n'.format(level, np.abs(s)))
 
-    silhouette = get_silhouette(profile, cluster, stepwise, ave_gene_length)
-
-    np.savez_compressed('evalHCC.npz', shannon=shannon, similarity=similarity, silhouette=silhouette)
-    logger('Done. Results saved in evalHCC.npz')
+    #np.savez_compressed('evalHCC.npz', shannon=shannon, similarity=similarity, silhouette=silhouette)
+    #logger('Done. Results saved in evalHCC.npz')
 
 
 import multiprocessing
 pool = multiprocessing.Pool(10)
 if __name__ == '__main__' :
-    profile, cluster, stepwise = sys.argv[1:]
-    evaluate(profile, cluster, int(stepwise))
+    evalHCC(sys.argv[1:])
