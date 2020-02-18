@@ -19,6 +19,8 @@ def shannon_index(cluster) :
 
 def get_similarity2(data) :
     method, cc1, cc2 = data
+    if np.unique(cc1).size == 1 and  np.unique(cc1).size == 1 :
+        return 1.
     return eval(method)(cc1, cc2)
 
 def get_similarity(method, cluster, stepwise) :
