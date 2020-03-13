@@ -11,7 +11,8 @@ except :
 # mainprocess
 class mainprocess(object) :
     def launch (self, reads, longReads=[]) :
-        result = os.path.abspath(parameters.pop('reference', None)) if parameters.get('reference', None) else None
+        result = parameters.pop('reference', None)
+        result = os.path.abspath(result) if result else None
 
         self.cwd = os.getcwd()
         self.folder = prefix
