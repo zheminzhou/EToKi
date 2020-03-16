@@ -31,7 +31,7 @@ class mainprocess(object) :
             result = self.do_flye(longReads, result, parameters['metagenome'])
 
         if parameters['outgroup'] or parameters['excluded'] :
-            parameters['excluded'] = self.identify_outgroups(result, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
+            parameters['excluded'] = self.identify_outgroups(result, reads, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
         for ite in np.arange(int(parameters['numPolish'])) :
             result, n_changes = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
             if not n_changes :
@@ -81,6 +81,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             se = [ lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
             pe = [ '{0} {1}'.format(*lib[:2]), '{0}.mapping.{1}.pe1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.pe.bam'.format(prefix, lib_id) ] if len(lib) >= 2 else [None, None, None]
+
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
@@ -396,11 +397,14 @@ class mainprocess(object) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
         return 'etoki.fasta', 0
     
-    def identify_outgroups(self, reference, ingroup='', outgroup='', excluded='') :
+    def identify_outgroups(self, reference, reads, ingroup='', outgroup='', excluded='') :
         excludedReads = {}
-        ingroups, outgroups = list(set(ingroup.split(',') + [reference]) - set([''])), list(set(outgroup.split(',')) - set(['']))
-        assert np.all([os.path.isfile(fn) for fn in ingroups]), 'Some filenames in ingroup is not valid.'
-        assert np.all([os.path.isfile(fn) for fn in outgroups]), 'Some filenames in outgroup is not valid.'
+        ingroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in ingroup.split(',') if fn != '' ]
+        outgroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in outgroup.split(',') if fn != '' ]
+        ingroups, outgroups = list( set(ingroups + [reference]) ), list( set(outgroups) - set([reference]) )
+
+        assert np.all([os.path.isfile(fn) for fn in ingroups]), 'Some filenames in ingroup are not valid.'
+        assert np.all([os.path.isfile(fn) for fn in outgroups]), 'Some filenames in outgroup are not valid.'
         
         inRef, outRef = 'etoki.inRef', 'etoki.outRef'
         
