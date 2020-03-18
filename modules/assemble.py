@@ -262,38 +262,49 @@ class mainprocess(object) :
         return output_name
 
     def do_flye(self, reads, contigs, isMetagenome) :
-        isMetagenome = '--meta' if isMetagenome else ''
+        isMetagenomes = ['--meta'] if isMetagenome else ['', '--meta']
+        if contigs :
+            isMetagenomes.append('{0} --meta'.format(contigs))
         outdir = 'flye'
         output_file = 'flye.fasta'
         
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
         
-        if len(reads[0]) and len(reads[1]) :
-            read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
-                          '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
-            cmds = ['{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --iterations 0 --plasmids {read_input} -o {outdir}'.format( \
-                    flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
-                    '{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --resume-from polishing --plasmids {read_input} -o {outdir}'.format( \
-                    flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
-            for cmd in cmds :
-                flye_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+        finished = False
+        for isMetagenome in isMetagenomes :
+            if len(reads[0]) and len(reads[1]) :
+                read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
+                              '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
+                cmds = ['{flye} -t 8 -g 5m --asm-coverage 60 --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
+                        '{flye} -t 8 -g 5m --asm-coverage 60 --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
+                finished = True
+                for cmd in cmds :
+                    flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
+                    flye_run.communicate()
+                    if flye_run.returncode != 0:
+                        finished = False
+                        break
+            else :
+                if len(reads[0]) and not len(reads[1]) :
+                    read_input = '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read]))
+                elif len(reads[1]) and not len(reads[0]) :
+                    read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
+    
+                cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
+                      flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
+    
+                flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
                 flye_run.communicate()
-                if flye_run.returncode != 0:
-                    sys.exit(20123)
-        else :
-            if len(reads[0]) and not len(reads[1]) :
-                read_input = '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read]))
-            elif len(reads[1]) and not len(reads[0]) :
-                read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
-
-            cmd = '{flye} -t 8 -g 5m {isMetagenome} --asm-coverage 100 --plasmids {read_input} -o {outdir}'.format(
-                  flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
-
-            flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
-            flye_run.communicate()
-            if flye_run.returncode != 0 :
-                sys.exit(20123)
+                if flye_run.returncode == 0 :
+                    finished = True
+            if finished :
+                break
+        if not finished :
+            sys.exit(20155)
+                
         flye_file = self._flye_dedup('{outdir}/assembly.fasta'.format(outdir=outdir), '{outdir}/assembly.dedup.fasta'.format(outdir=outdir))
         
         if contigs :
