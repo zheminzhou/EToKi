@@ -247,23 +247,23 @@ class mainprocess(object) :
             if r0 :
                 toRemove.append(r0)
         toRemove.sort(reverse=True)
-        
-        if len(toRemove) :
-            seq = OrderedDict()
-            with open(input_name) as fin :
-                for line in fin :
-                    if line.startswith('>') :
-                        name = line[1:].strip()
-                        seq[name] = []
-                    else :
-                        seq[name].extend(line.strip().split())
-            for n, s in seq.items() :
-                seq[n] = list(''.join(s))
-            for i, (n, s, e) in enumerate(toRemove) :
-                if e < len(seq[n]) :
-                    seq[n+'.{0}'.format(i)] = seq[n][e:]
-                seq[n][(s-1):] = []
-        for n in circular :
+
+        seq = OrderedDict()
+        with open(input_name) as fin :
+            for line in fin :
+                if line.startswith('>') :
+                    name = line[1:].strip()
+                    seq[name] = []
+                else :
+                    seq[name].extend(line.strip().split())
+        for n, s in seq.items() :
+            seq[n] = list(''.join(s))
+        for i, (n, s, e) in enumerate(toRemove) :
+            if e < len(seq[n]) :
+                seq[n+'.{0}'.format(i)] = seq[n][e:]
+            seq[n][(s-1):] = []
+ 
+       for n in circular :
             s = seq.pop(n, None)
             if s :
                 seq[n+'_circular'] = s
