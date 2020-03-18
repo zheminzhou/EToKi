@@ -28,6 +28,7 @@ class mainprocess(object) :
             else :
                 result = self.do_megahit(reads)
         if sum([len(lr) for lr in longReads]) > 0 :
+            longReads = self.rename_longReads(longReads)
             result = self.do_flye(longReads, result, parameters['metagenome'])
 
         if parameters['outgroup'] or parameters['excluded'] :
@@ -45,6 +46,20 @@ class mainprocess(object) :
         logger('Final result is written into {0}'.format('{0}.result.fastq'.format(prefix)))
         shutil.move(result, '{0}.result.fastq'.format(prefix))
         return '{0}.result.fastq'.format(prefix)
+
+    def rename_longReads(self, longReads) :
+        for i0, libs in enumerate(longReads) :
+            for i1, lib in enumerate(libs) :
+                for i2, longRead in enumerate(lib) :
+                    revised = 'LR_{0}_{1}_{2}.fastq.gz'.format(i0, i1, i2)
+                    with uopen(longRead, 'rt') as fin, uopen(revised, 'wt') as fout :
+                        for lid, line in enumerate(fin) :
+                            if lid % 4 == 0 :
+                                fout.write('@{0}\n'.format(int(lid/4)))
+                            else :
+                                fout.write(line)
+                    lib[i2] = revised
+        return longReads
 
     def __get_read_len(self, reads) :
         read_len = 0.

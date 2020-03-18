@@ -67,11 +67,14 @@ class uopen(object) :
         if label.find('r')>=0 :
             self.fstream = subprocess.Popen([externals['pigz'], '-cd', fname], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout if fname.lower().endswith('gz') else open(fname)
         elif label.find('w') >= 0 :
-            if sys.version.startswith('3') :
-                self.fout = gzip.open(fname, 'wb')
-                self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
-            else :
-                self.fstream = gzip.open(fname, 'wb')
+            self.fout = open(fname, 'wb')
+            p = subprocess.Popen([externals['pigz']], stdin=subprocess.PIPE, stdout=self.fout, universal_newlines=True)
+            self.fstream = p.stdin
+            #if sys.version.startswith('3') :
+                #self.fout = gzip.open(fname, 'wb')
+                #self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
+            #else :
+                #self.fstream = gzip.open(fname, 'wb')
         elif label.find('a') >= 0 :
             if sys.version.startswith('3') :
                 self.fout = gzip.open(fname, 'ab')
