@@ -340,8 +340,8 @@ class TreeWalker(pm.step_methods.Metropolis):
                 else:
                     loc = 0
         brs[i] = br + loc
-        min_dist = np.abs(brs[i] - others) if others.size else 10.
-        accept = self.delta_logp(brs, br0) if min_dist >= 1 else - 999.
+        min_dist = np.min(np.abs(brs[i] - others)) if others.size else 10.
+        accept = self.delta_logp(brs, br0) if min_dist >= 2 else -999.
         br_new, accepted = self.metrop_select(accept, brs, br0)
         self.accepted += accepted
         if self.counter == 100:
