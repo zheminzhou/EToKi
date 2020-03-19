@@ -160,7 +160,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
 
     x2 = t._shared(x)
     branches2 = t._shared(branches)
-    obss = []
+
     for nGenotype in np.arange(0, maxGenotype + 1):
         sys.stderr.write(
             '\n----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.\n'.format(nGenotype))
@@ -172,9 +172,9 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             if nGenotype == 0:
                 sigma = pm.Gamma('sigma', alpha=2, beta=1)
             else:
-                sigma = pm.Gamma('sigma', alpha=1, beta=1)
-            lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
-            #lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1), b=sigma).logp(y))
+                sigma = pm.Gamma('sigma', alpha=1, beta=2)
+            #lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
+            lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1)*k, sigma=sigma*k).logp(y))
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
@@ -187,12 +187,10 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         # select traces
         trace_id = np.argmax([v[1] for v in waic_traces])
         # get values
-        logp, waic_value, wbic_value, obs = waic_traces[trace_id]
-        obss.append(obs)
+        logp, waic_value = waic_traces[trace_id]
+
         sys.stdout.write(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\tWAIC value:\t{2}\tWBIC value:\t{3}\n'.format(nGenotype, logp,
-                                                                                                       waic_value,
-                                                                                                       wbic_value))
+            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\tWAIC value:\t{2}\n'.format(nGenotype, logp, waic_value))
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
         if nGenotype == 0:
@@ -261,10 +259,8 @@ def waic(trace, start=0):
 
         logp = [np.sum(observation) for observation in observations2]
         max_logp = np.max(logp)
-        w = np.exp((logp - max_logp) / np.log(nObs))
-        wbic = np.sum(w * logp) / np.sum(w)
 
-        res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1), wbic, lppd - var1])
+        res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1),])
     return res
 
 
