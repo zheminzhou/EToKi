@@ -377,8 +377,8 @@ class mainprocess(object) :
                             else :
                                 fout.write(line)
             
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm} -o {outdir3}'.format(
-                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), outdir3=outdir3)
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
+                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3)
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
             if flye_run.returncode != 0 :
