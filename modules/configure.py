@@ -70,11 +70,7 @@ class uopen(object) :
             self.fout = open(fname, 'wb')
             p = subprocess.Popen([externals['pigz']], stdin=subprocess.PIPE, stdout=self.fout, universal_newlines=True)
             self.fstream = p.stdin
-            #if sys.version.startswith('3') :
-                #self.fout = gzip.open(fname, 'wb')
-                #self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
-            #else :
-                #self.fstream = gzip.open(fname, 'wb')
+            
         elif label.find('a') >= 0 :
             if sys.version.startswith('3') :
                 self.fout = gzip.open(fname, 'ab')
@@ -238,14 +234,14 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['flye']]) :
-        url = 'https://github.com/fenderglass/Flye/archive/2.6.tar.gz'
+        url = 'https://github.com/fenderglass/Flye/archive/2.7.tar.gz'
         logger('Downloading Flye from {0}'.format(url))
-        subprocess.Popen('curl -Lo Flye.2.6.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo Flye.2.7.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging Flye'.format(url))
-        subprocess.Popen('tar -xzf Flye.2.6.tar.gz'.split()).communicate()
-        os.unlink('Flye.2.6.tar.gz')
-        subprocess.Popen('make', shell=True, cwd='Flye-2.6').communicate()
-        subprocess.Popen('ln -fs Flye-2.6/bin/flye ./flye', shell=True).communicate()
+        subprocess.Popen('tar -xzf Flye.2.7.tar.gz'.split()).communicate()
+        os.unlink('Flye.2.7.tar.gz')
+        subprocess.Popen('make', shell=True, cwd='Flye-2.7').communicate()
+        subprocess.Popen('ln -fs Flye-2.7/bin/flye ./flye', shell=True).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
