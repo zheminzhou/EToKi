@@ -207,7 +207,7 @@ class mainprocess(object) :
                 fin.readline()
                 for line in fin :
                     part = line.strip().split()
-                    if part[3] == '+' :
+                    if part[3] in ('+', 'Y') :
                         circular[part[0]] = 1
         cmd = '{makeblastdb} -dbtype nucl -in {0}'.format(input_name, **externals)
         Popen(cmd, shell=True).communicate()
