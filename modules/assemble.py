@@ -338,7 +338,7 @@ class mainprocess(object) :
                     else :
                         fout.write(line)
 
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids --subassemblies {asm} -o {outdir}'.format(
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} -o {outdir}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
 
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
@@ -360,17 +360,25 @@ class mainprocess(object) :
                 os.makedirs(outdir3)
 
             asm2 = '{outdir3}/contigs.fasta'.format(outdir3=outdir3)
-            n1 = 0
-            with open(contigs, 'r') as fin, open(asm2, 'w') as fout :
+            asm3 = '{outdir3}/flye_contig.fasta'.format(outdir3=outdir3)
+            with open(asm1, 'r') as fin, open(asm3, 'w') as fout :
                 for line in fin :
                     if line.startswith('>') :
                         fout.write('>x_{0}'.format(line[1:]))
-                        n1 += 1
                     else :
                         fout.write(line)
             
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 100 --plasmids --subassemblies {contigs} {asm1} {asm2} --polish-target {asm1} -o {outdir3}'.format(
-                  flye=parameters['flye'], asm1=asm1, contigs=contigs, asm2=asm2, outdir3=outdir3)
+            with open(asm2, 'w') as fout :
+                for ite in (0,1,2,) :
+                    with open(contigs, 'r') as fin :
+                        for line in fin :
+                            if line.startswith('>') :
+                                fout.write('>x{1}_{0}'.format(line[1:], ite))
+                            else :
+                                fout.write(line)
+            
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm} -o {outdir3}'.format(
+                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), outdir3=outdir3)
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
             if flye_run.returncode != 0 :
