@@ -263,7 +263,7 @@ class mainprocess(object) :
                 seq[n+'.{0}'.format(i)] = seq[n][e:]
             seq[n][(s-1):] = []
  
-       for n in circular :
+        for n in circular :
             s = seq.pop(n, None)
             if s :
                 seq[n+'_circular'] = s
