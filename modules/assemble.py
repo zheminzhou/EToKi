@@ -465,7 +465,7 @@ class mainprocess(object) :
                 bams = self.__run_bowtie('etoki', outRef, reads, clean=False )
             else :
                 bams = self.__run_bwa('etoki', outRef, reads, clean=False )
-           os.unlink(outRef) 
+            os.unlink(outRef) 
             for bam in bams :
                 p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
                 for line in p.stdout :
