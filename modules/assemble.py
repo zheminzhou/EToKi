@@ -112,6 +112,7 @@ class mainprocess(object) :
                                 r = r, o = o1, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o1)
+        
         return outputs
     def __run_bowtie(self, prefix, reference, reads, clean=True) :
         if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
@@ -459,11 +460,12 @@ class mainprocess(object) :
             Popen('cat {0} > {1}'.format(' '.join(outgroups), outRef), shell=True).communicate()
             if parameters['mapper'] == 'minimap2' :
                 bams = self.__run_minimap('etoki', outRef, reads, clean=False )
+                os.unlink(outRef+'.mmi')
             elif parameters['mapper'] != 'bwa' :
                 bams = self.__run_bowtie('etoki', outRef, reads, clean=False )
             else :
                 bams = self.__run_bwa('etoki', outRef, reads, clean=False )
-            
+           os.unlink(outRef) 
             for bam in bams :
                 p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
                 for line in p.stdout :
@@ -477,12 +479,13 @@ class mainprocess(object) :
             if len(ingroups) :
                 Popen('cat {0} > {1}'.format(' '.join(ingroups), inRef), shell=True).communicate()
                 if parameters['mapper'] == 'minimap2' :
-                    bams = self.__run_minimap('etoki', inRef, reads, clean=False )
+                    bams = self.__run_minimap('etoki', inRef, reads, clean=False)
+                    os.unlink(inRef+'.mmi')
                 elif parameters['mapper'] != 'bwa' :
                     bams = self.__run_bowtie('etoki', inRef, reads, clean=False )
                 else :
                     bams = self.__run_bwa('etoki', inRef, reads, clean=False )
-                
+                os.unlink(inRef)
                 for bam in bams :
                     p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
                     for line in p.stdout :
@@ -614,7 +617,7 @@ class mainprocess(object) :
         logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]*ave_depth))
         logger('Contigs with more than {0} depth will be treated as duplicates'.format(cont_depth[1]*ave_depth))
         indels = []
-        with open('etoki.mapping.vcf') as fin, open('etoki.mapping.difference', 'w') as fout :
+        with open('etoki.mapping.vcf') as fin :#, open('etoki.mapping.difference', 'w') as fout :
             for line in fin :
                 if line.startswith('#') : continue
                 part = line.strip().split('\t')
@@ -636,11 +639,11 @@ class mainprocess(object) :
                             qual = chr(int(pp[4][3:])+33)
                             sequence[part[0]][1][site] = qual
                         else :
-                            fout.write(line)
+                            pass #fout.write(line)
                     else :
-                        fout.write(line)
+                        pass #fout.write(line)
                 except :
-                    fout.write(line)
+                    pass #fout.write(line)
         for n, s, e in indels :
             sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
             
