@@ -186,7 +186,9 @@ def getExecutable(commands) :
         if not cmd  :
             return None
         commands[-1] = cmd
-        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 :
+        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or \
+           subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or \
+           subprocess.Popen(commands+['-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 :
             return commands
         else :
             return None
@@ -216,6 +218,15 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
 
+    if not getExecutable([externals['raxml_ng']]) :
+        url = 'https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip'
+        logger('Downloading raxml-ng package from {0}'.format(url))
+        subprocess.Popen('curl -Lo raxml-ng_v0.9.0_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging raxml-ng package'.format(url))
+        subprocess.Popen('unzip raxml-ng_v0.9.0_linux_x86_64.zip -d raxml-ng_v0.9.0'.split()).communicate()
+        subprocess.Popen('ln -fs raxml-ng_v0.9.0/raxml-ng ./raxml-ng'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('raxml-ng_v0.9.0_linux_x86_64.zip')
+        logger('Done\n')
 
     if not getExecutable(externals['pilon'].split()) :
         url = 'https://github.com/broadinstitute/pilon/releases/download/v1.23/pilon-1.23.jar'
@@ -233,7 +244,7 @@ def install_externals() :
         os.unlink('diamond_manual.pdf')
         logger('Done\n')
 
-    if not getExecutable([externals['flye']]) :
+    if not getExecutable(externals['flye'].split()) :
         url = 'https://github.com/fenderglass/Flye/archive/2.7.tar.gz'
         logger('Downloading Flye from {0}'.format(url))
         subprocess.Popen('curl -Lo Flye.2.7.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()

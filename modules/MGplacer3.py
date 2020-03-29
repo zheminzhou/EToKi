@@ -76,13 +76,10 @@ def parseBAMs(fnames, sites):
     sampleDepths = np.sum(knownSamples, 2)
     sampleMean = np.max([np.min([np.mean(sampleDepths, 0), np.median(sampleDepths, 0)], 0),
                          sampleDepths.shape[0] / np.sum(1 / (sampleDepths + 0.5), 0) - 0.5], 0)
-    siteWeight = np.min([(1 - poisson.cdf(sampleMean / np.sqrt(2), sampleDepths)) / (
-                1 - poisson.cdf(sampleMean / np.sqrt(2), np.max([sampleMean / np.sqrt(2), [1] * sampleMean.size], 0))), \
-                         poisson.cdf(sampleMean * np.sqrt(2), sampleDepths) / poisson.cdf(sampleMean * np.sqrt(2),
-                                                                                          np.max(
-                                                                                              [sampleMean * np.sqrt(2),
-                                                                                               [1] * sampleMean.size],
-                                                                                              0))], 0)
+    siteWeight = np.min([(1 - poisson.cdf(sampleMean / np.sqrt(3), sampleDepths)) / (
+                1 - poisson.cdf(sampleMean / np.sqrt(3), np.max([sampleMean / np.sqrt(3), [1] * sampleMean.size], 0))), \
+                         poisson.cdf(sampleMean * np.sqrt(3), sampleDepths) / \
+                         poisson.cdf(sampleMean * np.sqrt(3), np.max([sampleMean * np.sqrt(3),[1] * sampleMean.size],0))], 0)
     siteWeight[siteWeight > 1] = 1
     sites[:, 1:] = siteWeight * (sampleDepths>0)
 
@@ -173,13 +170,14 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                 sigma = pm.Gamma('sigma', alpha=2, beta=1)
             else:
                 sigma = pm.Gamma('sigma', alpha=1, beta=2)
-            #lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
-            lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1)*k, sigma=sigma*k).logp(y))
+            lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
+            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1)*k, sigma=sigma*k).logp(y))
+            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y/k))
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
-            trace = pm.sample(progressbar=True, draws=5000, tune=5000, step=[step_br, step_others], chains=8,
+            trace = pm.sample(progressbar=True, draws=10000, tune=10000, step=[step_br, step_others], chains=4,
                               compute_convergence_checks=False)
         sys.stderr.write('Calculating the WAIC value.\n'.format(nGenotype))
         waic_traces = waic(trace)
@@ -187,10 +185,10 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         # select traces
         trace_id = np.argmax([v[1] for v in waic_traces])
         # get values
-        logp, waic_value = waic_traces[trace_id]
+        logp, waic_value, wbic_value = waic_traces[trace_id]
 
         sys.stdout.write(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\tWAIC value:\t{2}\n'.format(nGenotype, logp, waic_value))
+            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\tWAIC value:\t{2}\tWBIC value:\t{3}\n'.format(nGenotype, logp, waic_value, wbic_value))
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
         if nGenotype == 0:
@@ -259,8 +257,9 @@ def waic(trace, start=0):
 
         logp = [np.sum(observation) for observation in observations2]
         max_logp = np.max(logp)
-
-        res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1),])
+        w = np.exp((logp - max_logp) / np.log(nObs))
+        wbic = np.sum(w * logp) / np.sum(w)
+        res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1), wbic])
     return res
 
 
@@ -337,7 +336,7 @@ class TreeWalker(pm.step_methods.Metropolis):
                     loc = 0
         brs[i] = br + loc
         min_dist = np.min(np.abs(brs[i] - others)) if others.size else 10.
-        accept = self.delta_logp(brs, br0) if min_dist >= 2 else -999.
+        accept = self.delta_logp(brs, br0) if min_dist > 1 else -999.
         br_new, accepted = self.metrop_select(accept, brs, br0)
         self.accepted += accepted
         if self.counter == 100:

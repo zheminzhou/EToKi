@@ -516,21 +516,43 @@ def write_fasta(prefix, names, snps) :
             invariants[ snp[2][0] ] += snp[1]
 
     snp2 = [ snp for snp in snps if snp[3] == 1 and snp[2][0] in invariants ]
-
+    invariants[-1] = len(snp2)
     snp_array = np.array([s[2] for s in snp2 for x in np.arange(s[1])]).T
     with open(prefix + '.fasta', 'w') as fout :
         for id, n in enumerate(names) :
             fout.write('>{0}\n{1}\n'.format(n, ''.join(np.frompyfunc(chr, 1, 1)(snp_array[id]))))
     return prefix+'.fasta', invariants
 
-def run_rapidnj(prefix, fastafile) :
+def run_rapidnj(prefix, fastafile, invariants) :
+    cnt = sum(invariants.values())
+    ratio = cnt/invariants[-1]
     cmd = '{rapidnj} -i fa {0}'.format(fastafile, **externals)
     run = Popen(cmd.split(), stdout=PIPE, universal_newlines=True)
     tree = run.communicate()[0]
+    tre = Tree(tree, format=0)
+    
     fname = '{0}.unrooted.nwk'.format(prefix)
-    with open(fname, 'w') as fout :
-        fout.write(tree.replace("'", '')+'\n')
+    for node in tre.traverse() :
+        node.name = node.name.strip("'")
+        node.dist /= ratio
+        if -0.5 < node.dist * cnt < 0.5 :
+            node.dist = 0.0
+    tre.write(outfile=fname, format=5)
     return fname
+
+
+def run_raxml_ng(prefix, fastafile, invariants) :
+    cnt = sum(invariants.values())
+    inv = [invariants[65], invariants[67], invariants[71], invariants[84], ]
+    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --tree pars{{3}}'.format(fastafile, ','.join([str(x) for x in inv]), **externals)
+    run = Popen(cmd.split(), universal_newlines=True)
+    run.communicate()
+    tre = Tree(fastafile+'.raxml.bestTree', format=0)
+    
+    fname = '{0}.unrooted.nwk'.format(prefix)
+    tre.write(outfile=fname, format=5)
+    return fname
+
 
 def phylo(args) :
     args = add_args(args)
@@ -549,16 +571,18 @@ def phylo(args) :
     # build tree
     if 'phylogeny' in args.tasks :
         args.tree = args.prefix+'.tre'
+        fastafile, invariants = write_fasta(args.tree, names, snps)
         if not args.nj :
-            phy, weights, asc = write_phylip(args.tree, names, snps)
-            if phy != '' :
-                args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc)
-            else :
-                with open(args.tree, 'w') as fout :
-                    fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
+            args.tree = run_raxml_ng(args.tree, fastafile, invariants)
+            #phy, weights, asc = write_phylip(args.tree, names, snps)
+            #if phy != '' :
+                #args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc)
+            #else :
+                #with open(args.tree, 'w') as fout :
+                    #fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
         else :
-            fastafile, invariants = write_fasta(args.tree, names, snps)
-            run_rapidnj(args.tree, fastafile)
+            #fastafile, invariants = write_fasta(args.tree, names, snps)
+            args.tree = run_rapidnj(args.tree, fastafile, invariants)
         args.tree = get_root(args.prefix, args.tree)
     elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
