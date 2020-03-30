@@ -849,24 +849,28 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
     if alignmentOut :
         outputs['alignment'] = prefix + '.fasta.gz'
         sequences = []
-        for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
-            j = alnId[mTag]
-            seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
-            if j :
-                for n, s, e in presences :
-                    seq[n][s-1:e] = refSeq[n][s-1:e]
-                for n, s, e, c in absences :
-                    seq[n][s-1:e] = '-' * (e-s+1)
-            for site in matrix :
-                bases = matrix[site]
-                if len(bases[0]) :
-                    seq[site[0]][site[1]-1] = bases[0][j]
-            sequences.append(seq)
+        low_seq = []
+        for seq, aln, r in ((sequences, alignments, res), (low_seq, low_aligns, low_res)) :
+            for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
+                j = alnId[mTag]
+                seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
+                if j :
+                    for n, s, e in presences :
+                        seq[n][s-1:e] = refSeq[n][s-1:e]
+                    for n, s, e, c in absences :
+                        seq[n][s-1:e] = '-' * (e-s+1)
+                for site in matrix :
+                    bases = matrix[site]
+                    if len(bases[0]) :
+                        seq[site[0]][site[1]-1] = bases[0][j]
+                seq.append(seq)
         with uopen(prefix + '.fasta.gz', 'w') as fout :
             for id, n in enumerate(sorted(refSeq)) :
                 if id :
                     fout.write('=\n')
                 for (mTag, mFile), seq in zip(alignments, sequences) :
+                    fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
+                for (mTag, mFile), seq in zip(low_aligns, low_seq) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
     return outputs
 
