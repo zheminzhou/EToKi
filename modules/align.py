@@ -759,8 +759,8 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     alnId = { aln[0]:id for id, aln in enumerate(alignments+lowq_aligns) }
-    res = pool.map(readMap, alignments)
-    low_res = pool.map(readMap, lowq_aligns)
+    res = pool.map(readMap, alignments+lowq_aligns)
+    res, low_res = res[:len(alignments)], res[len(alignments):]
     
     matrix = {}
     for r in (res, low_res) :
@@ -839,7 +839,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                 fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n])))
             for region in missings :
                 fout.write('## Missing_region: {0} {1} {2}\n'.format(*region))
-            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments ]) + '\n')
+            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments + lowq_aligns ]) + '\n')
             for site in sorted(matrix) :
                 bases = matrix[site]
                 if len(bases[0]) :
