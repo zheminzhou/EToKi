@@ -850,7 +850,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
         outputs['alignment'] = prefix + '.fasta.gz'
         sequences = []
         low_seq = []
-        for seq, aln, r in ((sequences, alignments, res), (low_seq, lowq_aligns, low_res)) :
+        for sequence, aln, r in ((sequences, alignments, res), (low_seq, lowq_aligns, low_res)) :
             for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
                 j = alnId[mTag]
                 seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
@@ -863,7 +863,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                     bases = matrix[site]
                     if len(bases[0]) :
                         seq[site[0]][site[1]-1] = bases[0][j]
-                seq.append(seq)
+                sequence.append(seq)
         with uopen(prefix + '.fasta.gz', 'w') as fout :
             for id, n in enumerate(sorted(refSeq)) :
                 if id :
