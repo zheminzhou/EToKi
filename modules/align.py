@@ -870,7 +870,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                     fout.write('=\n')
                 for (mTag, mFile), seq in zip(alignments, sequences) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
-                for (mTag, mFile), seq in zip(low_aligns, low_seq) :
+                for (mTag, mFile), seq in zip(lowq_aligns, low_seq) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
     return outputs
 
