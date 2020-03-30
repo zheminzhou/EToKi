@@ -23,10 +23,14 @@ def splitAlignment(args) :
     prefix = os.path.basename(args.dir)
     seq_size = len(list(seqs.values())[0])
     for i in np.arange(0, seq_size, args.size) :
-        with open(os.path.join(args.dir, '{0}.{1}.fas'.format(prefix, i+1)), 'wt') as fout :
-            for n, s in sorted(seqs.items()) :
-                ss = s[i:(i+args.size)]
-                if len(ss.replace('-', '')) > args.size/2 :
+        subseqs = []
+        for n, s in seqs.items() :
+            ss = s[i:(i+args.size)]
+            if len(ss.replace('-', '')) > args.size/2 :
+                subseqs.append([n, ss])
+        if len(subseqs) >= 4 :
+            with open(os.path.join(args.dir, '{0}.{1}.fas'.format(prefix, i+1)), 'wt') as fout :
+                for n, ss in sorted(subseqs) :
                     fout.write('>{0}\n{1}\n'.format(n, ss))
 
 if __name__ == '__main__' :

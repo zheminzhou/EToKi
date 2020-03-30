@@ -550,6 +550,15 @@ def run_raxml_ng(prefix, fastafile, invariants) :
     tre = Tree(fastafile+'.raxml.bestTree', format=0)
     
     fname = '{0}.unrooted.nwk'.format(prefix)
+    for node in tre.traverse() :
+        if -0.5 < node.dist * cnt < 0.5 :
+            node.dist = 0.0
+    for node in tre.traverse() :
+        if node.dist == 0 and node.up and not node.is_leaf() :
+            for c in node.get_children :
+                node.up.add_child(c)
+                c.up = node.up
+            node.up.remove_child(node)
     tre.write(outfile=fname, format=5)
     return fname
 
