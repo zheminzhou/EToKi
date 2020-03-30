@@ -555,7 +555,7 @@ def run_raxml_ng(prefix, fastafile, invariants) :
             node.dist = 0.0
     for node in tre.traverse() :
         if node.dist == 0 and node.up and not node.is_leaf() :
-            for c in node.get_children :
+            for c in node.get_children() :
                 node.up.add_child(c)
                 c.up = node.up
             node.up.remove_child(node)
