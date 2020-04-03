@@ -354,16 +354,6 @@ def install_externals() :
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).communicate()
         logger('Done\n')
 
-    if not getExecutable(externals['diamond'].split()) :
-        diamond_url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.24/diamond-linux64.tar.gz'
-        logger('Downloading diamond package from {0}'.format(diamond_url))
-        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging diamond package')
-        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('diamond-linux64.tar.gz')
-        os.unlink('diamond_manual.pdf')
-        logger('Done\n')
-
     if not getExecutable([externals['usearch']]) :
         logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html\nAnd copy it into the externals/usearch')
     logger('')
