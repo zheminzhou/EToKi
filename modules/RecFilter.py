@@ -1,5 +1,6 @@
 import numpy as np, pandas as pd, sys, math, argparse, gzip
 from ete3 import Tree
+import copy
 try:
     from configure import uopen
     import phylo
@@ -150,9 +151,19 @@ def RecFilter(argv) :
         rec_regions = read_simbac(args.rec, nodes)
     else :
         rec_regions = read_RecHMM(args.rec, nodes, args.prob)
-        
-    n_base = np.sum([v[1] for v in snps])
-    br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[2]-rr[1]+1 for rr in r ])+.1) for b, r in rec_regions.items() }
+    
+    refSeq = { n:np.ones(l, dtype=int) for n, l in seqLens }
+    for n, s, e in missing :
+        refSeq[n][s-1:e] = 0
+    n_base = sum([np.sum(s) for s in refSeq.values()])
+    #n_base = np.sum([v[1] for v in snps])
+    br_weight = {}
+    for b, r in rec_regions.items() :
+        seq = copy.deepcopy(refSeq)
+        for rr in r :
+            seq[rr[0]][rr[1]-1:rr[2]] = 0
+        br_weight[b] = n_base / sum([np.sum(s) for s in seq.values()])
+    #br_weight = { b:(n_base+.1)/(n_base-np.sum([ rr[2]-rr[1]+1 for rr in r ])+.1) for b, r in rec_regions.items() }
     curr = ['', [], 0]
     m_weight, masks = {}, {}
     

@@ -161,10 +161,10 @@ def write_phylip(prefix, names, snps) :
     else :
         asc_file = None
         constant_file = None
+    invariants[-1] = len(snp2)
+    return prefix+'.phy' , prefix + '.phy.weight', asc_file, invariants
 
-    return prefix+'.phy' , prefix + '.phy.weight', asc_file
-
-def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5) :
+def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5, invariants=None) :
     for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
     if asc is None :
@@ -180,21 +180,35 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5) :
     run = Popen(cmd.split())
     run.communicate()
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :
-        return run_raxml(prefix, phy, weights, asc, 'GAMMA', n_proc)
-    else :
-        cmd = '{0} -m GTRCAT -n 2.{1} -f b -z RAxML_rellBootstrap.{1} -t RAxML_bestTree.{1}'.format(raxml, prefix)
-        Popen(cmd.split()).communicate()
-        fname = '{0}.unrooted.nwk'.format(prefix)
-        os.rename('RAxML_bipartitions.2.{0}'.format(prefix), fname)
-        for fn in glob.glob('RAxML_*.{0}'.format(prefix)) :
-            try:
-                os.unlink(fn)
-            except :
-                pass
-        return fname
+        return run_raxml(prefix, phy, weights, asc, 'GAMMA', n_proc, invariants)
+    
+    cnt = sum(invariants.values())
+    cmd = '{0} -m GTRCAT -n 2.{1} -f b -z RAxML_rellBootstrap.{1} -t RAxML_bestTree.{1}'.format(raxml, prefix)
+    Popen(cmd.split()).communicate()
+    fname = '{0}.unrooted.nwk'.format(prefix)
+    #os.rename('RAxML_bipartitions.2.{0}'.format(prefix), fname)
+    tre = Tree('RAxML_bipartitions.2.{0}'.format(prefix), format=0)
+    
+    for node in tre.traverse() :
+        if -0.5 < node.dist * cnt < 0.5 :
+            node.dist = 0.0
+    tre.write(outfile=fname, format=0)
+    
+    for fn in glob.glob('RAxML_*.{0}'.format(prefix)) :
+        try:
+            os.unlink(fn)
+        except :
+            pass
+    return fname
 
 def get_root(prefix, tree_file) :
     tree = Tree(tree_file, format=1)
+    for node in tree.traverse() :
+        if node.dist == 0 and node.up and not node.is_leaf() :
+            for c in node.get_children() :
+                node.up.add_child(c)
+                c.up = node.up
+            node.up.remove_child(node)
     try:
         tree.set_outgroup( tree.get_midpoint_outgroup() )
     except :
@@ -265,7 +279,7 @@ def read_matrix(fname) :
                     snps[b_key] = [len(snps), 2, w]
                     
                 if snps[b_key][1] > 0 :
-                    sites.append([ site[0], site[1], snps[b_key][0], np.array(category) ])
+                    sites.append([ site[0], int(site[1]), snps[b_key][0], np.array(category) ])
 
     for inv in invariant :
         b_key = tuple([inv[0]] * len(names))
@@ -397,6 +411,7 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
     parser.add_argument('--nj', help='use rapidNJ instead of RAxML.', default=False, action='store_true')
+    parser.add_argument('--ng', help='use RAxML-NG instead of RAxML.', default=False, action='store_true')
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
     args = parser.parse_args(a)
@@ -553,12 +568,6 @@ def run_raxml_ng(prefix, fastafile, invariants) :
     for node in tre.traverse() :
         if -0.5 < node.dist * cnt < 0.5 :
             node.dist = 0.0
-    for node in tre.traverse() :
-        if node.dist == 0 and node.up and not node.is_leaf() :
-            for c in node.get_children() :
-                node.up.add_child(c)
-                c.up = node.up
-            node.up.remove_child(node)
     tre.write(outfile=fname, format=5)
     return fname
 
@@ -580,18 +589,19 @@ def phylo(args) :
     # build tree
     if 'phylogeny' in args.tasks :
         args.tree = args.prefix+'.tre'
-        fastafile, invariants = write_fasta(args.tree, names, snps)
-        if not args.nj :
-            args.tree = run_raxml_ng(args.tree, fastafile, invariants)
-            #phy, weights, asc = write_phylip(args.tree, names, snps)
-            #if phy != '' :
-                #args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc)
-            #else :
-                #with open(args.tree, 'w') as fout :
-                    #fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
+        if not args.nj and not args.ng :
+            phy, weights, asc, invariants = write_phylip(args.tree, names, snps)
+            if phy != '' :
+                args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc, invariants)
+            else :
+                with open(args.tree, 'w') as fout :
+                    fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
         else :
-            #fastafile, invariants = write_fasta(args.tree, names, snps)
-            args.tree = run_rapidnj(args.tree, fastafile, invariants)
+            fastafile, invariants = write_fasta(args.tree, names, snps)
+            if not args.nj :
+                args.tree = run_raxml_ng(args.tree, fastafile, invariants)
+            else :
+                args.tree = run_rapidnj(args.tree, fastafile, invariants)
         args.tree = get_root(args.prefix, args.tree)
     elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)

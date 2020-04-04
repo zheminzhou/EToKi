@@ -794,7 +794,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                         matrix[k][1][j] = '.'
             for n, s, e, m in absences :
                 if gid == 0 :
-                    coreSites[n][s-1:e] -=1
+                    coreSites[n][s-1:e] -=1 if mFile != reference else len(alignments)
                 mutations = matSites[n][s-1:e]
                 for kk in mutations[mutations > 0] :
                     k = (n, kk)

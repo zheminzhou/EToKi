@@ -678,7 +678,7 @@ class recHMM(object) :
                         if regions[-1][2] == -1 :
                             regions[-1][2] = rsite[id]
                         regions[-1][1] = rsite[id]
-                    
+        regions = [r for r in regions if r[2] >= 0]
         return dict(sketches=sorted(regions), gamma=1.-inrec[ obs.T[5] ])
 
     def report(self, bootstrap, prefix='') :
