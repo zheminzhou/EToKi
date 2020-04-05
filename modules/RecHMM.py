@@ -582,6 +582,8 @@ class recHMM(object) :
             for node in tre.traverse() :
                 if node.name in stats :
                     node.dist = stats[node.name]['M']
+                else :
+                    node.dist = 1e-8
             tre.write(format=1, outfile=prefix + '.mutational.tre')
             print('Mutational tree is written in {0}'.format(prefix+'.mutational.tre'))
 

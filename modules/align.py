@@ -734,7 +734,7 @@ def readMap(data) :
                         miss = -99999999
             else :
                 break
-    print(mTag, mFile)
+    #print(mTag, mFile)
     with uopen(mFile) as fin :
         for line in fin :
             if line.startswith('#') : continue
@@ -755,7 +755,7 @@ def readMap(data) :
     return presences, sorted(absences), mutations
 
 def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, alignmentOut) :
-    refSeq, refQual = readFastq(reference)
+    refSeq, refQual = readFastq(reference[1])
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     alnId = { aln[0]:id for id, aln in enumerate(alignments+lowq_aligns) }
@@ -794,7 +794,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                         matrix[k][1][j] = '.'
             for n, s, e, m in absences :
                 if gid == 0 :
-                    coreSites[n][s-1:e] -=1 if mFile != reference else len(alignments)
+                    coreSites[n][s-1:e] -= (1 if mTag not in reference else len(alignments)+1)
                 mutations = matSites[n][s-1:e]
                 for kk in mutations[mutations > 0] :
                     k = (n, kk)
@@ -802,11 +802,21 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                         matrix[k][0][j] = '-'
                     if len(matrix[k][1]) and matrix[k][1][j] == '.' :
                         matrix[k][1][j] = '-'
-    pres = np.unique(np.concatenate(list(coreSites.values())), return_counts=True)
-    pres = [pres[0][pres[0] > 0], pres[1][pres[0] > 0]]
-    coreNum = len(alignments) * core
+    coreNum = max(len(alignments) * core, 1)
+    for n in sorted(coreSites) :
+        sites = coreSites[n]
+        for site, num in enumerate(sites) :
+            cSite = (n, site+1)
+            if 1 <= num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
+                sites[site] = np.sum(matrix[cSite][1] != '-')
+                matrix[cSite][0] = []
+    
+    pres = np.concatenate(list(coreSites.values()))
+    pres[pres < 0] = 0
+    pres = list(np.unique(pres, return_counts=True))
+    
     for p, n in zip(*pres) :
-        sys.stderr.write('#{2} {0} {1}\n'.format(p, n, '' if p >= coreNum else '#'))
+        sys.stderr.write('#{2} {0} {1}\n'.format(p if p >= 1 else 'Repetitive', n, '' if p >= coreNum else '#'))
 
     missings = []
     coreBases = {'A':0, 'C':0, 'G':0, 'T':0}
@@ -814,9 +824,6 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
         sites = coreSites[n]
         for site, num in enumerate(sites) :
             cSite = (n, site+1)
-            if num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
-                num = np.sum(matrix[cSite][1] != '-')
-                matrix[cSite][0] = []
             if num < coreNum :
                 matrix.pop(cSite, None)
                 if len(missings) == 0 or missings[-1][0] != n or missings[-1][2] + 1 < cSite[1] :
@@ -827,9 +834,14 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                 b = refSeq[n][cSite[1]-1]
                 if cSite in matrix and len(matrix[cSite][0]) :
                     matrix[cSite][0] = [ (b if s == '.' else s) for s in matrix[cSite][0]]
+                    t = np.unique(matrix[cSite][0])
+                    t = t[t!= '-']
+                    if len(t) == 1 :
+                        coreBases[t[0]] = coreBases.get(t[0], 0) + 1
+                        matrix[cSite][0] = []
                 else :
                     coreBases[b] = coreBases.get(b, 0) + 1
-                    
+
     outputs = {}
     if matrixOut :
         outputs['matrix'] = prefix + '.matrix.gz'
@@ -952,7 +964,7 @@ def align(argv) :
     alignments = [refMask] + alignments
     outputs = {'mappings': dict(alignments), 'low_qual_map': dict(lowq_aligns)}
     if args.matrix or args.alignment :
-        outputs.update(getMatrix(args.prefix, args.reference[1], alignments, lowq_aligns, args.core, args.matrix, args.alignment))
+        outputs.update(getMatrix(args.prefix, args.reference, alignments, lowq_aligns, args.core, args.matrix, args.alignment))
     import json
     sys.stdout.write(json.dumps(outputs, indent=2, sort_keys=True))
     return outputs
