@@ -26,7 +26,7 @@ def splitAlignment(args) :
         subseqs = []
         for n, s in seqs.items() :
             ss = s[i:(i+args.size)]
-            if len(ss.replace('-', '')) > args.size/2 :
+            if len(ss.replace('-', '')) >= args.size/3 :
                 subseqs.append([n, ss])
         if len(subseqs) >= 4 :
             with open(os.path.join(args.dir, '{0}.{1}.fas'.format(prefix, i+1)), 'wt') as fout :
