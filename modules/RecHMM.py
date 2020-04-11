@@ -294,14 +294,14 @@ class recHMM(object) :
 
         EventFreq = np.vstack([posterior['theta'].T[1]/posterior['theta'].T[0], posterior['R'][:, 1:].T/posterior['R'][:, 0]]).T
         prediction['EventFreq'] = np.sum(EventFreq, 1)
-        prediction['h'] = [np.sum(posterior['h'].T[1])/np.sum(posterior['h'].T[0]), np.sum(posterior['h'].T[3])/np.sum(posterior['h'].T[2])]
+        prediction['h'] = [np.sum(posterior['h'].T[1])/np.sum(posterior['h'].T[0]), 0.0 if np.sum(posterior['h'].T[2]) == 0 else np.sum(posterior['h'].T[3])/np.sum(posterior['h'].T[2])]
 
         for id, theta in enumerate(prediction['theta']) :
             ids = (model['categories']['R/theta'] == id)
             #prediction['theta'][id] = np.sum(posterior['theta'][ids, 1])
             #prediction['R'][id] = np.sum(posterior['R'][ids, 1:], 0)#
             prediction['theta'][id] = np.sum(EventFreq[ids, 0]/prediction['EventFreq'][ids])
-            prediction['R'][id] = np.sum(EventFreq[ids, 1:].T/prediction['EventFreq'][ids], 1)
+            prediction['R'][id] = np.sum(EventFreq[ids, 1:].T/prediction['EventFreq'][ids], 1)[:prediction['R'][id].size]
             if np.sum(prediction['R'][id]) < .001 * prediction['theta'][id] :
                 prediction['theta'][id] = np.sum(prediction['R'][id])/.001
             tot_event = (prediction['theta'][id]+np.sum(prediction['R'][id]))
@@ -365,7 +365,8 @@ class recHMM(object) :
                 if self.n_a > 3 :
                     b[3] = mixed
             b[b.T[0] < 0.01, 0] = 0.01
-            b[2:, 1] = 1 - b[2:, 0] - b[2:, 2]
+            if b.shape[1] > 2 :
+                b[2:, 1] = 1 - b[2:, 0] - b[2:, 2]
 
             branch_params.append(dict(
                 pi = np.array([1.] + [0. for i in range(1, self.n_a)]),
