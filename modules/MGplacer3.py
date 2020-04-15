@@ -335,8 +335,9 @@ class TreeWalker(pm.step_methods.Metropolis):
                 else:
                     loc = 0
         brs[i] = br + loc
-        min_dist = np.min(np.abs(brs[i] - others)) if others.size else 10.
-        accept = self.delta_logp(brs, br0) if min_dist > 1 else -999.
+        incompatibles = set([b2[1] for b in self.tree[br] for b2 in b ] + [br])
+        accept1 = set(others.astype(int).tolist()) & incompatibles
+        accept = self.delta_logp(brs, br0) if len(accept1) < 1 else -999.
         br_new, accepted = self.metrop_select(accept, brs, br0)
         self.accepted += accepted
         if self.counter == 100:
