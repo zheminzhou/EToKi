@@ -202,7 +202,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
-            trace = pm.sample(progressbar=True, draws=5000, tune=10000, step=[step_br, step_others], chains=8, cores=8,
+            trace = pm.sample(progressbar=True, draws=8000, tune=17000, step=[step_br, step_others], chains=8, cores=8,
                               compute_convergence_checks=False)
         sys.stderr.write('Calculating the WAIC value.\n'.format(nGenotype))
         waic_traces = waic(trace)
