@@ -81,11 +81,11 @@ def parseBAMs(fnames, sites):
                          poisson.cdf(sampleMean * np.sqrt(3), sampleDepths) / \
                          poisson.cdf(sampleMean * np.sqrt(3), np.max([sampleMean * np.sqrt(3),[1] * sampleMean.size],0))], 0)
     siteWeight[siteWeight > 1] = 1
-    sites[:, 1:] = siteWeight * (sampleDepths>0)
+    sites[:, 1:] = siteWeight * sampleDepths # (sampleDepths>0)
 
     sampleDepths[sampleDepths <= 0] = 1
-    #for i in np.arange(knownSamples.shape[2]):
-    #    knownSamples[:, :, i] /= sampleDepths
+    for i in np.arange(knownSamples.shape[2]):
+        knownSamples[:, :, i] *= siteWeight
     return knownSamples
 
 
@@ -160,7 +160,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     knownSites = knownSites[exists]
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
-    x, y, w, k = [], [], [], []
+    x, y, w = [], [], []
     for site, mat, sample in zip(knownSites, knownMatrix.T, knownSamples):
         for i in np.unique(mat) :
             if i != 100 :
@@ -168,11 +168,15 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                 x.append(mat == i)
                 y.append(n)
                 w.append(site[1:])
-                k.append(np.sum(sample))
     x = np.array(x, dtype=float)
     y = np.sum(np.array(y, dtype=float), 1)
     w = np.sum(np.array(w, dtype=float), 1)
-    k = np.array(k, dtype=int)
+    x, idx = np.unique(x, axis=0, return_inverse=True)
+    y0, w0 = np.zeros(x.shape[0], dtype=int), np.zeros(x.shape[0])
+    for i in np.arange(x.shape[0]) :
+        y0[i] = np.sum(y[idx == i])
+        w0[i] = np.sum(w[idx == i])
+    y, w = y0, w0
     sys.stderr.write(
         'Sites that are not covered by any read are ignored. {1} SNVs in {0} sites remain.\n'.format(np.sum(exists),
                                                                                                      x.shape[0]))
@@ -192,8 +196,8 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                 sigma = pm.Gamma('sigma', alpha=2, beta=1)
             else:
                 sigma = pm.Gamma('sigma', alpha=1, beta=2)
-            lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
-            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1)*k, sigma=sigma*k).logp(y))
+            lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1), b=sigma).logp(y/w))
+            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y/w))
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
