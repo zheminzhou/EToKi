@@ -134,19 +134,41 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     #pickle.dump([knownSites, knownNodes, knownSamples, knownMatrix, branches], open('test', 'wb'))
     #knownSites, knownNodes, knownSamples, knownMatrix, branches = pickle.load(open('test', 'rb'))
 
-    exists = (np.sum(knownSites.T[1:], 0) > 0.001) & np.any(knownSamples > 0, (1,2))
+    exists = (np.sum(knownSites.T[1:], 0) >= 0.01) & np.any(knownSamples > 0, (1,2))
     knownSites = knownSites[exists]
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
-
+    for br in branches :
+        if br[1] not in branches.T[0] :
+            diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
+            snv = knownMatrix[br[1].astype(int), diff_sites]
+            presence = np.sum(knownSamples[diff_sites, snv], 1)
+            if np.sum(presence > 0)*100 <= presence.shape[0] :
+                knownMatrix[br[1].astype(int)] = 100
+                br[:2] = -1
+    branches = branches[branches.T[0] > -1]
+    for br in branches[::-1] :
+        if np.sum(branches.T[:2].ravel() == br[0]) == 1 :
+            diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
+            snv = knownMatrix[br[0].astype(int), diff_sites]
+            presence = np.sum(knownSamples[diff_sites, snv], 1)
+            if np.sum(presence > 0)*100 <= presence.shape[0] :
+                knownMatrix[br[0].astype(int)] = 100
+                br[:2] = -1
+    branches = branches[branches.T[0] > -1]
+    exists = [len(set(np.unique(mat)) - {100}) > 1 for mat in knownMatrix.T]
+    knownSites = knownSites[exists]
+    knownMatrix = knownMatrix[:, exists]
+    knownSamples = knownSamples[exists]
     x, y, w, k = [], [], [], []
     for site, mat, sample in zip(knownSites, knownMatrix.T, knownSamples):
         for i in np.unique(mat) :
-            n = sample[i]
-            x.append(mat == i)
-            y.append(n)
-            w.append(site[1:])
-            k.append(np.sum(sample))
+            if i != 100 :
+                n = sample[i]
+                x.append(mat == i)
+                y.append(n)
+                w.append(site[1:])
+                k.append(np.sum(sample))
     x = np.array(x, dtype=float)
     y = np.sum(np.array(y, dtype=float), 1)
     w = np.sum(np.array(w, dtype=float), 1)
@@ -172,12 +194,11 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                 sigma = pm.Gamma('sigma', alpha=1, beta=2)
             lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1)*k, b=sigma*k).logp(y))
             #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1)*k, sigma=sigma*k).logp(y))
-            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y/k))
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
-            trace = pm.sample(progressbar=True, draws=7500, tune=17500, step=[step_br, step_others], chains=4,
+            trace = pm.sample(progressbar=True, draws=5000, tune=10000, step=[step_br, step_others], chains=8,
                               compute_convergence_checks=False)
         sys.stderr.write('Calculating the WAIC value.\n'.format(nGenotype))
         waic_traces = waic(trace)
