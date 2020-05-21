@@ -1,8 +1,12 @@
 import os, sys, shutil, pandas as pd
 try :
-    from configure import externals, logger, uopen, xrange, StringIO, get_md5
+    from configure import externals, logger, uopen, xrange, StringIO, get_md5, readFasta
+    from uberBlast import uberBlast
+    from clust import clust
 except :
-    from .configure import externals, logger, uopen, xrange, StringIO, get_md5
+    from .configure import externals, logger, uopen, xrange, StringIO, get_md5, readFasta
+    from .uberBlast import uberBlast
+    from .clust import clust
 import subprocess, tempfile, time
 
 mmseqs = externals['mmseqs']
@@ -46,100 +50,67 @@ def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, cover
                 fout.write(line)
     return targetFiltFna, goodCandidates, crossLoci
 
-def buildReference(targets, sources, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1, relaxEnd=False) :
-    orderedLoci = { t['fieldname']:i for i, t in reversed(list(enumerate(sources))) }
-    refsets = []
+def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1, relaxEnd=False) :
+    orderedLoci = { t['fieldname']:i for i, t in reversed(list(enumerate(references))) }
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
-    try:
-        tmpDir = os.path.join(dirPath, 'tmp')
+    try :
         sourceFna = os.path.join(dirPath, 'sourceFna')
-        sourceFaa = os.path.join(dirPath, 'sourceFaa')
+        clsFna = os.path.join(dirPath, 'clsFna')
         targetFna = os.path.join(dirPath, 'targetFna')
-        targetFiltFna = os.path.join(dirPath, 'targetFiltFna')
-        targetFiltFaa = os.path.join(dirPath, 'targetFiltFaa')
-        targetClsFna = os.path.join(dirPath, 'targetClsFna')
-        targetResFna = os.path.join(dirPath, 'targetResFna')
-        alnFaa = os.path.join(dirPath, 'alnFaa')
-        
-        with open(sourceFna+'.fas', 'w') as fout :
-            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**s) for s in sources]))
-        with open(targetFna+'.fas', 'w') as fout :
-            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**t) for t in targets]))
-        targetFiltFna, goodCandidates, crossSites = minimapFilter(sourceFna+'.fas', targetFna+'.fas', targetFiltFna, max_iden, min_iden, coverage, paralog, relaxEnd, orderedLoci)
-        logger('identifed {0} good exemplar alleles after nucleic search'.format(len(goodCandidates)))
-        
-        subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, sourceFna).split(), stdout = subprocess.PIPE).communicate()
-        subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetFiltFna).split(), stdout = subprocess.PIPE).communicate()
-        subprocess.Popen('{0} translatenucs {1} {2}'.format(mmseqs, sourceFna, sourceFaa).split(), stdout = subprocess.PIPE).communicate()
-        subprocess.Popen('{0} translatenucs {1} {2}'.format(mmseqs, targetFiltFna, targetFiltFaa).split(), stdout = subprocess.PIPE).communicate()
-        for ite in range(9) :
-            if os.path.isdir(tmpDir) :
-                shutil.rmtree(tmpDir)
-            p=subprocess.Popen('{0} search {2} {1} {3} {4} -c {6} --min-seq-id {5} --threads {t}'.format(mmseqs, sourceFaa, targetFiltFaa, alnFaa, tmpDir, min_iden, coverage, t=9-4*int(ite/3) ).split(), stdout = subprocess.PIPE)
-            p.communicate()
-            if p.returncode == 0 :
-                break
-            time.sleep(1)
-        subprocess.Popen('{0} convertalis {2} {1} {3} {3}.tab --format-mode 2 --threads 8'.format(mmseqs, sourceFaa, targetFiltFaa, alnFaa).split(), stdout = subprocess.PIPE).communicate()
-        
-        with open(alnFaa + '.tab') as fin :
+        with open(sourceFna, 'w') as fout :
+            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**s) for s in alleles]))
+        with open(targetFna, 'w') as fout :
+            fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**t) for t in references]))
+        # get cluster
+        exampler, cluster = clust('-i {0} -p {1} -d {2} -c 1 -t 8'.format(\
+            sourceFna, clsFna, max_iden).split())
+        tooClose, goodCandidates, crossSites = {}, {}, {}
+        with open(cluster) as fin :
             for line in fin :
-                part = line.strip().split('\t')
-                qLoc, rLoc = part[0].rsplit('_', 1)[0], part[1].rsplit('_', 1)[0]
-                if qLoc == rLoc:
-                    if relaxEnd or (int(part[8]) == int(part[6]) and int(part[12]) - int(part[7]) == int(part[13]) - int(part[9])) :
-                        goodCandidates[part[0]] = max(goodCandidates.get(part[0], 0), float(part[2]))
-                elif orderedLoci[qLoc] > orderedLoci[rLoc] and crossSites.get(part[0], 0) < float(part[2]) :
-                    crossSites[part[0]] = float(part[2])
-        logger('identifed a total of {0} good exemplar alleles after amino search'.format(len(goodCandidates)))
-        
-        nLoci = len(orderedLoci)
-        for s in sources :
-            key = '{0}_{1}'.format(s['fieldname'], s['value_id'])
-            if crossSites.get(key, 0) > 1-paralog :
-                orderedLoci.pop(s['fieldname'], None)
-                #logger(key)
-        if nLoci > len(orderedLoci) :
-            logger('Total of {0} loci are not suitable for MLST scheme [due to paralog setting]. There are {1} left'.format(nLoci - len(orderedLoci), len(orderedLoci)))
-
-        with open(targetFna+'.fas') as fin, open(targetClsFna+'.fas', 'w') as fout :
-            writable = False
-            for line in fin :
-                if line.startswith('>') :
-                    name = line[1:].strip().split()[0]
-                    locus, id = name.rsplit('_', 1)
-                    writable = True if locus in orderedLoci and goodCandidates.get(name, 0) - crossSites.get(name, 0) > paralog else False
-                if writable :
-                    fout.write(line)
-        subprocess.Popen('{0} createdb {1}.fas {1} --dont-split-seq-by-len'.format(mmseqs, targetClsFna).split(), stdout = subprocess.PIPE).communicate()
-        for ite in range(9) :
-            if os.path.isdir(tmpDir) :
-                shutil.rmtree(tmpDir)            
-            p = subprocess.Popen('{0} cluster {1} {2} {3} -c {5} --min-seq-id {4} --threads {t}'.format(mmseqs, targetClsFna, targetResFna, tmpDir, max_iden, max_iden, t=9-4*int(ite/3)).split(), stdout = subprocess.PIPE)
-            p.communicate()
-            if p.returncode == 0 :
-                break
-            time.sleep(1)
-        subprocess.Popen('{0} createtsv {1} {2} {3} {3}.tab'.format(mmseqs, targetClsFna, targetClsFna, targetResFna).split(), stdout = subprocess.PIPE).communicate()
-        goodCandidates = {}
-        with open(targetResFna + '.tab') as fin :
-            for line in fin :
-                goodCandidates[line.split('\t', 1)[0]] = 1
-        logger('There are {0} good exemplar alleles left after final clustering'.format(len(goodCandidates)))
-
-        with open(targetClsFna+'.fas') as fin:
-            writable = False
-            for line in fin :
-                if line.startswith('>') :
-                    name = line[1:].strip().split()[0]
-                    writable = True if name in goodCandidates else False
-                if writable :
-                    refsets.append(line.strip())
+                part = line.strip().split()
+                locus = [ p.rsplit('_', 1)[0] for p in part ]
+                if locus[0] != locus[1] :
+                    crossSites[part[0]] = locus[1]
+                
+        # compare with references
+        blastab = uberBlast('-r {0} -q {1} -f --blastn --diamondSELF --min_id {2} --min_ratio {3} -t 8 -p -s 1 -e 0,3'.format(\
+            targetFna, exampler, min_iden, coverage ).split())
+        #blastab = blastab[blastab.T[0] != blastab.T[1]]
     except :
         pass
-    finally:
+    finally :
         shutil.rmtree(dirPath)
-        return '\n'.join(refsets)
+    for tab in blastab :
+        locus = [ p.rsplit('_', 1)[0] for p in tab[:2] ]
+        c = (tab[7]-tab[6]+1)/tab[12]
+        e = max(abs(tab[8] - tab[6]), abs(tab[12]-tab[7] - (tab[13]-tab[9])))
+        if c >= coverage and tab[2] >= min_iden and e <= 0 :
+            if locus[0] != locus[1] :
+                crossSites[tab[0]] = locus[1]
+            elif tab[2] >= max_iden and tab[0] != tab[1] :
+                tooClose[tab[0]] = 1
+            else :
+                goodCandidates[tab[0]] = tab[2]
+    paralogous_loci = {}
+    for ref in references :
+        key = '{0}_{1}'.format(ref['fieldname'], ref['value_id'])
+        if key in crossSites and orderedLoci[ref['fieldname']] < orderedLoci[crossSites[key]] :
+            paralogous_loci[ref['fieldname']]=1
+    refsets = []
+    for allele in alleles :
+        if allele['fieldname'] in paralogous_loci :
+            allele['fieldname'] = ''
+        else :
+            key = '{0}_{1}'.format(allele['fieldname'], allele['value_id'])
+            if key in crossSites :
+                allele['fieldname'] = ''
+            elif key in goodCandidates and key not in tooClose :
+                refsets.append('>{fieldname}_{value_id}\n{value}'.format(**allele))
+    alleles = [ '>{fieldname}_{value_id}\n{value}'.format(**allele) for allele in alleles if allele['fieldname'] != '' ]
+    print 'removed {0} paralogous sites.'.format(len(paralogous_loci))
+    print 'obtained {0} alleles and {1} references alleles'.format(len(alleles), len(refsets))
+    return '\n'.join(alleles), '\n'.join(refsets)
+
 
 def readFasta(fastaText) :
     sequence = []
@@ -181,7 +152,7 @@ def MLSTdb(args) :
                     loci[allele['fieldname']] = 1
                     references.append(allele)
         
-        refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
+        alleles, refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
         if refset :
             with open(str(refset), 'w') as fout :
                 fout.write(refAlleles + '\n')
@@ -195,7 +166,7 @@ def MLSTdb(args) :
         conversion = pd.DataFrame(conversion[1], index=conversion[0])
         conversion.to_csv(database, header=False)
         logger('A lookup table of all alleles has been generated:  {0}'.format(database))
-    return refAlleles
+    return alleles, refAlleles
 
 def getParams(args) :
     import argparse
