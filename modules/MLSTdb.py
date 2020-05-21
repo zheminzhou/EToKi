@@ -107,8 +107,8 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
             elif key in goodCandidates and key not in tooClose :
                 refsets.append('>{fieldname}_{value_id}\n{value}'.format(**allele))
     alleles = [ '>{fieldname}_{value_id}\n{value}'.format(**allele) for allele in alleles if allele['fieldname'] != '' ]
-    print 'removed {0} paralogous sites.'.format(len(paralogous_loci))
-    print 'obtained {0} alleles and {1} references alleles'.format(len(alleles), len(refsets))
+    logger('removed {0} paralogous sites.'.format(len(paralogous_loci)))
+    logger('obtained {0} alleles and {1} references alleles'.format(len(alleles), len(refsets)))
     return '\n'.join(alleles), '\n'.join(refsets)
 
 
