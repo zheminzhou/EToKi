@@ -105,6 +105,7 @@ def readTree(treefile, knownNodes):
     branches.T[3] = branches.T[2] / np.sum(branches.T[2])
     return branches
 
+max_dist = 1.
 
 @click.command()
 @click.argument('ancestralfile')
@@ -119,16 +120,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     #if not os.path.isfile('test1'):
     knownSites, knownNodes, knownMatrix = readAncestral(ancestralfile, nSample)
     branches = readTree(treefile, knownNodes)
-    snps = np.zeros(knownMatrix.shape[1])
-    for br in branches:
-        snps += knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
-    mut_cutoff = np.min([np.median(snps), np.mean(snps)]) * 2.5
-    sys.stderr.write('Sites that have been repetitively mutated >{0} times were excluded from the analysis.\n'.format(int(mut_cutoff)))
-    knownSites = knownSites[snps <= mut_cutoff]
-    knownMatrix = knownMatrix[:, snps <= mut_cutoff]
     knownSamples = parseBAMs(bamFiles, knownSites).transpose([0, 2, 1])
-    #pickle.dump([knownSites, knownNodes, knownSamples, knownMatrix, branches], open('test', 'wb'))
-    #knownSites, knownNodes, knownSamples, knownMatrix, branches = pickle.load(open('test', 'rb'))
 
     exists = (np.sum(knownSites.T[1:], 0) >= 0.01) & np.any(knownSamples > 0, (1,2))
     knownSites = knownSites[exists]
@@ -140,13 +132,19 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         presence = np.sum(knownSamples[diff_sites, snv], 1)
         if np.sum(presence > 0)*100 <= presence.shape[0] :
             knownMatrix[br[1].astype(int)] = 100
-            branches[branches.T[0]==br[1], 0] = br[0]
+            branches[branches.T[0] == br[1], 0] = br[0]
             br[:2] = -1
     branches = branches[branches.T[0] > -1]
     exists = [len(set(np.unique(mat)) - {100}) > 1 for mat in knownMatrix.T]
     knownSites = knownSites[exists]
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
+
+    snps = np.zeros(knownMatrix.shape[1])
+    for br in branches:
+        snps += knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
+    max_dist = np.sum(snps <= np.median(snps)) / snps.shape[0]
+
     m, x, y, w = [], [], [], []
     for mi, (site, mat, sample) in enumerate(zip(knownSites, knownMatrix.T, knownSamples)):
         for i in np.unique(mat) :
@@ -159,7 +157,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     x = np.array(x, dtype=float)
     m = np.array(m, dtype=int)
     w = np.sum(np.array(w, dtype=float), 1)
-    y = np.sum(np.array(y, dtype=float), 1)/w
+    y = np.round(np.sum(np.array(y, dtype=float), 1)/w, 2)
     tmp, idx = np.unique(np.hstack([x, y[:, np.newaxis]]), axis=0, return_inverse=True)
     x0, y0, w0, m0 = tmp[:, :-1], tmp.T[-1], np.zeros(tmp.shape[0], dtype=float), [[] for i in np.arange(tmp.shape[0])]
     for i in np.arange(tmp.shape[0]) :
@@ -167,7 +165,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         w0[i] = np.sum(w[idx == i])
     x, y, w, m = x0, y0, w0, m0
     sys.stderr.write(
-        'Sites that are not covered by any read are ignored. {1} SNVs in {0} sites remain.\n'.format(np.sum(exists),
+        'Sites that are not covered by any read are ignored. {1} distinct categories of SNVs in {0} sites remain.\n'.format(np.sum(exists),
                                                                                                      x.shape[0]))
 
     x2 = t._shared(x)
@@ -186,28 +184,28 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                 if nGenotype == 0 else \
                 pm.Gamma('sigma', alpha=1, beta=2)
 
-            #lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1), b=sigma).logp(y))
-            lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y))
+            mu = pm.math.sum(genotypes * props, 1)
+            restricted_y = pm.math.clip(mu-y, -max_dist, max_dist)
+            lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0., sigma=sigma).logp(restricted_y)))
+            #lk = w * pm.Normal.dist(mu=mu, sigma=sigma).logp(restricted_y)
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
             trace = pm.sample(progressbar=True, draws=5000, tune=20000, step=[step_br, step_others], chains=8, cores=8,
                               compute_convergence_checks=False)
-        sys.stderr.write('Calculating the WAIC value.\n'.format(nGenotype))
-        waic_traces = waic(trace)
+
+        trace_logp = np.array([ np.mean([ t['likelihood'] for t in strace ]) for strace in trace._straces.values() ])
+        #waic_traces = waic(trace)
         sys.stderr.write('Done.\n----------\n'.format(nGenotype))
         # select traces
-        trace_id = np.argmax([v[0] for v in waic_traces])
-        # get values
-        logp, waic_value, wbic_value = waic_traces[trace_id]
+        trace_id = np.argmax(trace_logp)
+        logp = trace_logp[trace_id]
 
         sys.stdout.write(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\tWAIC value:\t{2}\tWBIC value:\t{3}\n'.format(nGenotype, logp, waic_value, wbic_value))
+            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\n'.format(nGenotype, logp))
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
-        if nGenotype == 0:
-            sigma += 0.05
         sys.stdout.write('Sigma\tMean:\t{0:.6E}\tCI95%:\t[ {1:.6E} - {2:.6E} ]\n'.format(np.mean(sigma),
                                                                                          sigma[int(sigma.size * 0.025)],
                                                                                          sigma[
@@ -248,17 +246,16 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                                 lc[int(lc.size * 0.975)]))
     sys.stderr.write('All DONE\n')
 
-
-def traveseTraces(trace):
-    observations = []
-    for chain in trace._straces.values():
-        observations.append([])
-        for tr in chain:
-            observations[-1].append(tr['likelihood'])
-    return observations
-
-
+# no in use
 def waic(trace, start=0):
+    def traveseTraces(trace):
+        observations = []
+        for chain in trace._straces.values():
+            observations.append([])
+            for tr in chain:
+                observations[-1].append(tr['likelihood'])
+        return observations
+
     observations = traveseTraces(trace)
     nObs = observations[0][0].size
     res = []
