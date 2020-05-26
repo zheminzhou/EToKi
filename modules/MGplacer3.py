@@ -176,13 +176,14 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             '\n----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.\n'.format(nGenotype))
         with pm.Model() as model:
             brs = pm.Flat('brs', shape=nGenotype if nGenotype > 1 else ())
-            props = pm.Dirichlet('props', a=1./np.arange(1, nGenotype+1, dtype=float)) \
+            props2 = pm.Dirichlet('props2', a=1./np.arange(1, nGenotype+1, dtype=float)) \
                 if nGenotype > 1 else \
-                pm.Exponential('props', lam=1, shape=())
+                pm.Exponential('props2', lam=1, shape=())
+            props = pm.Deterministic('props', (props2+0.01)/pm.math.sum(props2+0.01) )
             genotypes = getBranchGenotype(x2, branches2, brs)
-            sigma = pm.Gamma('sigma', alpha=2, beta=1) \
+            sigma = pm.Gamma('sigma', alpha=2, beta=0.5) \
                 if nGenotype == 0 else \
-                pm.Gamma('sigma', alpha=1, beta=2)
+                pm.Gamma('sigma', alpha=0.5, beta=2)
 
             mu = pm.math.sum(genotypes * props, 1)
             restricted_y = pm.math.clip(mu-y, -max_dist, max_dist)
