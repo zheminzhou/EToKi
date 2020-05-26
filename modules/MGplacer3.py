@@ -1,13 +1,9 @@
 # MGplacer
-import sys, os, numpy as np, pandas as pd, subprocess, re, pickle
-from numba import jit, prange
+import sys, os, numpy as np, pandas as pd, subprocess, re
 from scipy.stats import poisson
 from ete3 import Tree
-
 import theano, theano.tensor as t
-import click
-
-import pymc3 as pm
+import click, pymc3 as pm
 
 try:
     from configure import uopen, asc2int, xrange
@@ -76,12 +72,12 @@ def parseBAMs(fnames, sites):
     sampleDepths = np.sum(knownSamples, 2)
     sampleMean = np.max([np.min([np.mean(sampleDepths, 0), np.median(sampleDepths, 0)], 0),
                          sampleDepths.shape[0] / np.sum(1 / (sampleDepths + 0.5), 0) - 0.5], 0)
-    siteWeight = np.min([(1 - poisson.cdf(sampleMean / np.sqrt(3), sampleDepths)) / (
-                1 - poisson.cdf(sampleMean / np.sqrt(3), np.max([sampleMean / np.sqrt(3), [1] * sampleMean.size], 0))), \
-                         poisson.cdf(sampleMean * np.sqrt(3), sampleDepths) / \
-                         poisson.cdf(sampleMean * np.sqrt(3), np.max([sampleMean * np.sqrt(3),[1] * sampleMean.size],0))], 0)
+    siteWeight = np.min([(1 - poisson.cdf(sampleMean / 2., sampleDepths)) / (
+                1 - poisson.cdf(sampleMean / 2., np.max([sampleMean / 2., [1] * sampleMean.size], 0))), \
+                         poisson.cdf(sampleMean * 2., sampleDepths) / \
+                         poisson.cdf(sampleMean * 2., np.max([sampleMean * 2.,[1] * sampleMean.size],0))], 0)
     siteWeight[siteWeight > 1] = 1
-    sites[:, 1:] = siteWeight * sampleDepths # (sampleDepths>0)
+    sites[:, 1:] = siteWeight * sampleDepths
 
     sampleDepths[sampleDepths <= 0] = 1
     for i in np.arange(knownSamples.shape[2]):
@@ -139,44 +135,37 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
     for br in branches :
-        if br[1] not in branches.T[0] :
-            diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
-            snv = knownMatrix[br[1].astype(int), diff_sites]
-            presence = np.sum(knownSamples[diff_sites, snv], 1)
-            if np.sum(presence > 0)*100 <= presence.shape[0] :
-                knownMatrix[br[1].astype(int)] = 100
-                br[:2] = -1
-    branches = branches[branches.T[0] > -1]
-    for br in branches[::-1] :
-        if np.sum(branches.T[:2].ravel() == br[0]) == 1 :
-            diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
-            snv = knownMatrix[br[0].astype(int), diff_sites]
-            presence = np.sum(knownSamples[diff_sites, snv], 1)
-            if np.sum(presence > 0)*100 <= presence.shape[0] :
-                knownMatrix[br[0].astype(int)] = 100
-                br[:2] = -1
+        diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
+        snv = knownMatrix[br[1].astype(int), diff_sites]
+        presence = np.sum(knownSamples[diff_sites, snv], 1)
+        if np.sum(presence > 0)*100 <= presence.shape[0] :
+            knownMatrix[br[1].astype(int)] = 100
+            branches[branches.T[0]==br[1], 0] = br[0]
+            br[:2] = -1
     branches = branches[branches.T[0] > -1]
     exists = [len(set(np.unique(mat)) - {100}) > 1 for mat in knownMatrix.T]
     knownSites = knownSites[exists]
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
-    x, y, w = [], [], []
-    for site, mat, sample in zip(knownSites, knownMatrix.T, knownSamples):
+    m, x, y, w = [], [], [], []
+    for mi, (site, mat, sample) in enumerate(zip(knownSites, knownMatrix.T, knownSamples)):
         for i in np.unique(mat) :
             if i != 100 :
                 n = sample[i]
+                m.append(mi)
                 x.append(mat == i)
                 y.append(n)
                 w.append(site[1:])
     x = np.array(x, dtype=float)
-    y = np.sum(np.array(y, dtype=float), 1)
+    m = np.array(m, dtype=int)
     w = np.sum(np.array(w, dtype=float), 1)
-    x, idx = np.unique(x, axis=0, return_inverse=True)
-    y0, w0 = np.zeros(x.shape[0], dtype=int), np.zeros(x.shape[0])
-    for i in np.arange(x.shape[0]) :
-        y0[i] = np.sum(y[idx == i])
+    y = np.sum(np.array(y, dtype=float), 1)/w
+    tmp, idx = np.unique(np.hstack([x, y[:, np.newaxis]]), axis=0, return_inverse=True)
+    x0, y0, w0, m0 = tmp[:, :-1], tmp.T[-1], np.zeros(tmp.shape[0], dtype=float), [[] for i in np.arange(tmp.shape[0])]
+    for i in np.arange(tmp.shape[0]) :
+        m0[i] = m[idx == i]
         w0[i] = np.sum(w[idx == i])
-    y, w = y0, w0
+    x, y, w, m = x0, y0, w0, m0
     sys.stderr.write(
         'Sites that are not covered by any read are ignored. {1} SNVs in {0} sites remain.\n'.format(np.sum(exists),
                                                                                                      x.shape[0]))
@@ -189,26 +178,27 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             '\n----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.\n'.format(nGenotype))
         with pm.Model() as model:
             brs = pm.Flat('brs', shape=nGenotype if nGenotype > 1 else ())
-            props = pm.Exponential('props', lam=1, shape=nGenotype if nGenotype > 1 else ())
-
+            props = pm.Dirichlet('props', a=1./np.arange(1, nGenotype+1, dtype=float)) \
+                if nGenotype > 1 else \
+                pm.Exponential('props', lam=1, shape=())
             genotypes = getBranchGenotype(x2, branches2, brs)
-            if nGenotype == 0:
-                sigma = pm.Gamma('sigma', alpha=2, beta=1)
-            else:
-                sigma = pm.Gamma('sigma', alpha=1, beta=2)
-            lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1), b=sigma).logp(y/w))
-            #lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y/w))
+            sigma = pm.Gamma('sigma', alpha=2, beta=1) \
+                if nGenotype == 0 else \
+                pm.Gamma('sigma', alpha=1, beta=2)
+
+            #lk = pm.Deterministic('lk', w * pm.Laplace.dist(mu=pm.math.sum(genotypes * props, 1), b=sigma).logp(y))
+            lk = pm.Deterministic('lk', w * pm.Normal.dist(mu=pm.math.sum(genotypes * props, 1), sigma=sigma).logp(y))
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
-            trace = pm.sample(progressbar=True, draws=8000, tune=17000, step=[step_br, step_others], chains=8, cores=8,
+            trace = pm.sample(progressbar=True, draws=5000, tune=20000, step=[step_br, step_others], chains=8, cores=8,
                               compute_convergence_checks=False)
         sys.stderr.write('Calculating the WAIC value.\n'.format(nGenotype))
         waic_traces = waic(trace)
         sys.stderr.write('Done.\n----------\n'.format(nGenotype))
         # select traces
-        trace_id = np.argmax([v[1] for v in waic_traces])
+        trace_id = np.argmax([v[0] for v in waic_traces])
         # get values
         logp, waic_value, wbic_value = waic_traces[trace_id]
 
@@ -285,6 +275,8 @@ def waic(trace, start=0):
         w = np.exp((logp - max_logp) / np.log(nObs))
         wbic = np.sum(w * logp) / np.sum(w)
         res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1), wbic])
+        x = np.mean(observations2, 0)
+        # print(np.unique(x.astype(int), return_counts=True))
     return res
 
 
@@ -306,15 +298,6 @@ def getBranchGenotype1(x, branches, brs):
     br2 = brs.astype(int)
     locs = brs - br2
     return (x[:, branches[br2, 0].astype(int)] * (1 - locs) + x[:, branches[br2, 1].astype(int)] * locs)[:, np.newaxis]
-
-
-@theano.compile.ops.as_op(itypes=[t.dmatrix, t.dvector, t.dvector, t.dscalar], otypes=[t.dvector])
-def getGenotypeProportion(x, y, w, alpha):
-    clf = Ridge(alpha, fit_intercept=False, copy_X=False)
-    clf.fit(x, y, sample_weight=w)
-    p = clf.coef_ / np.sum(clf.coef_)
-    return p
-
 
 class TreeWalker(pm.step_methods.Metropolis):
     def __init__(self, var, tree):
