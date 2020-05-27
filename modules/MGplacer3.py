@@ -143,17 +143,18 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     snps = np.zeros(knownMatrix.shape[1])
     for br in branches:
         snps += knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
-    max_dist = np.sum(snps <= np.median(snps)) / snps.shape[0]
+    max_dist = np.sum(snps <= np.median(snps)) / snps.shape[0] #np.sum(snps)
+    #max_dist = 1.
 
     m, x, y, w = [], [], [], []
     for mi, (site, mat, sample) in enumerate(zip(knownSites, knownMatrix.T, knownSamples)):
-        for i in np.unique(mat) :
-            if i != 100 :
-                n = sample[i]
-                m.append(mi)
-                x.append(mat == i)
-                y.append(n)
-                w.append(site[1:])
+        c = [i for i in np.unique(mat) if i != 100]
+        for i in c :
+            n = sample[i]
+            m.append(mi)
+            x.append(mat == i)
+            y.append(n/len(c))
+            w.append(site[1:]/len(c))
     x = np.array(x, dtype=float)
     m = np.array(m, dtype=int)
     w = np.sum(np.array(w, dtype=float), 1)
@@ -171,7 +172,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     x2 = t._shared(x)
     branches2 = t._shared(branches)
 
-    for nGenotype in np.arange(0, maxGenotype + 1):
+    for nGenotype in np.arange(1, maxGenotype + 1):
         sys.stderr.write(
             '\n----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.\n'.format(nGenotype))
         with pm.Model() as model:
@@ -179,32 +180,36 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             props2 = pm.Dirichlet('props2', a=1./np.arange(1, nGenotype+1, dtype=float)) \
                 if nGenotype > 1 else \
                 pm.Exponential('props2', lam=1, shape=())
-            props = pm.Deterministic('props', (props2+0.01)/pm.math.sum(props2+0.01) )
+            props = pm.Deterministic('props', props2*pm.math.sum(props2-0.05) + 0.05)
             genotypes = getBranchGenotype(x2, branches2, brs)
             sigma = pm.Gamma('sigma', alpha=2, beta=0.5) \
                 if nGenotype == 0 else \
                 pm.Gamma('sigma', alpha=0.5, beta=2)
 
             mu = pm.math.sum(genotypes * props, 1)
-            restricted_y = pm.math.clip(mu-y, -max_dist, max_dist)
+            dist = pm.math.abs_(mu - y)
+
+            restricted_y = pm.math.clip(dist, 0, max_dist)
             lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0., sigma=sigma).logp(restricted_y)))
-            #lk = w * pm.Normal.dist(mu=mu, sigma=sigma).logp(restricted_y)
+
+            rec_y = pm.math.minimum(dist, 1-dist)
+            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(pm.math.sqr(rec_y))/len(y)) )
+
             pm.Potential('likelihood', lk)
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props])
-            trace = pm.sample(progressbar=True, draws=5000, tune=20000, step=[step_br, step_others], chains=8, cores=8,
+            trace = pm.sample(progressbar=True, draws=5000, tune=15000, step=[step_br, step_others], chains=8, cores=8,
                               compute_convergence_checks=False)
 
-        trace_logp = np.array([ np.mean([ t['likelihood'] for t in strace ]) for strace in trace._straces.values() ])
-        #waic_traces = waic(trace)
+        trace_logp = np.array([ np.mean([ [t['likelihood'], t['hybrid_score']] for t in strace ], 0) for strace in trace._straces.values() ])
         sys.stderr.write('Done.\n----------\n'.format(nGenotype))
         # select traces
-        trace_id = np.argmax(trace_logp)
+        trace_id = np.argmax(trace_logp.T[0])
         logp = trace_logp[trace_id]
 
         sys.stdout.write(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\n'.format(nGenotype, logp))
+            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1}\thybrid_score:\t{2}\n'.format(nGenotype, logp[0], logp[1]))
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
         sys.stdout.write('Sigma\tMean:\t{0:.6E}\tCI95%:\t[ {1:.6E} - {2:.6E} ]\n'.format(np.mean(sigma),
@@ -236,7 +241,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                                                                                                          prop[int(
                                                                                                              prop.size * 0.975)]))
                 for br, cnt in zip(brNames, brCounts):
-                    if cnt >= 0.01 or cnt >= 0.1 * brCounts[0]:
+                    if cnt >= 0.01 or cnt >= 0.3 * brCounts[0]:
                         lc = np.sort(locs[brs == br])
                         sys.stdout.write(
                             '\t\t{0:.2f} %\t{1} - {2}\tLocation:\t{3:.4f}\tCI95%:\t[ {4:.4f} - {5:.4f} ]\n'.format(
