@@ -180,7 +180,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             props2 = pm.Dirichlet('props2', a=1./np.arange(1, nGenotype+1, dtype=float)) \
                 if nGenotype > 1 else \
                 pm.Exponential('props2', lam=1, shape=())
-            props = pm.Deterministic('props', props2*pm.math.sum(props2-0.05) + 0.05)
+            props = pm.Deterministic('props', props2*pm.math.sum(props2-0.01) + 0.01)
             genotypes = getBranchGenotype(x2, branches2, brs)
             sigma = pm.Gamma('sigma', alpha=2, beta=0.5) \
                 if nGenotype == 0 else \
@@ -193,7 +193,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0., sigma=sigma).logp(restricted_y)))
 
             rec_y = pm.math.minimum(dist, 1-dist)
-            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(pm.math.sqr(rec_y))/len(y)) )
+            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(w*pm.math.sqr(rec_y))/w) )
 
             pm.Potential('likelihood', lk)
 
