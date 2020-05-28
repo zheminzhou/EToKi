@@ -193,7 +193,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0., sigma=sigma).logp(restricted_y)))
 
             rec_y = pm.math.minimum(dist, 1-dist)
-            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(w*pm.math.sqr(rec_y))/w) )
+            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(w*pm.math.sqr(rec_y))/pm.math.sum(w)) )
 
             pm.Potential('likelihood', lk)
 
