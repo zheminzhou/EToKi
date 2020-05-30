@@ -82,7 +82,6 @@ def profile_distance(profiles, index_range=None) :
         comparable = (presences[id+1:] * presence)
         diffs = (np.sum((profiles[id+1:] != profile) & comparable, axis=1).astype(float) + .5) / (np.sum(comparable, axis=1) + 1.)
         distances[id+1:, i2] = diffs
-        #distances[id, :i2] = diffs[index_range[0]:index_range[0]+id]
     distances = -np.log(1-distances)
     return distances
 
