@@ -26,7 +26,7 @@ except:
 def get_distances(prefix, profile, pool) :
     logger('Calculating pairwise distance ...')
     np.save(prefix+'.profile.npy', profile)
-    indices = np.array([[profile.shape[0]*(1-((v+1)/10.)**0.5)+0.5, profile.shape[0]*(1-((v)/10.)**0.5)+0.5] for v in np.arange(10, dtype=float)], dtype=int)
+    indices = np.array(sorted([[profile.shape[0]*(1-((v+1)/10.)**0.5)+0.5, profile.shape[0]*(1-((v)/10.)**0.5)+0.5] for v in np.arange(10, dtype=float)]), dtype=int)
     subfiles = pool.map(parallel_distance, [[prefix+'.profile.npy', prefix+'.dist.{0}.npy', idx] for idx in indices if idx[1] > idx[0]])
     prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
     prof_dist += prof_dist.T
