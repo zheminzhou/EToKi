@@ -26,12 +26,13 @@ except:
 def get_distances(prefix, profile, pool) :
     logger('Calculating pairwise distance ...')
     np.save(prefix+'.profile.npy', profile)
-    indices = np.array([[profile.shape[0]*(v/10.)**2+0.5, profile.shape[0]*((v+1)/10.)**2+0.5] for v in np.arange(10, dtype=float)], dtype=int)
-    subfiles = pool.map(parallel_distance, [[prefix+'.profile.npy', prefix+'.dist.{0}.npy', idx] for idx in indices])
+    indices = np.array([[profile.shape[0]*(1-((v+1)/10.)**0.5)+0.5, profile.shape[0]*(1-((v)/10.)**0.5)+0.5] for v in np.arange(10, dtype=float)], dtype=int)
+    subfiles = pool.map(parallel_distance, [[prefix+'.profile.npy', prefix+'.dist.{0}.npy', idx] for idx in indices if idx[1] > idx[0]])
     prof_dist = np.hstack([ np.load(subfile) for subfile in subfiles ])
     prof_dist += prof_dist.T
     for subfile in subfiles :
         os.unlink(subfile)
+    os.unlink(prefix+'.profile.npy')
     return prof_dist
 
 def parallel_distance(callup) :
@@ -46,7 +47,7 @@ def parallel_distance(callup) :
 def profile_distance(mat, index_range=None) :
     if index_range is None :
         index_range = [0, mat.shape[0]]
-
+    n_loci = mat.shape[1] - 1
     distances = np.zeros(shape=[mat.shape[0], index_range[1] - index_range[0]])
     for i2, idx in enumerate(np.arange(*index_range)) :
         profile = mat[idx]
@@ -72,12 +73,11 @@ work out specialised complete linkage clustering result of all the profiles in t
                         required=True)
     parser.add_argument('-i', '--incremental', help='[INPUT; optional] The NUMPY version of an old clustering result',
                         default='')
+    parser.add_argument('-P', '--partition', help='[INPUT; optional] Separate STs into distinct partitions, to accelerate the calculation',
+                        default='')
     parser.add_argument('-d', '--delta',
                         help='[optional] comma delimited list of threshold (delta). All values are included by default.',
                         default=None)
-    parser.add_argument('--immutable',
-                        help='[optional] Use a immutable clustering system. The designations of old profiles are immutable. Faster but leads to non-optimal assignment.',
-                        default=False, action='store_true')
 
     return parser.parse_args(args)
 
@@ -85,10 +85,11 @@ work out specialised complete linkage clustering result of all the profiles in t
 def hierCC(args):
     params = get_args(args)
     ot = time.time()
-    profile_file, cluster_file, old_cluster = params.profile, params.output + '.completeCC.npz', params.incremental
+    cluster_file = params.output + '.completeCC.npz'
+    pool = Pool(10)
 
     global mat, n_loci
-    mat = pd.read_csv(profile_file, sep='\t', header=None, dtype=str).values
+    mat = pd.read_csv(params.profile, sep='\t', header=None, dtype=str).values
     allele_columns = np.array([i == 0 or (not h.startswith('#')) for i, h in enumerate(mat[0])])
     mat = mat[1:, allele_columns].astype(int)
     n_loci = mat.shape[1] - 1
@@ -97,8 +98,8 @@ def hierCC(args):
         '{0}: Loaded in allelic profiles with dimension: {1} and {2}. The first column is assumed to be type id.'.format(
             time.time() - ot, *mat.shape))
 
-    if os.path.isfile(old_cluster):
-        od = np.load(old_cluster, allow_pickle=True)
+    if os.path.isfile(params.incremental):
+        od = np.load(params.incremental, allow_pickle=True)
         cls = od['completeCC']
 
         typed = {c[0]: id for id, c in enumerate(cls) if c[0] > 0}
@@ -109,22 +110,35 @@ def hierCC(args):
     else:
         typed = {}
 
-    logger('{0}: Get pairwise distances'.format(time.time() - ot))
-    pool = Pool(10)
-    dist = get_distances(params.output, mat, pool)
-    logger('{0}: Get complex linkage clustering'.format(time.time() - ot))
-    cls = linkage(ssd.squareform(dist), method='complete')
-    logger('{0}: Start completeCC assignments'.format(time.time() - ot))
-    nodes = np.arange(dist.shape[0]*2-1, dtype=int)
-    descendents = [ [i] for i in np.arange(dist.shape[0]) ] + [None for i in np.arange(dist.shape[0]-1)]
+    if os.path.isfile(params.partition) :
+        st_idx = {str(st):id for id, st in enumerate(mat.T[0])}
+        from collections import defaultdict
+        partitions = defaultdict(list)
+        for st, grp in pd.read_csv(params.partition, sep='\t', dtype=str).values :
+            partitions[grp].append(st_idx[st])
+        logger('{0}: Load in {1} partition(s)'.format(time.time() - ot, len(partitions)))
+    else :
+        partitions = {'all':np.ones(mat.shape[0], dtype=bool)}
+
     res = np.repeat(mat.T[0], mat.shape[1]).reshape(mat.shape)
-    for idx, c in enumerate(cls.astype(int)) :
-        n_id = idx + dist.shape[0]
-        d = sorted([int(c[0]), int(c[1])], key=lambda x:descendents[x][0])
-        min_id = descendents[d[0]][0]
-        descendents[n_id] = descendents[d[0]] + descendents[d[1]]
-        for tgt in descendents[d[1]] :
-            res[tgt, c[2]+1:] = res[min_id, c[2]+1:]
+    for key, indices in sorted(partitions.items()) :
+        if len(indices) <= 1 :
+            continue
+        logger('{0}: Partition {1} contains {2} STs'.format(time.time() - ot, key, len(indices)))
+        mat2 = mat[indices]
+        logger('{0}: Start to calculate pairwise distances'.format(time.time() - ot))
+        dist = get_distances(params.output, mat2, pool)
+        logger('{0}: Start complete linkage clustering'.format(time.time() - ot))
+        cls = linkage(ssd.squareform(dist), method='complete')
+        logger('{0}: Start completeCC assignments'.format(time.time() - ot))
+        descendents = [ [i] for i in np.arange(dist.shape[0]) ] + [None for i in np.arange(dist.shape[0]-1)]
+        for idx, c in enumerate(cls.astype(int)) :
+            n_id = idx + dist.shape[0]
+            d = sorted([int(c[0]), int(c[1])], key=lambda x:descendents[x][0])
+            min_id = descendents[d[0]][0]
+            descendents[n_id] = descendents[d[0]] + descendents[d[1]]
+            for tgt in descendents[d[1]] :
+                res[tgt, c[2]+1:] = res[min_id, c[2]+1:]
     np.savez_compressed(cluster_file, completeCC=res)
 
     if not params.delta:
