@@ -49,16 +49,20 @@ def profile_distance(mat, index_range=None) :
         index_range = [0, mat.shape[0]]
     n_loci = mat.shape[1] - 1
     distances = np.zeros(shape=[mat.shape[0], index_range[1] - index_range[0]])
+    n_missing = n_loci - np.sum(mat[:, 1:]>0, 1)
     for i2, idx in enumerate(np.arange(*index_range)) :
         profile = mat[idx]
-        s = np.sum((profile[1:] == mat[idx+1:, 1:]) & (profile[1:] > 0), 1)
+        x = (profile[1:] == mat[idx+1:, 1:])
+        s = np.sum(x & (profile[1:] > 0), 1)
+        s_missing = np.sum(x, 1) - s
+        d = n_loci + s_missing - n_missing[idx] - n_missing[idx+1:] - s
         ql = np.sum(profile[1:] > 0)
         rl = np.sum(mat[idx+1:, 1:] > 0, 1)
         rll = n_loci - np.max([(n_loci - ql) * 3, int((n_loci - ql) + n_loci * 0.03 + 0.5)])
         rl[rl < rll] = rll
         rl[rl > ql] = ql
         rl[rl < 0.5] = 0.5
-        diffs = ((rl - s).astype(float) * n_loci / rl + 0.5).astype(int)
+        diffs = (d.astype(float) * n_loci / rl + 0.5).astype(int)
         distances[idx+1:, i2] = diffs
     return distances
 
@@ -116,11 +120,15 @@ def hierCC(args):
         partitions = defaultdict(list)
         for st, grp in pd.read_csv(params.partition, sep='\t', dtype=str).values :
             partitions[grp].append(st_idx[st])
+            st_idx[st] = -1
         logger('{0}: Load in {1} partition(s)'.format(time.time() - ot, len(partitions)))
+        st_idx = { k:v for k,v in st_idx.items() if v >= 0 }
     else :
-        partitions = {'all':np.ones(mat.shape[0], dtype=bool)}
+        partitions = {'all':np.arange(mat.shape[0])}
+        st_idx = {}
 
     res = np.repeat(mat.T[0], mat.shape[1]).reshape(mat.shape)
+    res[list(st_idx.values()), :] = 0
     for key, indices in sorted(partitions.items()) :
         if len(indices) <= 1 :
             continue
@@ -138,7 +146,8 @@ def hierCC(args):
             min_id = descendents[d[0]][0]
             descendents[n_id] = descendents[d[0]] + descendents[d[1]]
             for tgt in descendents[d[1]] :
-                res[tgt, c[2]+1:] = res[min_id, c[2]+1:]
+                res[indices[tgt], c[2]+1:] = res[indices[min_id], c[2]+1:]
+    res = res[res.T[0] > 0]
     np.savez_compressed(cluster_file, completeCC=res)
 
     if not params.delta:
