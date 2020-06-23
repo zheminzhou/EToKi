@@ -4,9 +4,9 @@
 import os, sys, numpy as np, argparse, subprocess, re, gzip
 from multiprocessing import Pool
 try :
-    xrange(1)
+    from .configure import readFastq, readFasta, xrange
 except :
-    xrange = range
+    from configure import readFastq, readFasta, xrange
 
 def parseArgs(argv) :
     parser = argparse.ArgumentParser(description='''Align multiple genomes onto a single reference. ''')
@@ -937,11 +937,16 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
             subprocess.Popen('{0} -cR01 {2}.mmi {1}'.format(aligner[0], reference, prefix).split()).communicate()
         import tempfile
         with tempfile.NamedTemporaryFile(dir='.') as tf :
+            seq, _ = readFastq(reference)
             tf_fas = '{0}.fasta'.format(tf.name)
-            if reference.upper().endswith('GZ') :
-                subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
-            else :
-                subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            with open(tf_fas, 'wt') as fout:
+                for n, s in seq.items() :
+                    fout.write('>{0}\n{1}\n'.format(n, s))
+            #tf_fas = '{0}.fasta'.format(tf.name)
+            #if reference.upper().endswith('GZ') :
+            #    subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            #else :
+            #    subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
             repeats = mask_tandem(tf_fas) + mask_crispr(tf_fas, tf.name)
             os.unlink(tf_fas)
         alignments = alignAgainst([prefix +'.' + ref_tag.rsplit('.', 1)[0] + '.0', aligner, prefix + '.mmi', [ref_tag, reference], [ref_tag, reference]])
