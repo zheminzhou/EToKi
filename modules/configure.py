@@ -1,5 +1,6 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 from datetime import datetime
+from _collections import OrderedDict
 
 if sys.version_info[0] < 3:
     xrange = xrange
@@ -91,7 +92,7 @@ class uopen(object) :
 
 
 def readFasta(fasta, headOnly=False) :
-    sequence = {}
+    sequence = OrderedDict()
     with uopen(fasta) as fin :
         for line in fin :
             if line.startswith('>') :
@@ -104,12 +105,12 @@ def readFasta(fasta, headOnly=False) :
     return sequence
 
 def readFastq(fastq) :
-    sequence, qual = {}, {}
+    sequence, qual = OrderedDict(), OrderedDict()
     with uopen(fastq) as fin :
         line = fin.readline()
         if not line.startswith('@') :
             sequence = readFasta(fastq)
-            return sequence, { n: re.sub(r'[^!]', 'I', re.sub(r'[^ACGTacgt]', '!', s)) for n, s in sequence.items() }
+            return sequence, OrderedDict( [n, re.sub(r'[^!]', 'I', re.sub(r'[^ACGTacgt]', '!', s))] for n, s in sequence.items() )
     with uopen(fastq) as fin :
         for lineId, line in enumerate(fin) :
             if lineId % 4 == 0 :

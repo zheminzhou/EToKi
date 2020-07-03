@@ -491,7 +491,7 @@ def alignAgainst(data) :
     except :
         return [tag, query]
     refSeq, refQual = readFastq(reference)
-    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A1 -B14 -O24,60 -E2,1 -r100 -g1000 -P -N5000 -f1000,5000 -n2 -m50 -s200 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
                                 aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     alignments = []
     for lineId, line in enumerate(proc.stdout) :
@@ -601,7 +601,7 @@ def alignAgainst(data) :
                 r = ref[0][alnSite[0]:alnSite[0]+cl]
                 r1 = ref[1][alnSite[0]:alnSite[0]+cl]
                 q = qry[0][alnSite[1]:alnSite[1]+cl] if d > 0 else rc(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)])
-                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)]))
+                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[1][(alnSite[1]-cl+1):(alnSite[1]+1)]))
 
                 e =[alnSite[0]+cl, alnSite[1]+cl*d]
                 for qid in xrange(len(qryRepeat)-1, -1, -1) :
