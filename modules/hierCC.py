@@ -38,7 +38,7 @@ def get_distance(idx):
     s = np.sum((profile[1:] == mat[:idx, 1:]) & (profile[1:] > 0), 1)
     ql = np.sum(profile[1:] > 0)
     rl = np.sum(mat[:idx, 1:] > 0, 1)
-    rll = n_loci - np.max([(n_loci - ql) * 3, int((n_loci - ql) + n_loci * 0.03 + 0.5)])
+    rll = int(ql - n_loci * 0.03 + 0.5)
     rl[rl < rll] = rll
     rl[rl > ql] = ql
     rl[rl < 0.5] = 0.5
@@ -140,7 +140,7 @@ def hierCC(args):
     logger('{0}: Start hierCC assignments'.format(time.time() - ot))
     pool = Pool(10)
 
-    res = np.repeat(mat.T[0], mat.shape[1]+1).reshape(mat.shape)
+    res = np.repeat(mat.T[0], mat.shape[1]+1).reshape([mat.shape[0], mat.shape[1]+1])
     res[1:, 0] = n_loci + 1
     for index in xrange(0, mat.shape[0], 100):
         to_run = []

@@ -1,5 +1,5 @@
 # MGplacer
-import sys, os, numpy as np, pandas as pd, subprocess, re
+import sys, os, numpy as np, pandas as pd, subprocess, re, numba as nb
 from scipy.stats import poisson
 from ete3 import Tree
 import theano, theano.tensor as t
@@ -10,9 +10,23 @@ try:
 except:
     from .configure import uopen, asc2int, xrange
 
+@nb.njit(nogil=True, cache=True)
+def encode(mat, out_mat) :
+    for i in range(mat.shape[0]) :
+        for j in range(mat[i].shape[0]) :
+
+            if mat[i,j] == 'A' :
+                out_mat[i, j] = 0
+            elif mat[i,j] == 'C' :
+                out_mat[i, j] = 1
+            elif mat[i,j] == 'G' :
+                out_mat[i, j] = 2
+            elif mat[i,j] == 'T' :
+                out_mat[i, j] = 3
+    return out_mat
 
 # read ancestral state
-def readAncestral(fname, nSample):
+def readAncestral(fname,):
     sites = []
     data = []
     conv = np.bincount([65, 67, 67, 71, 71, 71, 84, 84, 84, 84]) - 1
@@ -30,9 +44,9 @@ def readAncestral(fname, nSample):
             sys.stderr.write('Reading Matrix - Line: {0}      \r'.format(i * 20000))
             mat = mat.values
             mat = mat[np.in1d(mat[:, np.where(nodes)[0][0]], ['A', 'C', 'G', 'T'])]
-            data.append(conv[mat[:, nodes].astype(bytes).view(np.uint8)])
+            data.append(conv[np.vectorize(ord)(mat[:, nodes])])
             for id, (cont, site) in enumerate(mat[:, :2]):
-                sites.append([(cont, int(site)), ] + [1.] * nSample)
+                sites.append([(cont, int(site)), 1. ])
     sys.stderr.write('Read Matrix DONE. Total SNP sites: {0}                \n'.format(len(sites)))
     return np.array(sites), nodeNames, np.ascontiguousarray(np.vstack(data).T, dtype=np.uint8)
 
@@ -41,7 +55,7 @@ def readAncestral(fname, nSample):
 def parseBAMs(fnames, sites):
     samtools = 'samtools'
     conv = np.bincount([65, 67, 67, 71, 71, 71, 84, 84, 84, 84]) - 1
-    knownSamples = np.zeros([sites.shape[0], len(fnames), 4])
+    knownSamples = np.zeros([sites.shape[0], 4])
 
     from tempfile import NamedTemporaryFile
     tmpFile = NamedTemporaryFile(delete=False, dir='.')
@@ -66,22 +80,25 @@ def parseBAMs(fnames, sites):
                 bases = conv[np.array(list(bases), dtype=bytes).view(np.int8)]
                 bases = bases[bases >= 0]
                 baseCounts = np.bincount(bases, minlength=4)
-                knownSamples[j, fnId, :] = baseCounts
+                knownSamples[j, :] += baseCounts
     os.unlink(tmpFile.name)
 
-    sampleDepths = np.sum(knownSamples, 2)
-    sampleMean = np.max([np.min([np.mean(sampleDepths, 0), np.median(sampleDepths, 0)], 0),
-                         sampleDepths.shape[0] / np.sum(1 / (sampleDepths + 0.5), 0) - 0.5], 0)
-    siteWeight = np.min([(1 - poisson.cdf(sampleMean / 2., sampleDepths)) / (
-                1 - poisson.cdf(sampleMean / 2., np.max([sampleMean / 2., [1] * sampleMean.size], 0))), \
-                         poisson.cdf(sampleMean * 2., sampleDepths) / \
-                         poisson.cdf(sampleMean * 2., np.max([sampleMean * 2.,[1] * sampleMean.size],0))], 0)
-    siteWeight[siteWeight > 1] = 1
-    sites[:, 1:] = siteWeight * sampleDepths
+    # outliers are > 1.5 IQR
+    sampleDepths = np.sum(knownSamples, 1)
+    iqr = max(np.quantile(sampleDepths, 0.75, 0) - np.quantile(sampleDepths, 0.25, 0), 1.)
 
-    sampleDepths[sampleDepths <= 0] = 1
-    for i in np.arange(knownSamples.shape[2]):
-        knownSamples[:, :, i] *= siteWeight
+    sampleDepthRange = np.hstack([np.quantile(sampleDepths, 0.25, 0) - 1.5 * iqr, np.quantile(sampleDepths, 0.75, 0) + 1.5 * iqr])
+    validValues = ((sampleDepths >= sampleDepthRange.T[0]) & (sampleDepths <= sampleDepthRange.T[1])).astype(float)
+    sampleMean = np.sum(sampleDepths*validValues, 0)/np.sum(validValues, 0)
+
+    siteWeight = ((sampleDepths >= 0.5 * sampleMean) & (sampleDepths <= 2. * sampleMean)).astype(float)
+    siteWeight[sampleDepths > sampleMean*2.] = poisson.pmf(sampleDepths[sampleDepths > sampleMean*2.], sampleMean*2.) / \
+        poisson.pmf(np.max([sampleMean*2., 1]), sampleMean*2.)
+    siteWeight[sampleDepths < sampleMean/2.] = poisson.pmf(sampleDepths[sampleDepths < sampleMean/2.], sampleMean/2.) / \
+        poisson.pmf(np.max([sampleMean/2., 1]), sampleMean/2.)
+    siteWeight[sampleDepths <= 0] = 0.
+    sites[:, 1] = siteWeight
+
     return knownSamples
 
 
@@ -105,6 +122,16 @@ def readTree(treefile, knownNodes):
     branches.T[3] = branches.T[2] / np.sum(branches.T[2])
     return branches
 
+def eval(genotypes, offsets, props) :
+    indices = np.arange(genotypes.size).reshape(genotypes.shape)
+    indices = np.array([i.ravel() for i in np.meshgrid(*indices)]).T
+    combinations = np.take(genotypes, indices)
+    freqs = np.take(np.array([1-offsets, offsets]).T, indices).prod(1)
+    combinations, reps = np.unique(combinations, axis=0, return_inverse=True)
+    freqs = np.bincount(reps, freqs)
+    combinations = np.array([np.bincount(c, props, 4) for c in combinations])
+    return combinations, freqs
+
 max_dist = 1.
 
 @click.command()
@@ -114,22 +141,20 @@ max_dist = 1.
 @click.argument('maxgenotype', type=int, default=3)
 def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     bamFiles = bamfile.split(',')
-    nSample = len(bamFiles)
     maxGenotype = maxgenotype
 
-    #if not os.path.isfile('test1'):
-    knownSites, knownNodes, knownMatrix = readAncestral(ancestralfile, nSample)
+    knownSites, knownNodes, knownMatrix = readAncestral(ancestralfile)
     branches = readTree(treefile, knownNodes)
-    knownSamples = parseBAMs(bamFiles, knownSites).transpose([0, 2, 1])
+    knownSamples = parseBAMs(bamFiles, knownSites)
 
-    exists = (np.sum(knownSites.T[1:], 0) >= 0.01) & np.any(knownSamples > 0, (1,2))
+    exists = (knownSites.T[1] >= 0.001) & np.any(knownSamples > 0, 1)
     knownSites = knownSites[exists]
     knownMatrix = knownMatrix[:, exists]
     knownSamples = knownSamples[exists]
     for br in branches :
         diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
         snv = knownMatrix[br[1].astype(int), diff_sites]
-        presence = np.sum(knownSamples[diff_sites, snv], 1)
+        presence = knownSamples[diff_sites, snv]
         if np.sum(presence > 0)*100 <= presence.shape[0] :
             knownMatrix[br[1].astype(int)] = 100
             branches[branches.T[0] == br[1], 0] = br[0]
@@ -137,63 +162,34 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     branches = branches[branches.T[0] > -1]
     exists = [len(set(np.unique(mat)) - {100}) > 1 for mat in knownMatrix.T]
     knownSites = knownSites[exists]
-    knownMatrix = knownMatrix[:, exists]
+    knownMatrix = knownMatrix[:, exists].astype(np.int8)
     knownSamples = knownSamples[exists]
+    weights = knownSites.T[1].astype(float)
 
-    snps = np.zeros(knownMatrix.shape[1])
-    for br in branches:
-        snps += knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
-    max_dist = np.sum(snps <= np.median(snps)) / snps.shape[0] #np.sum(snps)
-    #max_dist = 1.
-
-    m, x, y, w = [], [], [], []
-    for mi, (site, mat, sample) in enumerate(zip(knownSites, knownMatrix.T, knownSamples)):
-        c = [i for i in np.unique(mat) if i != 100]
-        for i in c :
-            n = sample[i]
-            m.append(mi)
-            x.append(mat == i)
-            y.append(n/len(c))
-            w.append(site[1:]/len(c))
-    x = np.array(x, dtype=float)
-    m = np.array(m, dtype=int)
-    w = np.sum(np.array(w, dtype=float), 1)
-    y = np.round(np.sum(np.array(y, dtype=float), 1)/w, 2)
-    tmp, idx = np.unique(np.hstack([x, y[:, np.newaxis]]), axis=0, return_inverse=True)
-    x0, y0, w0, m0 = tmp[:, :-1], tmp.T[-1], np.zeros(tmp.shape[0], dtype=float), [[] for i in np.arange(tmp.shape[0])]
-    for i in np.arange(tmp.shape[0]) :
-        m0[i] = m[idx == i]
-        w0[i] = np.sum(w[idx == i])
-    x, y, w, m = x0, y0, w0, m0
-    sys.stderr.write(
-        'Sites that are not covered by any read are ignored. {1} distinct categories of SNVs in {0} sites remain.\n'.format(np.sum(exists),
-                                                                                                     x.shape[0]))
-
-    x2 = t._shared(x)
     branches2 = t._shared(branches)
+    weights2 = t._shared(weights)
+    knownMatrix2 = t._shared(knownMatrix)
+    knownSamples2 = t._shared(knownSamples)
 
-    for nGenotype in np.arange(1, maxGenotype + 1):
+    for nGenotype in np.arange(2, maxGenotype + 1):
         sys.stderr.write(
             '\n----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.\n'.format(nGenotype))
+        ng = np.max([1, nGenotype])
+        genotypes = np.zeros([ng, knownMatrix.shape[1]], dtype = np.int8)
+        genotypes2 = t._shared(genotypes)
+
         with pm.Model() as model:
-            brs = pm.Flat('brs', shape=nGenotype if nGenotype > 1 else ())
-            props2 = pm.Dirichlet('props2', a=1./np.arange(1, nGenotype+1, dtype=float)) \
-                if nGenotype > 1 else \
-                pm.Exponential('props2', lam=1, shape=())
-            props = pm.Deterministic('props', props2*pm.math.sum(props2-0.01) + 0.01)
-            genotypes = getBranchGenotype(x2, branches2, brs)
-            sigma = pm.Gamma('sigma', alpha=2, beta=0.5) \
-                if nGenotype == 0 else \
-                pm.Gamma('sigma', alpha=0.5, beta=2)
+            brs = pm.Flat('brs', shape=nGenotype if ng > 1 else ())
+            props2 = pm.Dirichlet('props2', a=1./np.ones(ng, dtype=float)) \
+                if ng > 1 else pm.DiscreteUniform('props2', upper=1, lower=1)
 
-            mu = pm.math.sum(genotypes * props, 1)
-            dist = pm.math.abs_(mu - y)
+            props = pm.Deterministic('props', props2*(1-0.05*ng) + 0.05)
+            sigma = pm.Gamma('sigma', alpha=0.5, beta=2)
 
-            restricted_y = pm.math.clip(dist, 0, max_dist)
-            lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0., sigma=sigma).logp(restricted_y)))
+            gt = getGenotypes(genotypes2, knownMatrix2, branches2, weights2, knownSamples2, sigma, brs, props)
 
-            rec_y = pm.math.minimum(dist, 1-dist)
-            hybrid_score = pm.Deterministic('hybrid_score', pm.math.sqrt(pm.math.sum(w*pm.math.sqr(rec_y))/pm.math.sum(w)) )
+            dist = knownSamples2 - pm.math.sum(gt * props, 1)
+            lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0, sigma=sigma).logp(dist)))
 
             pm.Potential('likelihood', lk)
 
@@ -282,25 +278,13 @@ def waic(trace, start=0):
         # print(np.unique(x.astype(int), return_counts=True))
     return res
 
-
-@theano.compile.ops.as_op(itypes=[t.dmatrix, t.dmatrix, t.dvector], otypes=[t.dmatrix])
-def getBranchGenotype2(x, branches, brs):
-    br2 = brs.astype(int)
-    locs = brs - br2
-    return x[:, branches[br2, 0].astype(int)] * (1 - locs) + x[:, branches[br2, 1].astype(int)] * locs
-
-
-def getBranchGenotype(x, branches, brs):
-    return getBranchGenotype2(x, branches, brs) \
-        if brs.type == t.dvector \
-        else getBranchGenotype1(x, branches, brs)
-
-
-@theano.compile.ops.as_op(itypes=[t.dmatrix, t.dmatrix, t.dscalar], otypes=[t.dmatrix])
-def getBranchGenotype1(x, branches, brs):
-    br2 = brs.astype(int)
-    locs = brs - br2
-    return (x[:, branches[br2, 0].astype(int)] * (1 - locs) + x[:, branches[br2, 1].astype(int)] * locs)[:, np.newaxis]
+@theano.compile.ops.as_op(itypes=[t.bmatrix, t.bmatrix, t.dmatrix, t.dvector, t.dmatrix, t.dscalar, t.dvector, t.dvector], otypes=[t.bmatrix])
+def getGenotypes(genotypes, knownMatrix, branches, weights, knownSamples, sigma, brs, props) :
+    #brs = np.array([brs])
+    br = brs.astype(int)
+    loc = brs - br
+    branchEnds = knownMatrix[branches[br, :2].astype(int)]
+    pass
 
 class TreeWalker(pm.step_methods.Metropolis):
     def __init__(self, var, tree):
