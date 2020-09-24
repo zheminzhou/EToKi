@@ -1,6 +1,9 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 from datetime import datetime
-from _collections import OrderedDict
+try :
+    from _collections import OrderedDict
+except :
+    from collections import OrderedDict
 
 if sys.version_info[0] < 3:
     xrange = xrange

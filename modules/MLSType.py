@@ -514,7 +514,7 @@ class blastParser(object) :
                     alleles.pop(locus, None)
         return alleles
     def intergenic(self, regions, lenRange) :
-        if lenRange[0] == -1 :
+        if lenRange[0] == -1 or len(regions) < 1 :
             return sorted(regions, key=lambda r:r['coordinates'])
         inter_blocks = []
         regions.sort(key=lambda r:r['coordinates'])

@@ -2,6 +2,7 @@ from ete3 import Tree
 import sys, numpy as np, os, glob, math, re, argparse, resource
 from subprocess import Popen, PIPE
 from multiprocessing import Pool
+from time import sleep
 import random
 import pandas as pd
 
@@ -249,6 +250,7 @@ def read_matrix(fname) :
                 w_cols = np.char.startswith(part, '#!W')
                 names = part[cols]
                 break
+        
         for mat in pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1], chunksize=10000, engine='c', dtype=str, low_memory=False, na_filter=False) :
             mat = mat.values
             logger('{0}\t{1}\t{2}\t{3}\t{4}'.format(\
@@ -580,6 +582,7 @@ def phylo(args) :
     if 'matrix' in args.tasks :
         assert os.path.isfile( args.alignment )
         args.snp = xFasta2Matrix( args.prefix, args.alignment, args.core )
+        sleep(1)
     if 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks or 'mutation' in args.tasks :
         assert os.path.isfile( args.snp )
         names, sites, snps, seqLens, missing = read_matrix(args.snp)
