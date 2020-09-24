@@ -827,7 +827,7 @@ And
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
 
-    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1, type=int)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)

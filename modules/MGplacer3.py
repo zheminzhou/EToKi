@@ -166,6 +166,9 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     knownSamples = knownSamples[exists]
     weights = knownSites.T[1].astype(float)
 
+    weights *= np.sum(knownSamples, 1)/4
+    knownSamples /= np.sum(knownSamples, 1)[:, np.newaxis]
+
     branches2 = t._shared(branches)
     weights2 = t._shared(weights)
     knownMatrix2 = t._shared(knownMatrix)
@@ -186,10 +189,8 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             props = pm.Deterministic('props', props2*(1-0.05*ng) + 0.05)
             sigma = pm.Gamma('sigma', alpha=0.5, beta=2)
 
-            gt = getGenotypes(genotypes2, knownMatrix2, branches2, weights2, knownSamples2, sigma, brs, props)
-
-            dist = knownSamples2 - pm.math.sum(gt * props, 1)
-            lk = pm.Deterministic('lk', pm.math.sum(w * pm.Normal.dist(mu=0, sigma=sigma).logp(dist)))
+            lk = pm.Deterministic('lk', getGenotypesAndLK(genotypes2, knownMatrix2, branches2, weights2, knownSamples2,\
+                                                          sigma, brs, props))
 
             pm.Potential('likelihood', lk)
 
@@ -198,7 +199,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
             trace = pm.sample(progressbar=True, draws=5000, tune=15000, step=[step_br, step_others], chains=8, cores=8,
                               compute_convergence_checks=False)
 
-        trace_logp = np.array([ np.mean([ [t['likelihood'], t['hybrid_score']] for t in strace ], 0) for strace in trace._straces.values() ])
+        trace_logp = np.array([ np.mean([ t['likelihood'] for t in strace ], 0) for strace in trace._straces.values() ])
         sys.stderr.write('Done.\n----------\n'.format(nGenotype))
         # select traces
         trace_id = np.argmax(trace_logp.T[0])
@@ -248,43 +249,71 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
                                 lc[int(lc.size * 0.975)]))
     sys.stderr.write('All DONE\n')
 
-# no in use
-def waic(trace, start=0):
-    def traveseTraces(trace):
-        observations = []
-        for chain in trace._straces.values():
-            observations.append([])
-            for tr in chain:
-                observations[-1].append(tr['likelihood'])
-        return observations
+@nb.njit
+def greedyType(genotype, branchEnd, loc, gN) :
+    for gId in range(genotype.size) :
+        genotype[gId] = 0.
+    for gId in range(gN) :
+        p = 1.
+        g = 0
+        for bId in range(branchEnd.shape[0]) :
+            lId = (gId >> bId) & 1
+            g += (branchEnd[bId, lId] << (bId*2))
+            if lId == 1 :
+                p *= loc[bId]
+            else :
+                p *= 1. - loc[bId]
+        genotype[g] += p
+    return
 
-    observations = traveseTraces(trace)
-    nObs = observations[0][0].size
-    res = []
-    for observations2 in observations:
-        lppd, var1 = np.zeros(nObs), np.zeros(nObs)
-        for i in np.arange(start, nObs, 1000):
-            obs = np.array([observation[i:i + 1000] for observation in observations2])
-            max_obs = np.max(obs, 0)
-            lppd[i:i + 1000] = np.log(np.mean(np.exp(obs - max_obs), 0)) + max_obs
-            var1[i:i + 1000] = np.var(obs, 0)
+@nb.njit
+def gibbsType(genotype, lk, encodeType, sample, props, sigma, w, r) :
+    ret = -1
+    read_sum = np.sum(sample)
+    sum = 0.0
+    for gId in range(encodeType.shape[0]) :
+        if encodeType[gId] > 0 :
+            p = 1.
+            for bId in range(sample.size) :
+                x = 0.
+                for pId in range(props.size) :
+                    if (gId >> (2*pId)) & 3 == bId :
+                        x += props[pId]
+                p *= 1/(sigma*(2*3.1415926)**0.5)*np.exp(-0.5*((x-sample[bId]/read_sum)/sigma)**2)
+            p = p**w
+            encodeType[gId] *= p
+            lk[gId] = p
+            sum += encodeType[gId]
+    for gId in range(encodeType.shape[0]) :
+        if encodeType[gId] > 0 :
+            p = encodeType[gId]/sum
+            if r <= p :
+                ret = gId
+            else :
+                r -= p
+    for i in range(genotype.shape[0]) :
+        genotype[i] = (ret >> (i*2)) & 3
+    return np.log(lk[ret])
 
-        logp = [np.sum(observation) for observation in observations2]
-        max_logp = np.max(logp)
-        w = np.exp((logp - max_logp) / np.log(nObs))
-        wbic = np.sum(w * logp) / np.sum(w)
-        res.append([np.sum(lppd), np.sum(lppd) - np.sum(var1), wbic])
-        x = np.mean(observations2, 0)
-        # print(np.unique(x.astype(int), return_counts=True))
-    return res
+@nb.njit
+def getTypes(genotypes, branchEnds, knownSamples, weights, loc, props, sigma, encodeType, lk, rands) :
+    gN = 2**branchEnds.shape[1]
+    lglk = 0.
+    for i in range(branchEnds.shape[0]) :
+        greedyType(encodeType, branchEnds[i], loc, gN)
+        lglk += gibbsType(genotypes[i], lk, encodeType, knownSamples[i], props, sigma, weights[i], rands[i])
+    return lglk
 
-@theano.compile.ops.as_op(itypes=[t.bmatrix, t.bmatrix, t.dmatrix, t.dvector, t.dmatrix, t.dscalar, t.dvector, t.dvector], otypes=[t.bmatrix])
-def getGenotypes(genotypes, knownMatrix, branches, weights, knownSamples, sigma, brs, props) :
-    #brs = np.array([brs])
+@theano.compile.ops.as_op(itypes=[t.bmatrix, t.bmatrix, t.dmatrix, t.dvector, t.dmatrix, t.dscalar, t.dvector, t.dvector], otypes=[t.dscalar])
+def getGenotypesAndLK(genotypes, knownMatrix, branches, weights, knownSamples, sigma, brs, props) :
     br = brs.astype(int)
     loc = brs - br
-    branchEnds = knownMatrix[branches[br, :2].astype(int)]
-    pass
+    branchEnds = knownMatrix[branches[br, :2].astype(int)].transpose(2,0,1)
+    encodeType = np.zeros(4**branchEnds.shape[1], dtype=float)
+    lk = getTypes(genotypes.T, branchEnds, knownSamples, \
+             weights, loc, props, sigma, \
+             encodeType, np.zeros(encodeType.shape, dtype=float), np.random.rand(branchEnds.shape[0]))
+    return np.array(lk)
 
 class TreeWalker(pm.step_methods.Metropolis):
     def __init__(self, var, tree):
@@ -292,7 +321,6 @@ class TreeWalker(pm.step_methods.Metropolis):
         self.metrop_select = pm.step_methods.arraystep.metrop_select
 
         self.var = var.name
-        self.scaling = 100.
         self.counter = 0
 
         n2br = {int(nodes[1]): br for br, nodes in enumerate(tree)}
@@ -307,6 +335,8 @@ class TreeWalker(pm.step_methods.Metropolis):
                 self.tree[br][0].append([1, b2])
 
     def astep(self, br0):
+        if self.counter == 0 :
+            self.scaling = 100.
         brs = np.copy(br0)
         i = self.counter % brs.size
         br, loc = int(brs[i]), brs[i] % 1
@@ -334,14 +364,14 @@ class TreeWalker(pm.step_methods.Metropolis):
         accept1 = set(others.astype(int).tolist()) & incompatibles
         accept = self.delta_logp(brs, br0) if len(accept1) < 1 else -999.
         br_new, accepted = self.metrop_select(accept, brs, br0)
-        self.accepted += accepted
-        if self.counter == 100:
-            if self.accepted / float(self.counter) > 0.2:
-                self.scaling = np.min([self.scaling * 1.5, 1000.])
-            elif self.accepted / float(self.counter) < 0.05:
-                self.scaling = np.max([self.scaling / 1.5, 1.])
-            self.counter = self.accepted = 0
+        self.accepted += len(accept1) > 0 or accepted
         self.counter += 1
+        if self.counter % 100 == 0:
+            if self.accepted / 100. > 0.2:
+                self.scaling = np.min([self.scaling * 1.5, 1000.])
+            elif self.accepted / 100. <= 0.05:
+                self.scaling = np.max([self.scaling / 1.5, 1.])
+            self.accepted = 0
 
         stats = {
             'tune': self.tune,
