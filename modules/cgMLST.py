@@ -91,8 +91,8 @@ def cgMLST(allele_profile, allele_file) :
     loci = loci[np.sum(data>0, 0)>0]
     data = data[:, np.sum(data>0, 0)>0]
     print('Start with {1} genes in {0} genomes'.format(*data.shape))
-    iterations = [{'genePresence':0.5, 'intactCDS':0.5, 'genomeProp':0.5}, 
-                  {'genePresence':0.7, 'intactCDS':0.7, 'genomeProp':0.7}, 
+    iterations = [{'genePresence':0.5, 'intactCDS':0.5, 'genomeProp':0.4}, 
+                  {'genePresence':0.8, 'intactCDS':0.8, 'genomeProp':0.7}, 
                   {'genePresence':0.95, 'intactCDS':0.95, 'oddsRatio':3.}]
     colPresence = np.zeros(data.shape[1], dtype=int)
     for ite, cuts in enumerate(iterations) :

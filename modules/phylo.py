@@ -165,6 +165,96 @@ def write_phylip(prefix, names, snps) :
     invariants[-1] = len(snp2)
     return prefix+'.phy' , prefix + '.phy.weight', asc_file, invariants
 
+def write_phylips(prefix, names, snps, n_split=1) :
+    snp_expended = [ i for i, snp in enumerate(snps) for x in range(snp[1]) ]
+    snp_expended = [ np.unique(snp_expended[i::n_split], return_counts=True) for i in range(n_split) ]
+    outputs = []
+    for split_idx, (snp_idx, snp_weight) in enumerate(snp_expended) :
+        pp = '{0}.{1}'.format(prefix, split_idx)
+        invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
+        var_sites = np.array([ (snps[idx][3] == 1) for idx in snp_idx ])
+        for idx in np.where(~var_sites)[0] :
+            snp = snps[snp_idx[idx]]
+            if snp[3] == 0 and snp[2][0] in invariants :
+                invariants[ snp[2][0] ] += snp_weight[idx]
+        weights = snp_weight[var_sites]
+        snp2 = [ snps[idx] for idx in snp_idx[var_sites] if snps[idx][2][0] in invariants ]
+
+        with open(pp+'.phy.weight', 'w') as fout :
+            fout.write(' '.join([str(x) for x in weights]))
+
+        snp_array = np.array([s[2] for s in snp2]).T
+        n_tax, n_seq = snp_array.shape
+        with open(pp + '.phy', 'w') as fout :
+            fout.write('\t{0} {1}\n'.format(n_tax, n_seq))
+            for id, n in enumerate(names) :
+                fout.write('{0} {1}\n'.format(n, ''.join(np.frompyfunc(chr, 1, 1)(snp_array[id]))))
+
+        if sum(invariants.values()) > 0 :
+            asc_file = pp + '.asc'
+            constant_file = pp + '.constant'
+            with open(asc_file, 'w') as fout :
+                fout.write('[asc~{0}], ASC_DNA,p1=1-{1}\n'.format(constant_file,n_seq))
+            with open(constant_file, 'w') as fout :
+                fout.write(' '.join([str(int(x+0.5)) for y,x in sorted(invariants.items())[1:]]) + '\n')
+        else :
+            asc_file = None
+        invariants[-1] = len(snp2)
+        outputs.append([pp+'.phy' , pp + '.phy.weight', asc_file, invariants])
+    return outputs
+
+def run_rescale(prefix, tree, data, n_proc=5):
+    branches = {}
+    cnt = 0
+    for phy, weights, asc, invariants in data :
+        cnt += sum(invariants.values())
+        for fname in glob.glob('RAxML_*.{0}'.format(prefix)):
+            os.unlink(fname)
+        if asc is None:
+            cmd = '{0} -m GTR{4} -n {1} -t {7} -f e -D -s {2} -a {3} -T {5} -p {6} --no-bfgs'.format(raxml, prefix, phy,
+                                                                                              weights, 'GAMMA', n_proc,
+                                                                                              rint, tree)
+        else:
+            cmd = '{0} -m ASC_GTR{5} -n {1} -t {8} -f e -D -s {2} -a {3} -T {6} -p {7} --asc-corr stamatakis --no-bfgs -q {4}'.format(
+                    raxml, prefix, phy, weights, asc, 'GAMMA', n_proc, rint, tree)
+        run = Popen(cmd.split())
+        run.communicate()
+
+        tre = Tree('RAxML_result.{0}'.format(prefix), format=0)
+        for node in tre.get_descendants('postorder'):
+            if node.is_leaf() :
+                node.d = [node.name]
+            else :
+                node.d = [ n for c in node.children for n in c.d ]
+            key = tuple(sorted(node.d))
+            if key not in branches :
+                branches[key] = [node.dist]
+            else :
+                branches[key].append(node.dist)
+
+        for fn in glob.glob('RAxML_*.{0}'.format(prefix)) + [phy, phy+'.reduced', weights, asc]:
+            try:
+                os.unlink(fn)
+            except:
+                pass
+
+    tre = Tree(tree, format=1)
+    for node in tre.get_descendants('postorder'):
+        if node.is_leaf():
+            node.d = [node.name]
+        else:
+            node.d = [n for c in node.children for n in c.d]
+        key = tuple(sorted(node.d))
+        if key in branches :
+            node.dist = np.mean(branches[key])
+        if -0.5 < node.dist * cnt < 0.5 :
+            node.dist = 0.0
+
+    fname = '{0}.unrooted.nwk'.format(prefix)
+    tre.write(outfile=fname, format=0)
+    return fname
+
+
 def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5, invariants=None) :
     for fname in glob.glob('RAxML_*.{0}'.format(prefix)) :
         os.unlink(fname)
@@ -187,7 +277,6 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5, invariants=None)
     cmd = '{0} -m GTRCAT -n 2.{1} -f b -z RAxML_rellBootstrap.{1} -t RAxML_bestTree.{1}'.format(raxml, prefix)
     Popen(cmd.split()).communicate()
     fname = '{0}.unrooted.nwk'.format(prefix)
-    #os.rename('RAxML_bipartitions.2.{0}'.format(prefix), fname)
     tre = Tree('RAxML_bipartitions.2.{0}'.format(prefix), format=0)
     
     for node in tre.traverse() :
@@ -195,7 +284,7 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5, invariants=None)
             node.dist = 0.0
     tre.write(outfile=fname, format=0)
     
-    for fn in glob.glob('RAxML_*.{0}'.format(prefix)) :
+    for fn in glob.glob('RAxML_*.{0}'.format(prefix)) + [phy, phy+'.reduced', weights, asc] :
         try:
             os.unlink(fn)
         except :
@@ -396,6 +485,7 @@ EToKi phylo runs to:
     parser.add_argument('--tasks', '-t', help='''Tasks to call. Allowed tasks are:
 matrix: generate SNP matrix from alignment.
 phylogeny: generate phylogeny from SNP matrix.
+rescale: rescale a tree based on SNP matrix and given topology
 ancestral: generate AS (ancestral state) matrix from SNP matrix and phylogeny
 ancestral_proportion: generate possibilities of AS for each site
 mutation: assign SNPs into branches from AS matrix
@@ -583,7 +673,7 @@ def phylo(args) :
         assert os.path.isfile( args.alignment )
         args.snp = xFasta2Matrix( args.prefix, args.alignment, args.core )
         sleep(1)
-    if 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks or 'mutation' in args.tasks :
+    if 'rescale' in args.tasks or 'phylogeny' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks or 'mutation' in args.tasks :
         assert os.path.isfile( args.snp )
         names, sites, snps, seqLens, missing = read_matrix(args.snp)
         if len(names) < 4 :
@@ -606,8 +696,14 @@ def phylo(args) :
             else :
                 args.tree = run_rapidnj(args.tree, fastafile, invariants)
         args.tree = get_root(args.prefix, args.tree)
-    elif 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
+    elif 'rescale' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
+
+    if 'rescale' in args.tasks :
+        # data: phy, weights, asc, invariants
+        data = write_phylips(args.tree, names, snps, n_split=3)
+        args.tree, tree_in = args.prefix+'.tre', args.tree
+        args.tree = run_rescale(args.tree, tree_in, data, args.n_proc)
 
     # map snp
     if 'ancestral' in args.tasks :
