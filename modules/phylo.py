@@ -706,12 +706,12 @@ def phylo(args) :
         args.tree = get_root(args.prefix, args.tree)
     elif 'rescale' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
-        args.tree = get_root(args.prefix, args.tree)
 
     if 'rescale' in args.tasks :
         args.tree, tree_in = args.prefix+'.tre', args.tree
         data = write_phylips(args.tree, names, snps, n_split=4)
         args.tree = run_rescale(args.tree, tree_in, data, args.n_proc)
+        args.tree = get_root(args.prefix, args.tree)
 
     # map snp
     if 'ancestral' in args.tasks :
