@@ -165,7 +165,7 @@ def write_phylip(prefix, names, snps) :
     invariants[-1] = len(snp2)
     return prefix+'.phy' , prefix + '.phy.weight', asc_file, invariants
 
-def write_phylips(prefix, names, snps, n_split=1) :
+def write_phylips(prefix, names, snps, n_split=4) :
     snp_expended = [ i for i, snp in enumerate(snps) for x in range(snp[1]) ]
     snp_expended = [ np.unique(snp_expended[i::n_split], return_counts=True) for i in range(n_split) ]
     outputs = []
@@ -221,6 +221,8 @@ def run_rescale(prefix, tree, data, n_proc=5):
         run.communicate()
 
         tre = Tree('RAxML_result.{0}'.format(prefix), format=0)
+        with open(phy+'.subtree', 'w') as fout :
+            fout.write(tre.write(format=0)+'\n')
         for node in tre.get_descendants('postorder'):
             if node.is_leaf() :
                 node.d = [node.name]
@@ -239,14 +241,20 @@ def run_rescale(prefix, tree, data, n_proc=5):
                 pass
 
     tre = Tree(tree, format=1)
+    leaves = set(tre.get_leaf_names())
     for node in tre.get_descendants('postorder'):
         if node.is_leaf():
             node.d = [node.name]
         else:
             node.d = [n for c in node.children for n in c.d]
-        key = tuple(sorted(node.d))
-        if key in branches :
-            node.dist = np.mean(branches[key])
+        key1 = tuple(sorted(node.d))
+        key2 = tuple(sorted(leaves - set(node.d)))
+        if key1 in branches :
+            node.dist = np.mean(branches[key1])
+        elif key2 in branches :
+            node.dist = np.mean(branches[key2])
+        else :
+            node.dist = 0.
         if -0.5 < node.dist * cnt < 0.5 :
             node.dist = 0.0
 
@@ -698,17 +706,16 @@ def phylo(args) :
         args.tree = get_root(args.prefix, args.tree)
     elif 'rescale' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
+        args.tree = get_root(args.prefix, args.tree)
 
     if 'rescale' in args.tasks :
-        # data: phy, weights, asc, invariants
-        data = write_phylips(args.tree, names, snps, n_split=3)
         args.tree, tree_in = args.prefix+'.tre', args.tree
+        data = write_phylips(args.tree, names, snps, n_split=4)
         args.tree = run_rescale(args.tree, tree_in, data, args.n_proc)
 
     # map snp
     if 'ancestral' in args.tasks :
         final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
-        #states = np.array(states)
         final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
         write_states(args.prefix+'.ancestral_states.gz', node_names, states, sites, seqLens, missing)
     elif 'mutation' in args.tasks :
