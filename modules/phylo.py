@@ -178,12 +178,13 @@ def write_phylips(prefix, names, snps, n_split=4) :
             if snp[3] == 0 and snp[2][0] in invariants :
                 invariants[ snp[2][0] ] += snp_weight[idx]
         weights = snp_weight[var_sites]
-        snp2 = [ snps[idx] for idx in snp_idx[var_sites] if snps[idx][2][0] in invariants ]
+        snp_array = np.array([ snps[idx][2] for idx in snp_idx[var_sites] \
+                               if snps[idx][2][0] in invariants ], dtype=np.uint8).T
 
         with open(pp+'.phy.weight', 'w') as fout :
             fout.write(' '.join([str(x) for x in weights]))
 
-        snp_array = np.array([s[2] for s in snp2]).T
+        # snp_array = np.array([s[2] for s in snp2]).T
         n_tax, n_seq = snp_array.shape
         with open(pp + '.phy', 'w') as fout :
             fout.write('\t{0} {1}\n'.format(n_tax, n_seq))
@@ -199,7 +200,7 @@ def write_phylips(prefix, names, snps, n_split=4) :
                 fout.write(' '.join([str(int(x+0.5)) for y,x in sorted(invariants.items())[1:]]) + '\n')
         else :
             asc_file = None
-        invariants[-1] = len(snp2)
+        invariants[-1] = snp_array.shape[1]
         outputs.append([pp+'.phy' , pp + '.phy.weight', asc_file, invariants])
     return outputs
 

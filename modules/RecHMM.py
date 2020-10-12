@@ -229,8 +229,8 @@ class recHMM(object) :
                     if new_id >= model['v'].shape[0] :
                         model['v'] = np.concatenate([model['v'], [0.]])
                         model['v2'] = np.concatenate([model['v2'], [model['v2'][-1]]])
-                    if model['v'][new_id] < theta[1]/theta[0]*1.1 :
-                        model['v'][new_id] = theta[1]/theta[0]*1.1
+                    if model['v'][new_id] < theta[1]/theta[0]*3. :
+                        model['v'][new_id] = theta[1]/theta[0]*3.
                     if model['v2'][new_id] < theta[1]/theta[0]*0.5 :
                         model['v2'][new_id] = theta[1]/theta[0]*0.5
                     model['probability'] = -1e300
