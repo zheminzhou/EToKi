@@ -1,10 +1,9 @@
 from ete3 import Tree
-import sys, numpy as np, os, glob, math, re, argparse, resource
+import sys, numpy as np, os, glob, re, argparse, resource
 from subprocess import Popen, PIPE
 from multiprocessing import Pool
 from time import sleep
 import random
-import sysv_ipc
 import pandas as pd
 
 rint = random.randint(0, 262144)
