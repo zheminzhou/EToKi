@@ -4,6 +4,7 @@ from subprocess import Popen, PIPE
 from multiprocessing import Pool
 from time import sleep
 import random
+import sysv_ipc
 import pandas as pd
 
 rint = random.randint(0, 262144)
@@ -136,16 +137,16 @@ def parse_snps(prefix, id, seq, core=0.95) :
 
 def write_phylip(prefix, names, snps) :
     invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
-    for snp in snps :
-        if snp[3] == 0 and snp[2][0] in invariants :
+    for snp in snps[snps.T[3] == 0] :
+        if snp[2][0] in invariants :
             invariants[ snp[2][0] ] += snp[1]
 
-    snp2 = [ snp for snp in snps if snp[3] == 1 and snp[2][0] in invariants ]
-    weights = [ snp[1] for snp in snp2 ]
+    snp2 = snps[ (snps.T[3] == 1) & (np.array([s[0] in invariants for s in snps.T[2]])) ]
+    weights = snp2.T[1].astype(int).astype(str)
     with open(prefix+'.phy.weight', 'w') as fout :
-        fout.write(' '.join([str(x) for x in weights]))
+        fout.write(' '.join(weights))
 
-    snp_array = np.array([s[2] for s in snp2]).T
+    snp_array = np.array(snp2.T[2].tolist(), dtype=np.uint8).T
     n_tax, n_seq = snp_array.shape
     with open(prefix + '.phy', 'w') as fout :
         fout.write('\t{0} {1}\n'.format(n_tax, n_seq))
@@ -316,19 +317,15 @@ def get_root(prefix, tree_file) :
     return '{0}.rooted.nwk'.format(prefix)
 
 def read_matrix(fname) :
-    sites, snps = [], {}
     invariant = []
     seqLens, missing = [], []
-    
-    validate = np.repeat(45, 256).astype(np.uint8)
-    validate[np.array(['A', 'C', 'G', 'T', '.', '+', '-', '', '*']).view(asc2int)] = np.array(['A', 'C', 'G', 'T', '', '', '-', '', '']).view(asc2int)
-    
+
     with uopen(fname) as fin :
         for line_id, line in enumerate(fin) :
             if line.startswith('##'):
                 if line.startswith('## Constant_bases') :
                     part = line[2:].strip().split()
-                    invariant = list(zip([65, 67, 71, 84], [float(v) for v in part[1:]]))
+                    invariant = dict(zip([65, 67, 71, 84], [float(v) for v in part[1:]]))
                 elif line.startswith('## Sequence_length:') :
                     part = line[2:].strip().split()
                     seqLens.append([part[1], int(part[2])])
@@ -349,45 +346,47 @@ def read_matrix(fname) :
                 names = part[cols]
                 break
         
+        bases, weights, sites = [], [], []
         for mat in pd.read_csv(fin, header=None, sep='\t', usecols=cols.tolist() + w_cols.tolist() + [0,1], chunksize=10000, engine='c', dtype=str, low_memory=False, na_filter=False) :
             mat = mat.values
-            logger('{0}\t{1}\t{2}\t{3}\t{4}'.format(\
+            logger('{0}\t{1}\t{2}\t{3}'.format(\
                 mat[0, 0], mat[0, 1], \
-                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, len(sites), len(snps)))
-            bk = validate[mat[:, cols].astype('str').T.view(asc2int).T].reshape(mat.shape[0], -1, cols.shape[0])
-            bk = np.moveaxis(bk, 1, 2)
-            if bk.shape[2] > 1 :
-                bk[(bk[:, :, 1] != 0) & (bk[:, :, 0] == 45), 0] = 0
-            b_keys = bk[:, :, 0]
-            weights = mat[:, w_cols].astype(float).prod(1) if w_cols.size else np.ones(mat.shape[0], dtype=float)
-            for (b_key, site, w) in zip(b_keys, mat, weights) :
-                b_key = tuple(b_key)
-                if min(b_key) == 0 :
-                    bk2 = np.concatenate([site[cols], ['']])
-                    bk2[bk2 == '-'] = ''
-                    category, b_key = np.unique(bk2, return_inverse=True)
-                    if category[0] == '' :
-                        category[0] = '-'
-                    b_key = tuple(b_key[:-1].tolist())
-                else :
-                    category = []
-                if b_key in snps :
-                    snps[b_key][2] += w
-                elif min(b_key) >= 45 : 
-                    snps[b_key] = [len(snps), 1, w]
-                else :
-                    snps[b_key] = [len(snps), 2, w]
-                    
-                if snps[b_key][1] > 0 :
-                    sites.append([ site[0], int(site[1]), snps[b_key][0], np.array(category) ])
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, len(sites) ))
 
-    for inv in invariant :
-        b_key = tuple([inv[0]] * len(names))
-        if b_key not in snps :
-            snps[b_key] = [len(snps), 0, float(inv[1])]
+            for m in mat :
+                btype, bidx = np.unique(['-'] + m[2:].tolist(), return_inverse=True)
+                if btype.size <= 2 :
+                    continue
+                sites.append([m[0], int(m[1]), 1, np.array([])])
+                weights.append(m[w_cols].astype(float).prod(1) if w_cols.size else 1.)
+                if '.' in btype or max(map(len, btype)) > 1 :
+                    missing_val = np.where(btype == '-')[0][0]
+                    bidx[bidx == missing_val] = 45
+                    bidx[bidx < missing_val] += 1
+                    sites[-1][3] = np.array(['-']+btype[btype != '-'].tolist())
+                    sites[-1][2] = 2
+                    bases.append(bidx[1:])
+                else :
+                    bases.append(np.array(list(map(ord, btype)), dtype=np.uint8)[bidx[1:]])
+
+    bases, weights, sites = np.vstack(bases), np.array(weights), np.array(sites, dtype=object)
+    indices = np.lexsort(bases.T)
+    snps = []
+
+    for idx in indices :
+        s, b, w = sites[idx], bases[idx], weights[idx]
+        if not snps or np.any(b != snps[-1][2]) :
+            snps.append([ len(snps), w, b, s[2] ])
         else :
-            snps[b_key][2] += float(inv[1])
-    return names, sites, sorted([[info[0], int(math.ceil(info[2])), np.array(line, dtype=np.uint8), info[1]] for line, info in snps.items() ]), seqLens, missing
+            snps[-1][1] += w
+        s[2] = snps[-1][0]
+
+    for inv in invariant.items() :
+        b_key = np.array([inv[0]] * len(names), dtype=np.uint8)
+        snps.append( [len(snps), float(inv[1]), b_key, 0] )
+    for snp in snps :
+        snp[1] = np.ceil(snp[1])
+    return names, sites, np.array(snps), np.array(seqLens, dtype=object), np.array(missing, dtype=object)
 
 def read_ancestor(fname, names, snps) :
     snp_array = np.array([snp[2] for snp in snps]).T
@@ -440,7 +439,7 @@ def write_states(fname, names, states, sites, seqLens, missing) :
             fout.write('## Missing_region: {0} {1} {2}\n'.format(*ms))
         fout.write('#Seq\t#Site\t' + '\t'.join(names) + '\n')
         for site in sites :
-            if site[3].size == 0 :
+            if len(site[3]) == 0 :
                 fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(np.frompyfunc(chr, 1, 1)(states[site[2]])) ))
             else :
                 fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join( site[3][states[site[2]]] ) ))
@@ -535,7 +534,7 @@ def infer_ancestral2(data) :
     if missing.size > 0 :
         tag, n_state = tag[tag != 0], n_state - 1
         code[code == missing[0]] = -1
-        code[code  > missing[0]] = code[code  > missing[0]] - 1
+        code[code > missing[0]] -= 1
     if len(tag) == 0 :
         tag = np.array([45])
     if np.sum(np.in1d(tag, [65, 67, 71, 84])) == n_state :
@@ -586,9 +585,13 @@ def infer_ancestral2(data) :
         return tag[r]
 
 def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
+    global pool
+    if not pool :
+        pool = Pool(5)
+
     tree = Tree(tree, format=1)
     node_names = {}
-    for id,branch in enumerate(tree.traverse('postorder')) :
+    for id, branch in enumerate(tree.traverse('postorder')) :
         digit = ''
         if not branch.is_leaf() :
             try :
@@ -606,25 +609,25 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
             branch.children[1].dist += branch.children[0].dist - 1e-8
             branch.children[0].dist = 1e-8
         node_names[str(branch.name)] = id
-    states, branches = [ [ 0 for snp in snps ] for br in node_names ], []
-    for n, s in zip(names, np.array([ snp[2] for snp in snps ]).T) :
-        states[ node_names[n] ] = s
-    states = np.array(states).T
+
+    n_node = len(node_names)
+    snps = np.array( snps.T[2].tolist() ).T
+    states = np.zeros([snps.shape[1], n_node], dtype=np.uint8)
+    for n, s in zip(names, snps) :
+        states.T[ node_names[n] ] = s
+
+    branches = []
     for branch in tree.traverse('postorder') :
         if branch.up :
             branches.append([ node_names[branch.up.name], node_names[branch.name], np.exp(-max(branch.dist, 1e-8)) ])
         else :
             branches.append([ None, node_names[branch.name], 1e-8 ])
 
-    n_node = len(node_names)
-    #retvalue = [infer_ancestral2([state, branches, n_node, infer]) for state in states]
-    global pool
-    if not pool :
-        pool = Pool(5)
-
-    retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
-    
-    return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(retvalue, dtype=np.uint8) if infer =='viterbi' else retvalue
+    def prep(states) :
+        for state in states :
+            yield [state, branches, n_node, infer]
+    states = pool.imap(infer_ancestral2, prep(states), chunksize=100)
+    return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(list(states), dtype=np.uint8) if infer =='viterbi' else list(states)
 
 def write_fasta(prefix, names, snps) :
     invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
