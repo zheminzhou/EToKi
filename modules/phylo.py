@@ -618,11 +618,12 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
 
     n_node = len(node_names)
     #retvalue = [infer_ancestral2([state, branches, n_node, infer]) for state in states]
-    try :
-        retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
-    except :
+    global pool
+    if not pool :
         pool = Pool(5)
-        retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
+
+    retvalue = pool.map(infer_ancestral2, [[state, branches, n_node, infer] for state in states])
+    
     return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(retvalue, dtype=np.uint8) if infer =='viterbi' else retvalue
 
 def write_fasta(prefix, names, snps) :
