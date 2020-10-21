@@ -223,8 +223,8 @@ class recHMM(object) :
             if 'low_cov' not in model['categories'] :
                 model['categories']['low_cov'] = {}
             for brId, (theta, v) in enumerate(zip(model['posterior']['theta'], model['posterior']['v'])) :
-                if v[0] > .05 * theta[0] and v[1]*theta[0] < theta[1]*v[0] and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
-                    print('Model {0}: Branch {1} is too divergent for Rec identification. Move to new category. '.format(model['id'], self.branches[brId]))
+                if v[0] > .05 * theta[0] and v[1]*theta[0] < 3*theta[1]*v[0] and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
+                    print('Model {0}: Branch {1} is too divergent for the current setting of external recombination. Move to a new category. '.format(model['id'], self.branches[brId]))
                     model['categories']['nu'][brId] = new_id = model['categories']['nu'][brId] + 1
                     if new_id >= model['v'].shape[0] :
                         model['v'] = np.concatenate([model['v'], [0.]])
@@ -246,7 +246,7 @@ class recHMM(object) :
                         else :
                             model['categories']['low_cov'][tId] = tId
                     if model['categories']['low_cov'][tId] != tId :
-                        print('Model {0}: Branch {1} got too much recombined regions. Move to new category. '.format(model['id'], self.branches[brId]))
+                        print('Model {0}: The recombination frequency in Branch {1} is suspiciously high. Try to infer its frequency independently. '.format(model['id'], self.branches[brId]))
                         model['categories']['R/theta'][brId] = model['categories']['low_cov'][tId]
                         model['probability'] = -1e300
                         model['diff'] = 1e300
@@ -258,11 +258,9 @@ class recHMM(object) :
         sys.stdout.flush()
 
     def estimation(self, model, branch_measures) :
-        #h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
         h = [ ((1-model['h'][0])*(model['h'][0]**n))**(1/(n+1)) for n in np.arange(self.n_b-1) ]
 
         probability, br = 0., []
-
         posterior = dict( theta=np.zeros([len(branch_measures), 2]),
                           h=np.zeros([len(branch_measures), 4]),
                           R=np.zeros([len(branch_measures), 4]),
