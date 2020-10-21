@@ -309,8 +309,8 @@ class recHMM(object) :
         for id, delta in enumerate(prediction['delta']) :
             ids = (model['categories']['delta'] == id)
             prediction['delta'][id] = np.sum(posterior['delta'][ids, :, 1])/np.sum(posterior['delta'][ids, :, 0])
-            #if prediction['delta'][id] > .01 or prediction['delta'][id] < .00001 :
-            prediction['delta'][id] = min(max(model['delta'][id], .00002), .02)
+            if prediction['delta'][id] > .02 or prediction['delta'][id] < .00002 :
+                prediction['delta'][id] = min(max(model['delta'][id], .00002), .02)
 
         for id, v in enumerate(prediction['v']) :
             ids = (model['categories']['nu'] == id)
