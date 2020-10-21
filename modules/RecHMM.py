@@ -309,8 +309,8 @@ class recHMM(object) :
         for id, delta in enumerate(prediction['delta']) :
             ids = (model['categories']['delta'] == id)
             prediction['delta'][id] = np.sum(posterior['delta'][ids, :, 1])/np.sum(posterior['delta'][ids, :, 0])
-            if prediction['delta'][id] > .01 or prediction['delta'][id] < .00001 :
-                prediction['delta'][id] = min(max(model['delta'][id], .00001), .01)
+            #if prediction['delta'][id] > .01 or prediction['delta'][id] < .00001 :
+            prediction['delta'][id] = min(max(model['delta'][id], .00002), .02)
 
         for id, v in enumerate(prediction['v']) :
             ids = (model['categories']['nu'] == id)
@@ -714,8 +714,10 @@ class recHMM(object) :
         reports['nu'] = [np.sum(posterior['v'][:, 1])/np.sum(posterior['v'][:, 0]),
                             np.sum(posterior['v'][:, 1][bs], 1)/np.sum(posterior['v'][:, 0][bs], 1)]
 
-        reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]),
-                            np.sum(posterior['v2'][:, 1][bs], 1)/np.sum(posterior['v2'][:, 0][bs], 1)]
+        reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]) \
+                                 if np.sum(posterior['v2'][:, 0]) else 0.,
+                            np.sum(posterior['v2'][:, 1][bs], 1)/np.sum(posterior['v2'][:, 0][bs], 1) \
+                                if np.sum(posterior['v2'][:, 0][bs], 1) else 0.]
 
         reports['R/theta'] = [reports['R'][0]/reports['theta'][0], reports['R'][1]/reports['theta'][1]]
 
