@@ -223,14 +223,17 @@ class recHMM(object) :
             if 'low_cov' not in model['categories'] :
                 model['categories']['low_cov'] = {}
             for brId, (theta, v) in enumerate(zip(model['posterior']['theta'], model['posterior']['v'])) :
-                if v[0] > .05 * theta[0] and v[1]*theta[0] < 3*theta[1]*v[0] and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
-                    print('Model {0}: Branch {1} is too divergent for the current setting of external recombination. Move to a new category. '.format(model['id'], self.branches[brId]))
+                m = 3. / 4. * np.log(1 - 4. / 3. * theta[1] / theta[0])
+                r = 3. / 4. * np.log(1 - 4. / 3. * v[1] / v[0])
+                if v[0] > .05 * theta[0] and r < 3. * m and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
                     model['categories']['nu'][brId] = new_id = model['categories']['nu'][brId] + 1
+                    print('Model {0}: Branch {1} is too divergent for the current setting of external recombination. Move to category {2} '.format(model['id'], self.branches[brId], new_id))
                     if new_id >= model['v'].shape[0] :
                         model['v'] = np.concatenate([model['v'], [0.]])
                         model['v2'] = np.concatenate([model['v2'], [model['v2'][-1]]])
-                    if model['v'][new_id] < theta[1]/theta[0]*3. :
-                        model['v'][new_id] = theta[1]/theta[0]*3.
+                    rn = 3. / 4. * np.log(1 - 4. / 3. * model['v'][new_id])
+                    if rn < m * 3. :
+                        model['v'][new_id] = 3./4.*(1-np.exp(-4.*m))
                     if model['v2'][new_id] < theta[1]/theta[0]*0.5 :
                         model['v2'][new_id] = theta[1]/theta[0]*0.5
                     model['probability'] = -1e300
@@ -296,8 +299,6 @@ class recHMM(object) :
 
         for id, theta in enumerate(prediction['theta']) :
             ids = (model['categories']['R/theta'] == id)
-            #prediction['theta'][id] = np.sum(posterior['theta'][ids, 1])
-            #prediction['R'][id] = np.sum(posterior['R'][ids, 1:], 0)#
             prediction['theta'][id] = np.sum(EventFreq[ids, 0]/prediction['EventFreq'][ids])
             prediction['R'][id] = np.sum(EventFreq[ids, 1:].T/prediction['EventFreq'][ids], 1)[:prediction['R'][id].size]
             if np.sum(prediction['R'][id]) < .001 * prediction['theta'][id] :
@@ -323,9 +324,6 @@ class recHMM(object) :
                 prediction['v'][id] = min(max( model['v'][id], 0.001 ), 0.7)
             if prediction['v2'][id] < 0.001 or prediction['v2'][id] > 0.7:
                 prediction['v2'][id] = min(max( model['v2'][id], 0.001 ), 0.7)
-            #max_br = np.max(prediction['EventFreq'][ids])
-            #if self.n_b > 2 and prediction['v2'][id] < max_br * 0.5 + 0.001 :
-                #prediction['v2'][id] = max( max_br * 0.5 + 0.001, model['v2'][id] )
         return prediction
 
     def update_branch_parameters(self, model, lower_limit=False) :
@@ -572,7 +570,8 @@ class recHMM(object) :
             rec_out.write('#\tImportation\tseqName\tstart\tend\ttype\tscore\n')
             for name in self.branches :
                 stat = stats[name]
-                rec_out.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\tB={3:.3f}\n'.format(name, stat['M'], stat['R'], stat['weight_p'][0]))
+                m2 = -3./4.*np.log(1-4./3.*stat['M'])
+                rec_out.write('Branch\t{0}\tM={1:.5e}\tR={2:.5e}\tB={3:.3f}\n'.format(name, m2, stat['R'], stat['weight_p'][0]))
                 for r in stat['sketches'] :
                     rec_out.write('\tImportation\t{0}\t{1}\t{2}\t{3}\t{4}\t{5:.3f}\n'.format(name, self.sequences[r[0]][0], r[1], r[2], ['External', 'Internal', 'Mixed   '][r[3]-1], r[4]))
         if tree :
@@ -580,7 +579,7 @@ class recHMM(object) :
             tre = Tree(tree, format=1)
             for node in tre.traverse() :
                 if node.name in stats :
-                    node.dist = stats[node.name]['M']
+                    node.dist = -3./4.*np.log(1-4./3.*stats[node.name]['M'])
                 else :
                     node.dist = 1e-8
             tre.write(format=1, outfile=prefix + '.mutational.tre')
