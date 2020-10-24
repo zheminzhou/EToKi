@@ -40,7 +40,8 @@ def update_distant_transition(transition, emission, dist_transition, dist_transi
 
 
 class recHMM(object) :
-    def __init__(self, mode=1) :
+    def __init__(self, prefix, mode=1) :
+        self.prefix = prefix
         self.max_iteration = 200
         self.n_base = None
         self.mode = ['legacy', 'hybrid', 'intra', 'both'][mode]
@@ -214,6 +215,7 @@ class recHMM(object) :
                         self.screen_out('Delete', new_models[-1])
                         new_models = new_models[:-1]
                 self.verify_model(new_models)
+                self.save(open(self.prefix + '.best.model.json', 'w'))
             models = new_models
         self.screen_out('Report', models[0])
         return models[0]
@@ -223,15 +225,20 @@ class recHMM(object) :
             if 'low_cov' not in model['categories'] :
                 model['categories']['low_cov'] = {}
             for brId, (theta, v) in enumerate(zip(model['posterior']['theta'], model['posterior']['v'])) :
-                m = 3. / 4. * np.log(1 - 4. / 3. * theta[1] / theta[0])
-                r = 3. / 4. * np.log(1 - 4. / 3. * v[1] / v[0])
+                if theta[1] > 0.745 * theta[0] :
+                    theta[1] = 0.745 * theta[0]
+                if v[1] > 0.745 * v[0]:
+                    v[1] = 0.745 * v[0]
+
+                m = - 3. / 4. * np.log(1 - 4. / 3. * theta[1] / theta[0])
+                r = - 3. / 4. * np.log(1 - 4. / 3. * v[1] / v[0])
                 if v[0] > .05 * theta[0] and r < 3. * m and np.sum(model['categories']['nu'] == model['categories']['nu'][brId]) > 2 :
                     model['categories']['nu'][brId] = new_id = model['categories']['nu'][brId] + 1
                     print('Model {0}: Branch {1} is too divergent for the current setting of external recombination. Move to category {2} '.format(model['id'], self.branches[brId], new_id))
                     if new_id >= model['v'].shape[0] :
                         model['v'] = np.concatenate([model['v'], [0.]])
                         model['v2'] = np.concatenate([model['v2'], [model['v2'][-1]]])
-                    rn = 3. / 4. * np.log(1 - 4. / 3. * model['v'][new_id])
+                    rn = - 3. / 4. * np.log(1 - 4. / 3. * model['v'][new_id])
                     if rn < m * 3. :
                         model['v'][new_id] = 3./4.*(1-np.exp(-4.*m))
                     if model['v2'][new_id] < theta[1]/theta[0]*0.5 :
@@ -557,7 +564,8 @@ class recHMM(object) :
             return res
         return [prepare_obs(mutations[mutations.T[0] == brId], blocks, interval) for brId in np.unique(mutations.T[0])]
 
-    def predict(self, mutations, branches, sequences, missing, marginal, prefix='RecHMM', tree=None) :
+    def predict(self, mutations, branches, sequences, missing, marginal, tree=None) :
+        prefix = self.prefix
         assert self.model, 'No model'
         self.observations = self.prepare_branches(mutations, sequences, missing)
         self.branches = branches if branches is not None else np.arange(len(self.observations)).astype(str)
@@ -565,7 +573,7 @@ class recHMM(object) :
 
         stats = self.margin_predict(marginal) if marginal > 0. and marginal <= 1. else self.map_predict()
         
-        with open(prefix+'.recombination.region', 'w') as rec_out: #, uopen(prefix+'.mutations.status.gz', 'w') as mut_out :
+        with open(prefix+'.recombination.region', 'w') as rec_out:
             rec_out.write('#Branch\tname\tmutationRate\trecombinationRate\tMutationCoverage\n')
             rec_out.write('#\tImportation\tseqName\tstart\tend\ttype\tscore\n')
             for name in self.branches :
@@ -681,7 +689,8 @@ class recHMM(object) :
         regions = [r for r in regions if r[2] >= 0]
         return dict(sketches=sorted(regions), gamma=1.-inrec[ obs.T[5] ])
 
-    def report(self, bootstrap, prefix='') :
+    def report(self, bootstrap) :
+        prefix = self.prefix
         if 'posterior' in self.model :
             posterior = self.model['posterior']
         else :
@@ -699,8 +708,6 @@ class recHMM(object) :
         EventFreq = np.vstack([posterior['theta'].T[1]/posterior['theta'].T[0], posterior['R'][:, 1:].T/posterior['R'][:, 0]]).T
         reports['EventFreq'] = [np.sum(EventFreq), np.sum(EventFreq[bs], (1,2))]
 
-        #reports['theta'] = [np.sum(posterior['theta'].T[1]), np.sum(posterior['theta'].T[1][bs], 1)]
-        #reports['R'] = [np.sum(posterior['R'].T[1:]), np.sum(np.sum(posterior['R'].T[1:], 0)[bs])]
         reports['theta'] = [np.sum(EventFreq[:, 0]/self.model['EventFreq']), np.sum(EventFreq.T[0][bs]/self.model['EventFreq'][bs], 1)]
         reports['R'] = [np.sum(np.sum(EventFreq[:, 1:], 1)/self.model['EventFreq']), np.sum(np.sum(EventFreq.T[1:], 0)[bs]/self.model['EventFreq'][bs], 1)]
         tot = [reports['theta'][0]+reports['R'][0], reports['theta'][1]+reports['R'][1]]
@@ -714,9 +721,9 @@ class recHMM(object) :
                             np.sum(posterior['v'][:, 1][bs], 1)/np.sum(posterior['v'][:, 0][bs], 1)]
 
         reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]) \
-                                 if np.sum(posterior['v2'][:, 0]) else 0.,
+                                 if np.sum(posterior['v2'][:, 0]) > 0. else 0.,
                             np.sum(posterior['v2'][:, 1][bs], 1)/np.sum(posterior['v2'][:, 0][bs], 1) \
-                                if np.sum(posterior['v2'][:, 0][bs], 1) else 0.]
+                                if np.sum(posterior['v2'][:, 0][bs], 1) > 0. else 0.]
 
         reports['R/theta'] = [reports['R'][0]/reports['theta'][0], reports['R'][1]/reports['theta'][1]]
 
@@ -773,7 +780,7 @@ def RecHMM(args) :
     pool = Pool(args.n_proc)
     verbose = not args.clean
 
-    model = recHMM(mode=args.task)
+    model = recHMM(prefix=args.prefix, mode=args.task)
     
     if not args.report or not args.model :
         sequences, missing = [], []
@@ -815,10 +822,10 @@ def RecHMM(args) :
         model.fit(mutations, branches=branches, sequences=sequences, missing=missing, categories=args.categories, init=args.init, cool_down=args.cool_down)
         model.save(open(args.prefix + '.best.model.json', 'w'))
         print('Best HMM model is saved in {0}'.format(args.prefix + '.best.model.json'))
-    model.report(args.bootstrap, args.prefix)
+    model.report(args.bootstrap)
 
     if not args.report :
-        model.predict(mutations, branches=branches, sequences=sequences, missing=missing, marginal=args.marginal, prefix=args.prefix, tree=args.tree)
+        model.predict(mutations, branches=branches, sequences=sequences, missing=missing, marginal=args.marginal, tree=args.tree)
 
 pool, verbose = None, True
 if __name__ == '__main__' :
