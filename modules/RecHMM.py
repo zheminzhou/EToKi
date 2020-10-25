@@ -133,8 +133,8 @@ class recHMM(object) :
                 mut_summary.append(np.sum(mut, 0))
             
             mut_summary = np.array(mut_summary)
-            #mut_summary.T[2] -= mut_summary.T[1]
-            
+
+
             EventFreq = np.sum(mut_summary.T[[1, 3]]/mut_summary.T[0], 0)
 
             n_br, (bases, muts, homos, recs) = mut_summary.shape[0], np.sum(mut_summary, 0)
@@ -292,7 +292,7 @@ class recHMM(object) :
                 posterior['v'][id] = [ np.sum(b[1]) + np.sum(b[3:])*h[0]/2, np.sum(b[1, 1:]) + np.sum(b[3:, 1]) ]
                 posterior['v2'][id] = [ np.sum(b[2:]), np.sum(b[2:, 2:]) ]
 
-            posterior['R'][id, 0], posterior['R'][id, 1:] = np.sum(a[0]), a[0, 1:]
+            posterior['R'][id, 0], posterior['R'][id, 1:a.shape[1]] = np.sum(a[0]), a[0, 1:]
             posterior['delta'][id] = np.vstack([np.sum(a[1:], 1), a.T[0, 1:]]).T
             posterior['probability'][id] = measures['probability']
 
@@ -340,7 +340,7 @@ class recHMM(object) :
             rId, dId, vId = model['categories']['R/theta'][brId], model['categories']['delta'][brId], model['categories']['nu'][brId]
             if lower_limit and d < 1./self.n_base:
                 d = 1./self.n_base
-            m, r = (d * model['theta'][rId], d * model['R'][rId])
+            m, r = min(d * model['theta'][rId], 0.745), min(d * model['R'][rId], 0.99)
 
             a = np.zeros(shape=[self.n_a, self.n_a])
             a[0, 1:] = r
@@ -352,7 +352,6 @@ class recHMM(object) :
 
             np.fill_diagonal(a, 1-np.sum(a, 1))
             b = np.zeros(shape=[self.n_a, self.n_b])
-            #h = [1./n+(n-2.)/n*model['h'][0] for n in np.arange(1, self.n_b)]
             h = [ ((1-model['h'][0])*(model['h'][0]**n))**(1/(n+1)) for n in np.arange(self.n_b-1) ]
 
             v, v2 = model['v'][vId], model['v2'][vId]
@@ -399,7 +398,6 @@ class recHMM(object) :
         return new_param
 
     def get_branch_measures(self, params, observations, gammaOnly=False) :
-        #branch_measures = list(map(functools.partial(_iter_branch_measure, self), zip(observations, params, [gammaOnly for p in params])))
         branch_measures = pool.map(functools.partial(_iter_branch_measure, self), zip(observations, params, [gammaOnly for p in params]))
         return branch_measures
 
@@ -819,6 +817,7 @@ def RecHMM(args) :
     if args.model :
         model.load(open(args.model, 'r'))
     else :
+        #pass
         model.fit(mutations, branches=branches, sequences=sequences, missing=missing, categories=args.categories, init=args.init, cool_down=args.cool_down)
         model.save(open(args.prefix + '.best.model.json', 'w'))
         print('Best HMM model is saved in {0}'.format(args.prefix + '.best.model.json'))
