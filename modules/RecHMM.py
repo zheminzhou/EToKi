@@ -721,11 +721,12 @@ class recHMM(object) :
         reports['nu(in)'] = [np.sum(posterior['v2'][:, 1])/np.sum(posterior['v2'][:, 0]) \
                                  if np.sum(posterior['v2'][:, 0]) > 0. else 0.,
                             np.sum(posterior['v2'][:, 1][bs], 1)/np.sum(posterior['v2'][:, 0][bs], 1) \
-                                if np.sum(posterior['v2'][:, 0][bs], 1) > 0. else 0.]
+                                if np.sum(posterior['v2'][:, 0]) > 0. else np.sum(posterior['v2'][:, 1][bs], 1)]
 
         reports['R/theta'] = [reports['R'][0]/reports['theta'][0], reports['R'][1]/reports['theta'][1]]
 
-        reports['r/m'] = [np.sum(posterior['v'].T[1]+posterior['v2'].T[1])/np.sum(posterior['theta'].T[1]), np.sum(posterior['v'].T[1][bs]+posterior['v2'].T[1][bs], 1)/np.sum(posterior['theta'].T[1][bs], 1)]
+        reports['r/m'] = [np.sum(posterior['v'].T[1]+posterior['v2'].T[1])/np.sum(posterior['theta'].T[1]), \
+                          np.sum(posterior['v'].T[1][bs]+posterior['v2'].T[1][bs], 1)/np.sum(posterior['theta'].T[1][bs], 1)]
         with open(prefix + '.best.model.report', 'w') as fout :
             fout.write( 'Prefix    \tParameter \tValue     \tSTD       \tCI 95% (Low - High)\n' )
             sys.stdout.write( 'Prefix    \tParameter \tValue     \tSTD       \tCI 95% (Low - High)\n' )
