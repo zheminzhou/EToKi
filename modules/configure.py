@@ -1,5 +1,9 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 from datetime import datetime
+try :
+    from _collections import OrderedDict
+except :
+    from collections import OrderedDict
 
 if sys.version_info[0] < 3:
     xrange = xrange
@@ -67,11 +71,10 @@ class uopen(object) :
         if label.find('r')>=0 :
             self.fstream = subprocess.Popen([externals['pigz'], '-cd', fname], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True).stdout if fname.lower().endswith('gz') else open(fname)
         elif label.find('w') >= 0 :
-            if sys.version.startswith('3') :
-                self.fout = gzip.open(fname, 'wb')
-                self.fstream = io.TextIOWrapper(self.fout, encoding='utf-8')
-            else :
-                self.fstream = gzip.open(fname, 'wb')
+            self.fout = open(fname, 'wb')
+            p = subprocess.Popen([externals['pigz']], stdin=subprocess.PIPE, stdout=self.fout, universal_newlines=True)
+            self.fstream = p.stdin
+            
         elif label.find('a') >= 0 :
             if sys.version.startswith('3') :
                 self.fout = gzip.open(fname, 'ab')
@@ -92,7 +95,7 @@ class uopen(object) :
 
 
 def readFasta(fasta, headOnly=False) :
-    sequence = {}
+    sequence = OrderedDict()
     with uopen(fasta) as fin :
         for line in fin :
             if line.startswith('>') :
@@ -105,12 +108,12 @@ def readFasta(fasta, headOnly=False) :
     return sequence
 
 def readFastq(fastq) :
-    sequence, qual = {}, {}
+    sequence, qual = OrderedDict(), OrderedDict()
     with uopen(fastq) as fin :
         line = fin.readline()
         if not line.startswith('@') :
             sequence = readFasta(fastq)
-            return sequence, { n: re.sub(r'[^!]', 'I', re.sub(r'[^ACGTacgt]', '!', s)) for n, s in sequence.items() }
+            return sequence, OrderedDict( [n, re.sub(r'[^!]', 'I', re.sub(r'[^ACGTacgt]', '!', s))] for n, s in sequence.items() )
     with uopen(fastq) as fin :
         for lineId, line in enumerate(fin) :
             if lineId % 4 == 0 :
@@ -187,7 +190,9 @@ def getExecutable(commands) :
         if not cmd  :
             return None
         commands[-1] = cmd
-        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 :
+        if subprocess.Popen(commands+['-h'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or \
+           subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 or \
+           subprocess.Popen(commands+['-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait() <= 1 :
             return commands
         else :
             return None
@@ -217,6 +222,15 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
 
+    if not getExecutable([externals['raxml_ng']]) :
+        url = 'https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip'
+        logger('Downloading raxml-ng package from {0}'.format(url))
+        subprocess.Popen('curl -Lo raxml-ng_v0.9.0_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging raxml-ng package'.format(url))
+        subprocess.Popen('unzip raxml-ng_v0.9.0_linux_x86_64.zip -d raxml-ng_v0.9.0'.split()).communicate()
+        subprocess.Popen('ln -fs raxml-ng_v0.9.0/raxml-ng ./raxml-ng'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('raxml-ng_v0.9.0_linux_x86_64.zip')
+        logger('Done\n')
 
     if not getExecutable(externals['pilon'].split()) :
         url = 'https://github.com/broadinstitute/pilon/releases/download/v1.23/pilon-1.23.jar'
@@ -232,6 +246,17 @@ def install_externals() :
         subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split()).communicate()
         os.unlink('diamond-linux64.tar.gz')
         os.unlink('diamond_manual.pdf')
+        logger('Done\n')
+
+    if not getExecutable(externals['flye'].split()) :
+        url = 'https://github.com/fenderglass/Flye/archive/2.7.tar.gz'
+        logger('Downloading Flye from {0}'.format(url))
+        subprocess.Popen('curl -Lo Flye.2.7.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging Flye'.format(url))
+        subprocess.Popen('tar -xzf Flye.2.7.tar.gz'.split()).communicate()
+        os.unlink('Flye.2.7.tar.gz')
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='Flye-2.7').communicate()
+        subprocess.Popen('ln -fs Flye-2.7/bin/flye ./flye', shell=True).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
@@ -331,16 +356,6 @@ def install_externals() :
         os.unlink('v2.0.7-beta.tar.gz')
         subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).communicate()
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).communicate()
-        logger('Done\n')
-
-    if not getExecutable(externals['diamond'].split()) :
-        diamond_url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.24/diamond-linux64.tar.gz'
-        logger('Downloading diamond package from {0}'.format(diamond_url))
-        subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(diamond_url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging diamond package')
-        subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('diamond-linux64.tar.gz')
-        os.unlink('diamond_manual.pdf')
         logger('Done\n')
 
     if not getExecutable([externals['usearch']]) :

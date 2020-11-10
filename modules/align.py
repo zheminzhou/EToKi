@@ -4,9 +4,9 @@
 import os, sys, numpy as np, argparse, subprocess, re, gzip
 from multiprocessing import Pool
 try :
-    xrange(1)
+    from .configure import readFastq, readFasta, xrange
 except :
-    xrange = range
+    from configure import readFastq, readFasta, xrange
 
 def parseArgs(argv) :
     parser = argparse.ArgumentParser(description='''Align multiple genomes onto a single reference. ''')
@@ -17,10 +17,12 @@ def parseArgs(argv) :
     parser.add_argument('-l', '--last', help='Activate to use LAST as aligner. [DEFAULT: minimap2]', default=False, action='store_true')
     parser.add_argument('-c', '--core', help='[PARAM] percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)
     parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
+    parser.add_argument('-q', '--lowq', help='[OPTIONAL; INPUT] Genome of low quality. [DEFAULT: ]', default=[], action='append')
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
     args.reference = args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference]
     args.queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries ] if qt != args.reference[0] ])
+    args.lowq = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.lowq ] if qt != args.reference[0] ])
     args.aligner = externals['minimap2'] if not args.last else [externals['lastdb'], externals['lastal']]
     return args
 
@@ -489,8 +491,8 @@ def alignAgainst(data) :
     except :
         return [tag, query]
     refSeq, refQual = readFastq(reference)
-    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
-                                aligner, db, query).split(), stdout=subprocess.PIPE, universal_newlines=True)
+    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A1 -B14 -O24,60 -E2,1 -r100 -g1000 -P -N5000 -f1000,5000 -n2 -m50 -s200 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+                                aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     alignments = []
     for lineId, line in enumerate(proc.stdout) :
         part = line.strip().split('\t')
@@ -599,7 +601,7 @@ def alignAgainst(data) :
                 r = ref[0][alnSite[0]:alnSite[0]+cl]
                 r1 = ref[1][alnSite[0]:alnSite[0]+cl]
                 q = qry[0][alnSite[1]:alnSite[1]+cl] if d > 0 else rc(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)])
-                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)]))
+                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[1][(alnSite[1]-cl+1):(alnSite[1]+1)]))
 
                 e =[alnSite[0]+cl, alnSite[1]+cl*d]
                 for qid in xrange(len(qryRepeat)-1, -1, -1) :
@@ -732,7 +734,7 @@ def readMap(data) :
                         miss = -99999999
             else :
                 break
-    print(mTag, mFile)
+    #print(mTag, mFile)
     with uopen(mFile) as fin :
         for line in fin :
             if line.startswith('#') : continue
@@ -752,54 +754,69 @@ def readMap(data) :
                     mutations.append([mTag, part[0], part[3], ori[0], alt[0]])
     return presences, sorted(absences), mutations
 
-def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
-    refSeq, refQual = readFastq(reference)
+def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, alignmentOut) :
+    refSeq, refQual = readFastq(reference[1])
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
-    alnId = { aln[0]:id for id, aln in enumerate(alignments) }
-    res = pool.map(readMap, alignments)
+    alnId = { aln[0]:id for id, aln in enumerate(alignments+lowq_aligns) }
+    res = pool.map(readMap, alignments+lowq_aligns)
+    res, low_res = res[:len(alignments)], res[len(alignments):]
     
     matrix = {}
-    for presences, absences, mutations in res :
-        for mut in mutations :
-            j = alnId[mut[0]]
-            site = tuple(mut[1:3])
-            if site not in matrix :
-                matrix[site] = [[], []]
-                matSites[mut[1]][mut[2]-1] = mut[2]
-            if len(mut[4]) == 1 :
-                if len(matrix[site][0]) == 0 :
-                    matrix[site][0] = ['-' for id in alnId]
-                matrix[site][0][j] = mut[4]
-            else :
-                if len(matrix[site][1]) == 0 :
-                    matrix[site][1] = ['-' for id in alnId]
-                matrix[site][1][j] = mut[4]
-    for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
-        j = alnId[mTag]
-        for n, s, e in presences :
-            coreSites[n][s-1:e] +=1
-            mutations = matSites[n][s-1:e]
-            for kk in mutations[mutations > 0] :
-                k = (n, kk)
-                if len(matrix[k][0]) and matrix[k][0][j] == '-' :
-                    matrix[k][0][j] = '.'
-                if len(matrix[k][1]) and matrix[k][1][j] == '-' :
-                    matrix[k][1][j] = '.'
-        for n, s, e, m in absences :
-            coreSites[n][s-1:e] -=1
-            mutations = matSites[n][s-1:e]
-            for kk in mutations[mutations > 0] :
-                k = (n, kk)
-                if len(matrix[k][0]) and matrix[k][0][j] == '.' :
-                    matrix[k][0][j] = '-'
-                if len(matrix[k][1]) and matrix[k][1][j] == '.' :
-                    matrix[k][1][j] = '-'
-    pres = np.unique(np.concatenate(list(coreSites.values())), return_counts=True)
-    pres = [pres[0][pres[0] > 0], pres[1][pres[0] > 0]]
-    coreNum = len(alignments) * core
+    for r in (res, low_res) :
+        for presences, absences, mutations in r :
+            for mut in mutations :
+                j = alnId[mut[0]]
+                site = tuple(mut[1:3])
+                if site not in matrix :
+                    matrix[site] = [[], []]
+                    matSites[mut[1]][mut[2]-1] = mut[2]
+                if len(mut[4]) == 1 :
+                    if len(matrix[site][0]) == 0 :
+                        matrix[site][0] = ['-' for id in alnId]
+                    matrix[site][0][j] = mut[4]
+                else :
+                    if len(matrix[site][1]) == 0 :
+                        matrix[site][1] = ['-' for id in alnId]
+                    matrix[site][1][j] = mut[4]
+    for gid, aln, r in ((0, alignments, res), (1, lowq_aligns, low_res)) :
+        for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
+            j = alnId[mTag]
+            for n, s, e in presences :
+                if gid == 0 :
+                    coreSites[n][s-1:e] +=1
+                mutations = matSites[n][s-1:e]
+                for kk in mutations[mutations > 0] :
+                    k = (n, kk)
+                    if len(matrix[k][0]) and matrix[k][0][j] == '-' :
+                        matrix[k][0][j] = '.'
+                    if len(matrix[k][1]) and matrix[k][1][j] == '-' :
+                        matrix[k][1][j] = '.'
+            for n, s, e, m in absences :
+                if gid == 0 :
+                    coreSites[n][s-1:e] -= (1 if mTag not in reference else len(alignments)+1)
+                mutations = matSites[n][s-1:e]
+                for kk in mutations[mutations > 0] :
+                    k = (n, kk)
+                    if len(matrix[k][0]) and matrix[k][0][j] == '.' :
+                        matrix[k][0][j] = '-'
+                    if len(matrix[k][1]) and matrix[k][1][j] == '.' :
+                        matrix[k][1][j] = '-'
+    coreNum = max(len(alignments) * core, 1)
+    for n in sorted(coreSites) :
+        sites = coreSites[n]
+        for site, num in enumerate(sites) :
+            cSite = (n, site+1)
+            if 1 <= num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
+                sites[site] = np.sum(matrix[cSite][1] != '-')
+                matrix[cSite][0] = []
+    
+    pres = np.concatenate(list(coreSites.values()))
+    pres[pres < 0] = 0
+    pres = list(np.unique(pres, return_counts=True))
+    
     for p, n in zip(*pres) :
-        sys.stderr.write('#{2} {0} {1}\n'.format(p, n, '' if p > coreNum else '#'))
+        sys.stderr.write('#{2} {0} {1}\n'.format(p if p >= 1 else 'Repetitive', n, '' if p >= coreNum else '#'))
 
     missings = []
     coreBases = {'A':0, 'C':0, 'G':0, 'T':0}
@@ -807,9 +824,6 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
         sites = coreSites[n]
         for site, num in enumerate(sites) :
             cSite = (n, site+1)
-            if num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
-                num = np.sum(matrix[cSite][1] != '-')
-                matrix[cSite][0] = []
             if num < coreNum :
                 matrix.pop(cSite, None)
                 if len(missings) == 0 or missings[-1][0] != n or missings[-1][2] + 1 < cSite[1] :
@@ -820,9 +834,14 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                 b = refSeq[n][cSite[1]-1]
                 if cSite in matrix and len(matrix[cSite][0]) :
                     matrix[cSite][0] = [ (b if s == '.' else s) for s in matrix[cSite][0]]
+                    t = np.unique(matrix[cSite][0])
+                    t = t[t!= '-']
+                    if len(t) == 1 :
+                        coreBases[t[0]] = coreBases.get(t[0], 0) + 1
+                        matrix[cSite][0] = []
                 else :
                     coreBases[b] = coreBases.get(b, 0) + 1
-                    
+
     outputs = {}
     if matrixOut :
         outputs['matrix'] = prefix + '.matrix.gz'
@@ -832,7 +851,7 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                 fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n])))
             for region in missings :
                 fout.write('## Missing_region: {0} {1} {2}\n'.format(*region))
-            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments ]) + '\n')
+            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments + lowq_aligns ]) + '\n')
             for site in sorted(matrix) :
                 bases = matrix[site]
                 if len(bases[0]) :
@@ -842,24 +861,28 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
     if alignmentOut :
         outputs['alignment'] = prefix + '.fasta.gz'
         sequences = []
-        for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
-            j = alnId[mTag]
-            seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
-            if j :
-                for n, s, e in presences :
-                    seq[n][s-1:e] = refSeq[n][s-1:e]
-                for n, s, e, c in absences :
-                    seq[n][s-1:e] = '-' * (e-s+1)
-            for site in matrix :
-                bases = matrix[site]
-                if len(bases[0]) :
-                    seq[site[0]][site[1]-1] = bases[0][j]
-            sequences.append(seq)
+        low_seq = []
+        for sequence, aln, r in ((sequences, alignments, res), (low_seq, lowq_aligns, low_res)) :
+            for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
+                j = alnId[mTag]
+                seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
+                if j :
+                    for n, s, e in presences :
+                        seq[n][s-1:e] = refSeq[n][s-1:e]
+                    for n, s, e, c in absences :
+                        seq[n][s-1:e] = '-' * (e-s+1)
+                for site in matrix :
+                    bases = matrix[site]
+                    if len(bases[0]) :
+                        seq[site[0]][site[1]-1] = bases[0][j]
+                sequence.append(seq)
         with uopen(prefix + '.fasta.gz', 'w') as fout :
             for id, n in enumerate(sorted(refSeq)) :
                 if id :
                     fout.write('=\n')
                 for (mTag, mFile), seq in zip(alignments, sequences) :
+                    fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
+                for (mTag, mFile), seq in zip(lowq_aligns, low_seq) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
     return outputs
 
@@ -914,8 +937,16 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
             subprocess.Popen('{0} -cR01 {2}.mmi {1}'.format(aligner[0], reference, prefix).split()).communicate()
         import tempfile
         with tempfile.NamedTemporaryFile(dir='.') as tf :
+            seq, _ = readFastq(reference)
             tf_fas = '{0}.fasta'.format(tf.name)
-            subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            with open(tf_fas, 'wt') as fout:
+                for n, s in seq.items() :
+                    fout.write('>{0}\n{1}\n'.format(n, s))
+            #tf_fas = '{0}.fasta'.format(tf.name)
+            #if reference.upper().endswith('GZ') :
+            #    subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            #else :
+            #    subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
             repeats = mask_tandem(tf_fas) + mask_crispr(tf_fas, tf.name)
             os.unlink(tf_fas)
         alignments = alignAgainst([prefix +'.' + ref_tag.rsplit('.', 1)[0] + '.0', aligner, prefix + '.mmi', [ref_tag, reference], [ref_tag, reference]])
@@ -934,10 +965,11 @@ def align(argv) :
     #print(args.reference)
     refMask = prepReference(args.prefix, args.reference[0], args.reference[1], args.aligner, **externals)
     alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, args.aligner)
+    lowq_aligns = runAlignment(args.prefix, args.reference, args.lowq, args.core, args.aligner)
     alignments = [refMask] + alignments
-    outputs = {'mappings': dict(alignments)}
+    outputs = {'mappings': dict(alignments), 'low_qual_map': dict(lowq_aligns)}
     if args.matrix or args.alignment :
-        outputs.update(getMatrix(args.prefix, args.reference[1], alignments, args.core, args.matrix, args.alignment))
+        outputs.update(getMatrix(args.prefix, args.reference, alignments, lowq_aligns, args.core, args.matrix, args.alignment))
     import json
     sys.stdout.write(json.dumps(outputs, indent=2, sort_keys=True))
     return outputs

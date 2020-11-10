@@ -1,60 +1,85 @@
-import sys, subprocess, json, pandas as pd, numpy as np, shutil, os
+import sys, csv, numpy as np, os
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+from numba import njit, jit
 
 try:
-    from configure import transeq, logger, readFasta, uopen
+    from configure import transeq, uopen
 except :
-    from .configure import transeq, logger, readFasta, uopen
+    from .configure import transeq, uopen
 
 try :
     import ujson as json
 except :
     import json
-    
-    
+
+def readFasta(fasta, filter=None) :
+    sequence = {}
+    with uopen(fasta) as fin :
+        for line in fin :
+            if line.startswith('>') :
+                name = line[1:].strip().split()[0]
+                if not filter or name in filter :
+                    sequence[name] = []
+            elif len(line) > 0 and not line.startswith('#') and name in sequence :
+                sequence[name].extend(line.strip().split())
+    for s in sequence :
+        sequence[s] = (''.join(sequence[s])).upper()
+    return sequence
+
+@njit
+def seq_status(seq, aa_seq) :
+    if len(seq) % 3 > 0 :
+        return 2
+    stop = len(seq)
+    for i in range( int(len(seq)/3)-1, -1, -1 ) :
+        aa_seq[i] = seq[3*i]*676 + seq[3*i+1]*26 + seq[3*i+2]
+        if aa_seq[i] in (12844, 12850, 13000) :
+            stop = i
+    if stop < int(len(seq)/3)-1 :
+        return 3
+    if aa_seq[0] not in (500, 4556, 13344) :
+        return 4
+    if stop == len(seq) :
+        return 5
+    else :
+        return 6
+
 
 def cgMLST(allele_profile, allele_file) :
-    def get_allele_info(allele_file) :
+    def get_allele_info(alleles) :
         if os.path.isfile(allele_file + '.stat') :
             return json.load(open(allele_file + '.stat'))
-        alleles = readFasta(allele_file)
-        allele_aa = transeq(alleles)
         allele_stat = {}
         for n, s in alleles.items() :
             locus, allele_id = n.rsplit('_', 1)
             if locus not in allele_stat :
                 allele_stat[locus] = {}
 
-            if len(s) % 3 > 0 :
-                pseudo = 2      # frameshift
-            else :
-                aa = allele_aa.get(n+'_1', 'A')
-                if aa[:-1].find('X') >= 0 :
-                    pseudo = 3  # premature
-                elif s[:3] not in ('ATG', 'GTG', 'TTG') :
-                    pseudo = 4  # no start
-                elif aa[-1] != 'X' :
-                    pseudo = 5  # no stop
-                else :
-                    pseudo = 6  # intact
+            aa_seq = np.zeros(int(len(s)/3), dtype=int)
+            seq = np.array(list(s)).astype(bytes).view(np.uint8)-65
+            pseudo = seq_status(seq, aa_seq)
+
             allele_stat[locus][allele_id] = int(allele_id)*1000000 + len(s)*10 + pseudo
         json.dump(allele_stat, open(allele_file + '.stat', 'w'))
         return allele_stat
 
+    with uopen(allele_profile) as fin :
+        data = np.array([d for d in csv.reader(fin, delimiter='\t')])
 
-    matrix = pd.read_csv(allele_profile, sep='\t', header=None, dtype=str).values
-    loci = np.array([not m.startswith('#') for m in matrix[0]])
-    data = matrix[1:, loci]
+    loc_col = np.array([False] + [not m.startswith('#') for m in data[0, 1:]])
+    loci = data[0, loc_col]
+    genomes = data[1:, 0]
+
+    data = data[1:, loc_col]
     data[ np.in1d(data, ['-', 'n', 'N']).reshape(data.shape) ] = '0'
-
     data = data.astype(int)
     data[data < 0] = 0
-    loci = matrix[0, loci]
-    genomes = matrix[1:, 0]
 
-    allele_stat = get_allele_info(allele_file)
+    allele_names = {'{0}_{1}'.format(locus, allele) for locus, alleles in zip(loci, data.T) for allele in alleles if allele > 0}
+    alleles = readFasta(allele_file, allele_names)
 
+    allele_stat = get_allele_info(alleles)
     for g, d in zip(loci, data.T) :
         if g in allele_stat :
             alleles = np.zeros(max(list(map(int, list(allele_stat[g].keys())))+[np.max(d)])+1, int)
@@ -66,9 +91,9 @@ def cgMLST(allele_profile, allele_file) :
     loci = loci[np.sum(data>0, 0)>0]
     data = data[:, np.sum(data>0, 0)>0]
     print('Start with {1} genes in {0} genomes'.format(*data.shape))
-    iterations = [{'genePresence':0.6, 'intactCDS':0.6, 'genomeProp':0.5}, 
+    iterations = [{'genePresence':0.5, 'intactCDS':0.5, 'genomeProp':0.4}, 
                   {'genePresence':0.8, 'intactCDS':0.8, 'genomeProp':0.7}, 
-                  {'genePresence':0.98, 'intactCDS':0.94, 'oddsRatio':3.}]
+                  {'genePresence':0.95, 'intactCDS':0.95, 'oddsRatio':3.}]
     colPresence = np.zeros(data.shape[1], dtype=int)
     for ite, cuts in enumerate(iterations) :
         print('====== Iteration {0} ======'.format(ite))

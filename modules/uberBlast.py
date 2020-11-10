@@ -10,10 +10,65 @@ except :
 
 makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
-usearch = externals['usearch']
 diamond = externals['diamond']
-mmseqs = externals['mmseqs']
-minimap2 = externals['minimap2']
+
+
+def parseDiamond(data):
+    fn, refseq, qryseq, min_id, min_cov, min_ratio = data
+    blastab = []
+    with open(fn) as fin :
+        for line in fin:
+            if line.startswith('@'):
+                continue
+            part = line.strip().split('\t')
+            if part[2] == '*': continue
+            qn, qf = part[0].rsplit(':', 1)
+            rn, rf, rx = part[2].rsplit(':', 2)
+            rs = int(part[3]) + int(rx)
+            ql, rl = len(qryseq[str(qn)]), len(refseq[str(rn)])
+            qm = len(part[9])
+            if qm * 3 < min_cov: continue
+            cov_ratio = qm * 3. / ql
+            if cov_ratio < min_ratio: continue
+            cigar = [[int(n) * 3, t] for n, t in re.findall(r'(\d+)([A-Z])', part[5])]
+            cl = np.sum([c[0] for c in cigar])
+            variation = float(part[12][5:]) * 3 if part[12].startswith('NM:') else float(
+                re.findall('NM:i:(\d+)', line)[0]) * 3
+
+            iden = 1 - round(variation / cl, 3)
+            if iden < min_id: continue
+            qf, rf = int(qf), int(rf)
+            qs = int(part[18][5:]) if part[18].startswith('ZS:') else int(re.findall('ZS:i:(\d+)', line)[0])
+
+            rm = int(np.sum([c[0] for c in cigar if c[1] in {'M', 'D'}]) / 3)
+            if rf <= 3:
+                rs, r_e = rs * 3 + rf - 3, (rs + rm - 1) * 3 + rf - 1
+            else:
+                rs, r_e = rl - (rs * 3 + rf - 6) + 1, rl - ((rs + rm - 1) * 3 + rf - 4) + 1
+            if qf <= 3:
+                qs, qe = qs * 3 + qf - 3, (qs + qm - 1) * 3 + qf - 1
+            else:
+                qs, qe = ql - (qs * 3 + qf - 6) + 1, ql - ((qs + qm - 1) * 3 + qf - 4) + 1
+                qs, qe, rs, r_e = qe, qs, r_e, rs
+                cigar = list(reversed(cigar))
+
+            cd = [c[0] for c in cigar if c[1] != 'M']
+            score = int(part[14][5:]) if part[14].startswith('ZR:') else int(re.findall('ZR:i:(\d+)', line)[0])
+            blastab.append(
+                [qn, rn, iden, cl, int(variation - sum(cd)), len(cd), qs, qe, rs, r_e, 0.0, score, ql, rl, cigar])
+    try:
+        os.unlink(fn)
+    except :
+        pass
+
+    blastab = pd.DataFrame(blastab)
+    if blastab.size > 0:
+        blastab[[0, 1]] = blastab[[0, 1]].astype(str)
+        np.save(fn+'.match.npy', blastab.values, allow_pickle=True)
+        return fn + '.match.npy'
+    else :
+        return None
+
 
 @jit(nopython=True)
 def tab2overlaps(tabs, ovl_l, ovl_p, nTab, overlaps) :
@@ -85,14 +140,14 @@ def _linearMerge(data) :
     for id, m1 in enumerate(matches) :
         rLen1 = m1[7] - m1[6] + 1
         groups.append([ m1[11], m1[2], rLen1, 0, id ])
-        if m1[6] > tailing and ((m1[8] > 0 and m1[8] - 1 <= gapDist) or (m1[8] < 0 and m1[13] + m1[8] < gapDist)) :   # any hit within the last 150 bps to either end of a scaffold is a potential fragmented gene
+        if m1[6] > tailing and ((m1[8] > 0 and m1[8] - 1 <= gapDist) or (m1[8] < 0 and m1[13] + m1[8] < gapDist)) :   # any hit within the last 300 bps to either end of a scaffold is a potential fragmented gene
             edges[1].append([id, m1])
         if m1[7] <= m1[12] - tailing :
             if (m1[8] > 0 and m1[13]-m1[9] <= gapDist) or (m1[8] < 0 and -1-m1[9] < gapDist) :
                 edges[0].append([id, m1])
             for jd in xrange(id+1, nSave) :
                 m2 = matches[jd]
-                if m1[1] != m2[1] or (m1[8] < 0 and m2[8] > 0) or m2[8] - m1[9] -1 >= gapDist :    # maximum 300bps between two continuous hits in the same scaffold
+                if m1[1] != m2[1] or (m1[8] < 0 and m2[8] > 0) or m2[8] - m1[9] -1 >= gapDist :    # maximum 600bps between two continuous hits in the same scaffold
                     break
                 rLen, qLen = m2[7]-m1[6]+1, m2[9]-m1[8]+1
                 if abs(m1[2]-m2[2]) > 0.3 or m1[8]+3 >= m2[8] or m1[9]+3 >= m2[9] or m1[6]+3 >= m2[6] or m1[7]+3 >= m2[7] or m2[6] - m1[7] -1 >= gapDist \
@@ -217,11 +272,13 @@ nucEncoder[(np.array(['A', 'C', 'G', 'T']).view(asc2int),)] = (0, 1, 3, 4)
 gtable = np.array(list('KNXKNTTXTTXXXXXRSXRSIIXMIQHXQHPPXPPXXXXXRRXRRLLXLLXXXXXXXXXXXXXXXXXXXXXXXXXEDXEDAAXAAXXXXXGGXGGVVXVVXYXXYSSXSSXXXXXXCXWCLFXLF')).view(asc2int).astype(int)-65
 
 def poolBlast(params) :
-    def parseBlast(fin, min_id, min_cov, min_ratio) :
+    def parseBlast(fn, min_id, min_cov, min_ratio) :
         try:
-            blastab = pd.read_csv(fin, sep='\t',header=None)
+            blastab = pd.read_csv(fn, sep='\t',header=None, dtype=str)
         except :
             return None
+        blastab[[2, 10]] = blastab[[2, 10]].astype(float)
+        blastab[[3, 4, 5, 6, 7, 8, 9, 11, 12, 13]] = blastab[[3, 4, 5, 6, 7, 8, 9, 11, 12, 13]].astype(int)
         blastab[2] /= 100.
         blastab = blastab[(blastab[2] >= min_id) & (blastab[7]-blastab[6]+1 >= min_cov) & (blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) ]
         if blastab.shape[0] <= 0 :
@@ -229,24 +286,25 @@ def poolBlast(params) :
         else :
             blastab[14] = list(map(getCIGAR, zip(blastab[15], blastab[14])))
         blastab = blastab.drop(columns=[15])
-        blastab[[0, 1]] = blastab[[0, 1]].astype(str)
+        #blastab[[0, 1]] = blastab[[0, 1]].astype(str)
         return blastab
     
     blastn, refDb, qry, min_id, min_cov, min_ratio = params
     outfile = '{0}.bsn'.format(qry)
-    blast_cmd = '{blastn} -db {refDb} -query {qry} -out {qry}.bsn -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
+    blast_cmd = '{blastn} -db {refDb} -query {qry} -word_size 17 -out {qry}.bsn -perc_identity {min_id} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -qcov_hsp_perc {min_ratio} -num_alignments 1000 -task blastn -evalue 1e-2 -dbsize 5000000 -reward 2 -penalty -3 -gapopen 6 -gapextend 2'.format(
         blastn=blastn, refDb=refDb, qry=qry, min_id=min_id*100, min_ratio=min_ratio*100)
     Popen(blast_cmd, stdout=PIPE, shell=True, universal_newlines=True).communicate()
     if os.path.getsize(outfile) > 0 :
-        with open(outfile) as fin :
-            blastab = parseBlast(fin, min_id, min_cov, min_ratio)
+        blastab = parseBlast(outfile, min_id, min_cov, min_ratio)
         os.unlink(outfile)
     else :
         blastab = None
     if blastab is None :
         return None
-    blastab.to_msgpack(qry + '.match.msg')
-    return qry + '.match.msg'
+
+    blastab[14] = [[list(t) for t in tab] for tab in blastab[14].tolist()]
+    np.save(qry+'.match.npy', blastab.values, allow_pickle=True)
+    return qry + '.match.npy'
 
 
 
@@ -266,7 +324,7 @@ class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
     def run(self, ref, qry, methods, min_id, min_cov, min_ratio, table_id=11, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
-        tools = dict(blastn=self.runBlast, ublast=self.runUBlast, ublastself=self.runUblastSELF, minimap=self.runMinimap, minimapasm=self.runMinimapASM, mmseqs=self.runMMseq, diamond=self.runDiamond, diamondself=self.runDiamondSELF)
+        tools = dict(blastn=self.runBlast, diamond=self.runDiamond, diamondself=self.runDiamondSELF)
         self.min_id = min_id
         self.min_cov = min_cov
         self.min_ratio = min_ratio
@@ -285,14 +343,20 @@ class RunBlast(object) :
             for method in methods :
                 if method.lower() in tools :
                     blastab.append(tools[method.lower()](ref, qry))
+            blastab = [b for b in blastab if b.shape[0] > 0]
         except :
             import traceback
             print(traceback.print_exc())
         finally :
             shutil.rmtree(self.dirPath)
             if blastab :
-                blastab = pd.concat(blastab, ignore_index=True)
-                blastab = np.hstack([blastab.values, np.arange(blastab.shape[0], dtype=int)[:, np.newaxis]])
+                blastab = np.vstack(blastab)
+                blastab = np.hstack([blastab, np.arange(blastab.shape[0], dtype=int)[:, np.newaxis]])
+            else :
+                if return_overlap[0] :
+                    return np.empty([0, 16], dtype=object), np.empty([0, 3], dtype=int)
+                else :
+                    return np.empty([0, 16], dtype=object)
         if useProcess != self.pool :
             self.pool.close()
         
@@ -312,7 +376,7 @@ class RunBlast(object) :
             return blastab
             
     def returnOverlap(self, blastab, param) :
-        logger('Calculate overlaps.')
+#        logger('Calculate overlaps.')
         
         ovl_l, ovl_p = param[1:]
         contigs = { tab[1]:id for id, tab in enumerate(blastab) }
@@ -327,7 +391,7 @@ class RunBlast(object) :
             overlaps = tab2overlaps(tabs, ovl_l, ovl_p, len(tabs), overlaps)
             res.append(overlaps[overlaps.T[2] > 0][:])
         res = np.vstack(res)
-        logger('Identified {0} overlaps.'.format(len(res)))
+ #       logger('Identified {0} overlaps.'.format(len(res)))
         return res
     
     def reScore(self, ref, qry, blastab, mode, min_id, table_id=11, perBatch=10000) :
@@ -352,7 +416,7 @@ class RunBlast(object) :
 
     def ovlFilter(self, blastab, params) :
         coverage, delta = params[1:]
-        logger('Run filtering. Start with {0} hits.'.format(len(blastab)))
+#        logger('Run filtering. Start with {0} hits.'.format(len(blastab)))
         blastab[blastab.T[8] > blastab.T[9], 8:10] *= -1
 
         blastab = pd.DataFrame(blastab).sort_values(by=[1,0,8,6]).values
@@ -384,15 +448,15 @@ class RunBlast(object) :
                     blastab[j][2] = -1.
         blastab = blastab[blastab.T[2] >= 0]
         blastab[blastab.T[8] < 0, 8:10] *= -1
-        logger('Done filtering. End with {0} hits.'.format(blastab.shape[0]))
+#        logger('Done filtering. End with {0} hits.'.format(blastab.shape[0]))
         return blastab
     def linearMerge(self, blastab, params) :
-        logger('Start merging neighboring regions.')
+#        logger('Start merging neighboring regions.')
         blastab[blastab.T[8] > blastab.T[9], 8:10] *= -1
         blastab = pd.DataFrame(blastab).sort_values([0,1,8,6]).values
         blastab = np.vstack(list(map(_linearMerge, [[matches, params] for matches in np.split(blastab, np.where(np.diff(np.unique(blastab.T[0], return_inverse=True)[1]))[0]+1 )])))
         blastab[blastab.T[8] < 0, 8:10] *= -1
-        logger('Finish merging neighboring regions.')
+ #       logger('Finish merging neighboring regions.')
         return blastab
 
     def fixEnd(self, blastab, se, ee) :
@@ -422,12 +486,9 @@ class RunBlast(object) :
         if not self.refSeq :
             self.refSeq, self.refQual = readFastq(ref)
         refDb = refNA = os.path.join(self.dirPath, 'refNA')
-        if self.refQual is not None :
-            with open(refNA, 'w') as fout :
-                for n,s in self.refSeq.items() :
-                    fout.write('>{0}\n{1}\n'.format(n, s))
-        else :
-            refNA = ref
+        with open(refNA, 'w') as fout :
+            for n,s in self.refSeq.items() :
+                fout.write('>{0}\n{1}\n'.format(n, s))
         Popen('{makeblastdb} -dbtype nucl -in {refNA} -out {refDb}'.format(makeblastdb=makeblastdb, refNA=refNA, refDb = refDb).split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
         qrySeq = sorted(list(self.qrySeq.items()), key=lambda s:-len(s[1]))
         qrys = [ os.path.join(self.dirPath, 'qryNA.{0}'.format(id)) for id in range(min(len(qrySeq), self.n_thread))]
@@ -435,178 +496,23 @@ class RunBlast(object) :
             with open(q, 'w') as fout :
                 for n, s in qrySeq[id::self.n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
-        res = self.pool.map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ])
-        #res = list(map(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ]))
-        res = [r for r in res if r is not None]
-        blastab = pd.DataFrame(np.vstack([ pd.read_msgpack(r).values for r in res]))
-        blastab[14] = [ [ list(t) for t in tab ] for tab in blastab[14].tolist()]
-        for r in res :
-            os.unlink(r)
+        blastab = []
+        for r in self.pool.imap_unordered(poolBlast, [ [blastn, refDb, q, self.min_id, self.min_cov, self.min_ratio] for q in qrys ]) :
+            if r is not None :
+                blastab.append(np.load(r, allow_pickle=True))
+                os.unlink(r)
+        if len(blastab) :
+            blastab = np.vstack(blastab)
+        else :
+            blastab = np.empty([0, 15], dtype=object)
         logger('Run BLASTn finishes. Got {0} alignments'.format(blastab.shape[0]))
-        return blastab
-
-    def runMinimap(self, ref, qry) :
-        logger('Run Minimap starts')
-        p = Popen('{0} -ct{3} -k13 -w5 -A2 -B3 -O8,16 -E2,1 -r50 -p.001 -N500 -f2000,10000 --end-bonus 5 -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(\
-            minimap2, ref, qry, self.n_thread).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov, self.min_ratio)
-        logger('Run Minimap finishes. Got {0} alignments'.format(blastab.shape[0]))
-        return blastab
-
-    def __parseMinimap(self, fin, min_id, min_cov, min_ratio) :
-        blastab = []
-        for line in fin :
-            part = line.strip().split('\t')
-            if float(part[9])/float(part[10]) < min_id or float(part[10]) < min_cov or float(part[10]) < min_ratio*float(part[1]):
-                continue
-            direction = part[4]
-            ref_sites = [int(part[2])+1, int(part[3])]
-            qry_sites = [int(part[7])+1, int(part[8])] if direction == '+' else [int(part[8]), (int(part[7])+1)]
-            if direction == '+' :
-                cigar = [[int(n), t] for n, t in re.findall(r'(\d+)([A-Z])', part[-1][5:])]
-            else :
-                cigar = [[int(n), t] for n, t in reversed(re.findall(r'(\d+)([A-Z])', part[-1][5:]))]
-            tab = [part[0], part[5], float(part[9])/float(part[10]), int(part[10]), 0, 0] + ref_sites + qry_sites + [0.0, float(part[13][5:]), int(part[1]), int(part[6]), cigar]
-            blastab.append(tab)
-        return pd.DataFrame(blastab)
-
-    def runMinimapASM(self, ref, qry) :
-        logger('Run MinimapASM starts')        
-        p = Popen('{0} -ct{3} --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
-            minimap2, ref, qry, self.n_thread).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        blastab = self.__parseMinimap(p.stdout, self.min_id, self.min_cov, self.min_ratio)
-        logger('Run MinimapASM finishes. Got {0} alignments'.format(blastab.shape[0]))
-        return blastab
-
-    def runUblastSELF(self, ref, qry) :
-        return self.runUBlast(ref, qry, nhits=100, frames='F')
-    def runUBlast(self, ref, qry, nhits=6, frames='7') :
-        logger('Run uBLAST starts')        
-        def parseUBlast(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
-            blastab = pd.read_csv(fin, sep='\t',header=None)
-            if blastab.shape[0] == 0 : return None
-            blastab[2] /= 100.
-            blastab = blastab[blastab[2] >= min_id]
-            blastab[3], blastab[4] = blastab[3]*3, blastab[4]*3
-            if blastab.shape[0] == 0 : return None
-            qf, rf = blastab[0].str.rsplit(':', 1, expand=True), blastab[1].str.rsplit(':', 1, expand=True)
-            if np.all(qf[0].str.isdigit()) :
-                qf[0] = qf[0].astype(int)
-            if np.all(rf[0].str.isdigit()) :
-                rf[0] = rf[0].astype(int)
-            blastab[0], qf = qf[0], qf[1].astype(int)
-            blastab[1], rf = rf[0], rf[1].astype(int)
-            
-            blastab[14] = [ [[3*vv[0], vv[1]] for vv in v ] for v in map(getCIGAR, zip(blastab[15], blastab[14]))]
-            blastab[12], blastab[13] = blastab[0].apply(lambda x:len(qryseq[str(x)])), blastab[1].apply(lambda x:len(refseq[str(x)]))
-            
-            rf3 = (rf <= 3)
-            blastab.loc[rf3, 8], blastab.loc[rf3, 9] = blastab.loc[rf3, 8]*3+rf[rf3]-3, blastab.loc[rf3, 9]*3+rf[rf3]-1
-            blastab.loc[~rf3, 8], blastab.loc[~rf3, 9] = blastab.loc[~rf3, 13]-(blastab.loc[~rf3, 8]*3+rf[~rf3]-3-3)+1, blastab.loc[~rf3, 13]-(blastab.loc[~rf3, 9]*3+rf[~rf3]-3-1)+1
-            qf3 = (qf <= 3)
-            blastab.loc[qf3, 6], blastab.loc[qf3, 7] = blastab.loc[qf3, 6]*3+qf[qf3]-3, blastab.loc[qf3, 7]*3+qf[qf3]-1
-            blastab.loc[~qf3, 6], blastab.loc[~qf3, 7] = blastab.loc[~qf3, 12]-(blastab.loc[~qf3, 6]*3+qf[~qf3]-3-3)+1, blastab.loc[~qf3, 12]-(blastab.loc[~qf3, 7]*3+qf[~qf3]-3-1)+1
-            blastab.loc[~qf3, 6], blastab.loc[~qf3, 7], blastab.loc[~qf3, 8], blastab.loc[~qf3, 9] = blastab.loc[~qf3, 7], blastab.loc[~qf3, 6], blastab.loc[~qf3, 9], blastab.loc[~qf3, 8]
-            blastab.loc[~qf3, 14] = [ list(reversed(cigar)) for cigar in blastab.loc[~qf3, 14] ]
-
-            d = np.max([(blastab[7] - blastab[12]).values, (blastab[9] - blastab[13]).values, (1-blastab[9]).values, np.zeros(blastab.shape[0], dtype=int)], axis=0)
-            blastab[7] -= d
-
-            def ending(x, y) :
-                x[-1][0] -= y
-            np.vectorize(ending)(blastab[14], d)
-            d[~rf3] *= -1
-            blastab[9] -= d
-            blastab = blastab[(blastab[7]-blastab[6]+1 >= min_ratio*blastab[12]) & (blastab[7]-blastab[6]+1 >= min_cov)]
-            blastab[[0, 1]] = blastab[[0, 1]].astype(str)
-            return blastab.drop(columns=[15,16])
-        
-        refAA = os.path.join(self.dirPath, 'refAA')
-        qryAA = os.path.join(self.dirPath, 'qryAA')
-        aaMatch = os.path.join(self.dirPath, 'aaMatch')
-        
-        if not self.qrySeq :
-            self.qrySeq, self.qryQual = readFastq(qry)
-        if not self.refSeq :
-            self.refSeq, self.refQual = readFastq(ref)
-
-        qryAASeq = transeq(self.qrySeq, frame='F', transl_table=self.table_id)
-        with open(qryAA, 'w') as fout :
-            for n, ss in sorted(qryAASeq.items()) :
-                _, id, s = min([ (len(s[:-1].split('X')), id, s) for id, s in enumerate(ss) ])
-                fout.write('>{0}:{1}\n{2}\n'.format(n, id+1, s))
-        
-        refAASeq = transeq(self.refSeq, frames, transl_table=self.table_id)
-        toWrite = []
-        for n, ss in sorted(refAASeq.items()) :
-            for id, s in enumerate(ss) :
-                toWrite.append('>{0}:{1}\n{2}\n'.format(n, id+1, s))
-        
-        blastab = []
-        for id in xrange(5) :
-            with open(refAA, 'w') as fout :
-                for line in toWrite[id::5] :
-                    fout.write(line)
-        
-            ublast_cmd = '{usearch} -self -threads {n_thread} -db {refAA} -ublast {qryAA} -mid {min_id} -query_cov {min_ratio} -evalue 1 -accel 0.9 -maxhits {nhits} -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-                usearch=usearch, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio)
-            p = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
-            if os.path.getsize(aaMatch) > 0 :
-                tab = parseUBlast(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
-                if tab is not None:
-                    blastab.append(tab)
-        blastab = pd.concat(blastab)
-        logger('Run uBLAST finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
     def runDiamondSELF(self, ref, qry) :
         return self.runDiamond(ref, qry, nhits=200, frames='F')
     def runDiamond(self, ref, qry, nhits=10, frames='7') :
         logger('Run diamond starts')
-        def parseDiamond(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
-            blastab = []
-            for line in fin :
-                if line.startswith('@') :
-                    continue
-                part = line.strip().split('\t')
-                if part[2] == '*' : continue
-                qn, qf = part[0].rsplit(':', 1)
-                rn, rf, rx = part[2].rsplit(':', 2)
-                rs = int(part[3])+int(rx)
-                ql, rl = len(qryseq[str(qn)]), len(refseq[str(rn)])
-                qm = len(part[9])
-                if qm*3 < min_cov : continue
-                cov_ratio = qm*3./ql
-                if cov_ratio < min_ratio : continue
-                cigar = [[int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', part[5])]
-                cl = np.sum([c[0] for c in cigar])
-                variation = float(part[12][5:])*3 if part[12].startswith('NM:') else float(re.findall('NM:i:(\d+)', line)[0])*3
-                
-                iden = 1-round(variation/cl, 3)
-                if iden < min_id : continue
-                qf, rf = int(qf), int(rf)
-                qs = int(part[18][5:]) if part[18].startswith('ZS:') else int(re.findall('ZS:i:(\d+)', line)[0])
-                
-                
-                rm = int(np.sum([c[0] for c in cigar if c[1] in {'M', 'D'}])/3)
-                if rf <= 3 :
-                    rs, r_e = rs*3+rf-3, (rs+rm-1)*3 + rf -1
-                else :
-                    rs, r_e = rl-(rs*3+rf-6)+1, rl-((rs+rm-1)*3 + rf -4)+1
-                if qf <= 3 :
-                    qs, qe = qs*3+qf-3, (qs+qm-1)*3 + qf -1
-                else :
-                    qs, qe = ql-(qs*3+qf-6)+1, ql-((qs+qm-1)*3 + qf -4)+1
-                    qs, qe, rs, r_e = qe, qs, r_e, rs
-                    cigar = list(reversed(cigar))
-                
-                cd = [c[0] for c in cigar if c[1] != 'M']
-                score = int(part[14][5:]) if part[14].startswith('ZR:') else int(re.findall('ZR:i:(\d+)', line)[0])
-                blastab.append([qn, rn, iden, cl, int(variation-sum(cd)), len(cd), qs, qe, rs, r_e, 0.0, score, ql, rl, cigar ])
-            blastab = pd.DataFrame(blastab)
-            blastab[[0,1]] = blastab[[0,1]].astype(str)
-            return blastab
-        
+
         refAA = os.path.join(self.dirPath, 'refAA')
         qryAA = os.path.join(self.dirPath, 'qryAA')
         aaMatch = os.path.join(self.dirPath, 'aaMatch')
@@ -637,85 +543,22 @@ class RunBlast(object) :
                     if len(cs) :
                         toWrite.append('>{0}:{1}:{2}\n{3}\n'.format(n, id+1, ci, cs))
         
-        blastab = []
         for id in xrange(5) :
-            #logger('{0}'.format(id))
-            with open(refAA, 'w') as fout :
+            with open('{0}.{1}'.format(refAA, id), 'w') as fout :
                 for line in toWrite[id::5] :
                     fout.write(line)
             diamond_cmd = '{diamond} blastp --no-self-hits --threads {n_thread} --db {refAA} --query {qryAA} --out {aaMatch} --id {min_id} --query-cover {min_ratio} --evalue 1 -k {nhits} --dbsize 5000000 --outfmt 101'.format(
-                diamond=diamond, refAA=refAA, qryAA=qryAA, aaMatch=aaMatch, n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio*100.)
-            p = Popen(diamond_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
-            if os.path.getsize(aaMatch) > 0 :
-                tab = parseDiamond(open(aaMatch), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
-                os.unlink(aaMatch)
-            if tab is not None:
-                blastab.append(tab)
-        blastab = pd.concat(blastab)
+                diamond=diamond, refAA='{0}.{1}'.format(refAA, id), qryAA=qryAA, aaMatch='{0}.{1}'.format(aaMatch, id), n_thread=self.n_thread, min_id=self.min_id*100., nhits=nhits, min_ratio=self.min_ratio*100.)
+            Popen(diamond_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+        blastab = []
+        for r in self.pool.imap_unordered(parseDiamond, [ ['{0}.{1}'.format(aaMatch, id), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio] for id in xrange(5) ]) :
+            if r is not None :
+                blastab.append(np.load(r, allow_pickle=True))
+                os.unlink(r)
+        blastab = np.vstack(blastab)
         logger('Run diamond finishes. Got {0} alignments'.format(blastab.shape[0]))
         return blastab
 
-    def runMMseq(self, ref, qry) :
-        logger('Run MMSeqs starts')
-        def parseMMSeq(fin, refseq, qryseq, min_id, min_cov, min_ratio) :
-            blastab = pd.read_csv(fin, sep='\t', header=None)
-            blastab = blastab[blastab[2] >= min_id]
-            qlen = blastab[0].apply(lambda r:len(qryseq[str(r)]))
-            rlen = blastab[1].apply(lambda r:len(refseq[str(r)]))
-            cigar = blastab[14].apply( lambda x: [ [int(n)*3, t] for n, t in re.findall(r'(\d+)([A-Z])', x)] )
-            ref_sites = pd.concat([ 3*(blastab[6]-1)+1, 3*blastab[7] ], keys=[0,1], axis=1)
-            d = ref_sites[1] - qlen
-            d[d<0] = 0
-            def ending(x, y) :
-                x[-1][0] -= y
-            np.vectorize(ending)(cigar, d)
-            ref_sites[1] -= d
-
-            direction = (blastab[8] < blastab[9])
-            qry_sites = pd.concat([ blastab[8], blastab[9]-d ], axis=1)
-            qry_sites[~direction] = pd.concat([ blastab[8]-d, blastab[9] ], axis=1)[~direction]
-            
-            blastab = pd.DataFrame(np.hstack([ blastab[[0, 1, 2]], np.apply_along_axis(lambda x:x[1]-x[0]+1, 1, ref_sites.values)[:, np.newaxis], pd.DataFrame(np.zeros([blastab.shape[0], 2], dtype=int)), ref_sites, qry_sites, blastab[[10, 11]], qlen[:, np.newaxis], rlen[:, np.newaxis], cigar[:, np.newaxis] ]))
-            blastab[[0,1]] = blastab[[0,1]].astype(str)
-            return blastab[(blastab[3] >= min_cov) & (blastab[3] >= blastab[12]*min_ratio)]
-
-        tmpDir = os.path.join(self.dirPath, 'tmp')
-        refNA = os.path.join(self.dirPath, 'refNA')
-        qryNA = os.path.join(self.dirPath, 'qryNA')
-
-        refCDS = os.path.join(self.dirPath, 'refCDS')
-        qryAA = os.path.join(self.dirPath, 'qryAA')
-        aaMatch = os.path.join(self.dirPath, 'aaMatch2')
-
-        Popen('{0} createdb {1} {2} --dont-split-seq-by-len'.format(mmseqs, ref, refNA).split(), stdout=PIPE).communicate()
-        Popen('{0} createdb {1} {2} --dont-split-seq-by-len'.format(mmseqs, qry, qryNA).split(), stdout=PIPE).communicate()
-        Popen('{0} translatenucs {1} {2}'.format(mmseqs, qryNA, qryAA).split(), stdout=PIPE).communicate()
-        for ite in range(9) :
-            if os.path.isdir(tmpDir) :
-                shutil.rmtree(tmpDir)
-            p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 7.5 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
-                mmseqs, qryAA, refNA, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
-            p.communicate()
-            if p.returncode == 0 :
-                break
-            if ite > 2 :
-                Popen('{0} extractorfs {2} {3}'.format(mmseqs, qryAA, refNA, refCDS).split(), stdout=PIPE).communicate()
-                p = Popen('{0} search {1} {2} {3} {4} -a --alt-ali 30 -s 7.5 --translation-table 11 --threads {5} --min-seq-id {6} -e 10 --cov-mode 2 -c {7}'.format(\
-                    mmseqs, qryAA, refCDS, aaMatch, tmpDir, self.n_thread, self.min_id, self.min_ratio).split(), stdout=PIPE)
-                p.communicate()
-                if p.returncode == 0 :
-                    break
-            time.sleep(1)
-        Popen('{0} convertalis {1} {2} {3} {3}.tab --threads {4} --format-output'.format(\
-            mmseqs, qryAA, refNA, aaMatch, self.n_thread).split() + ['query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,raw,qlen,tlen,cigar'], stdout=PIPE).communicate()
-        
-        if not self.qrySeq :
-            self.qrySeq, self.qryQual = readFastq(qry)
-        if not self.refSeq :
-            self.refSeq, self.refQual = readFastq(ref)
-        blastab = parseMMSeq(open(aaMatch+'.tab'), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio)
-        logger('Run MMSeqs finishes. Got {0} alignments'.format(blastab.shape[0]))
-        return blastab
 
 
 def uberBlast(args, extPool=None) :
@@ -727,11 +570,6 @@ def uberBlast(args, extPool=None) :
     parser.add_argument('--blastn',       help='Run BLASTn. Slowest. Good for identities between [70, 100]', action='store_true', default=False)
     parser.add_argument('--diamond',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--diamondSELF',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
-    parser.add_argument('--ublast',       help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
-    parser.add_argument('--ublastSELF',   help='Run uBLAST on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
-    parser.add_argument('--minimap',      help='Run minimap. Fast. Good for identities between [90-100]', action='store_true', default=False)
-    parser.add_argument('--minimapASM',   help='Run minimap on assemblies. Fast. Good for identities between [90-100]', action='store_true', default=False)
-    parser.add_argument('--mmseqs',       help='Run mmseqs2 on tBLASTn mode. Fast. Good for identities between [60-100]', action='store_true', default=False)
     parser.add_argument('--gtable',       help='[DEFAULT: 11] genetic table to use. 11 for bacterial genomes and 4 for Mycoplasma', default=11, type=int)
     
     parser.add_argument('--min_id', help='[DEFAULT: 0.3] Minimum identity before reScore for an alignment to be kept', type=float, default=0.3)
@@ -743,20 +581,20 @@ def uberBlast(args, extPool=None) :
     parser.add_argument('--filter_cov', help='[DEFAULT: 0.9] ', default=0.9, type=float)
     parser.add_argument('--filter_score', help='[DEFAULT: 0] ', default=0., type=float)
     parser.add_argument('-m', '--linear_merge', help='[DEFAULT: False] Merge consective alignments', default=False, action='store_true')
-    parser.add_argument('--merge_gap', help='[DEFAULT: 300] ', default=300., type=float)
-    parser.add_argument('--merge_diff', help='[DEFAULT: 1.2] ', default=1.2, type=float)
+    parser.add_argument('--merge_gap', help='[DEFAULT: 600] ', default=600., type=float)
+    parser.add_argument('--merge_diff', help='[DEFAULT: 1.5] ', default=1.5, type=float)
     parser.add_argument('-O', '--return_overlap', help='[DEFAULT: False] Report overlapped alignments', default=False, action='store_true')
     parser.add_argument('--overlap_length', help='[DEFAULT: 300] Minimum overlap to report', default=300, type=float)
     parser.add_argument('--overlap_proportion', help='[DEFAULT: 0.6] Minimum overlap proportion to report', default=0.6, type=float)
     parser.add_argument('-e', '--fix_end', help='[FORMAT: L,R; DEFAULT: 0,0] Extend alignment to the edges if the un-aligned regions are <= [L,R] basepairs.', default='0,0')
-    parser.add_argument('-t', '--n_thread', help='[DEFAULT: 8] Number of threads to use. ', type=int, default=8)
+    parser.add_argument('-t', '--n_thread', help='[DEFAULT: 8] Number of threads to use. ', type=int, default=1)
     parser.add_argument('-p', '--process', help='[DEFAULT: False] Use processes instead of threads. ', action='store_true', default=False)
     
     args = parser.parse_args(args)
     if extPool is not None :
         args.process =extPool
     methods = []
-    for method in ('blastn', 'ublast', 'ublastSELF', 'minimap', 'minimapASM', 'mmseqs', 'diamond', 'diamondSELF') :
+    for method in ('blastn', 'diamond', 'diamondSELF') :
         if args.__dict__[method] :
             methods.append(method)
     for opt in ('fix_end',) :
