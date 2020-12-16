@@ -1,5 +1,8 @@
 ete3
+click
 numba
 numpy
+scipy
 pandas
 sklearn
+psutil

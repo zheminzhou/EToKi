@@ -206,7 +206,7 @@ def download_krakenDB() :
     if not os.path.exists('minikraken2') :
         os.makedirs('minikraken2')
     os.chdir(os.path.join(moveTo, 'minikraken2'))
-    minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_v2_8GB_201904_UPDATE.tgz'
+    minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_v2_8GB_201904.tgz'
     logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))    
     subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
     logger('Unpackaging minikraken2.')
