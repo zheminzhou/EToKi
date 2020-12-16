@@ -290,9 +290,9 @@ class mainprocess(object) :
             if len(reads[0]) and len(reads[1]) :
                 read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
                               '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
-                cmds = ['{flye} -t 8 -g 5m --asm-coverage 60 --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                cmds = ['{flye} -t 8 -g 5m --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
                         flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
-                        '{flye} -t 8 -g 5m --asm-coverage 60 --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        '{flye} -t 8 -g 5m --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
                         flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
                 finished = True
                 for cmd in cmds :
@@ -307,7 +307,7 @@ class mainprocess(object) :
                 elif len(reads[1]) and not len(reads[0]) :
                     read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
     
-                cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
+                cmd = '{flye} -t 8 -g 5m --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
                       flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
     
                 flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
@@ -339,7 +339,7 @@ class mainprocess(object) :
                     else :
                         fout.write(line)
 
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} -o {outdir}'.format(
+            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} -o {outdir}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
 
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
@@ -378,7 +378,7 @@ class mainprocess(object) :
                             else :
                                 fout.write(line)
             
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
+            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3)
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
