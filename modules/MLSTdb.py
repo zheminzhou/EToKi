@@ -155,7 +155,7 @@ def MLSTdb(args) :
                     loci[allele['fieldname']] = 1
                     references.append(allele)
         
-        alleles, refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
+        allele_text, refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
         if refset :
             with open(str(refset), 'w') as fout :
                 fout.write(refAlleles + '\n')
@@ -166,10 +166,11 @@ def MLSTdb(args) :
             for allele in alleles :
                 conversion[0].append(get_md5(allele['value']))
                 conversion[1].append([allele['fieldname'], int(allele['value_id'])])
+
         conversion = pd.DataFrame(conversion[1], index=conversion[0])
         conversion.to_csv(database, header=False)
         logger('A lookup table of all alleles has been generated:  {0}'.format(database))
-    return alleles, refAlleles
+    return allele_text, refAlleles
 
 def getParams(args) :
     import argparse
