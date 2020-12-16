@@ -114,7 +114,7 @@ class preprocess(object) :
                 outputs = 'out=' + library_file2['SE'][0]
 
                 bb_run, bb_out = monitor_proc(
-                    Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
+                    Popen('{bbduk} -Xmx{memory} threads=8 ordered=t ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
                         read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 )
                 if bb_run.returncode == 0 :
