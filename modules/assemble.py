@@ -1,4 +1,5 @@
 import os, io, sys, re, shutil, numpy as np, pandas as pd
+from collections import OrderedDict
 from glob import glob
 from time import sleep
 from subprocess import Popen, PIPE, STDOUT
@@ -9,21 +10,56 @@ except :
 
 # mainprocess
 class mainprocess(object) :
-    def launch (self, reads) :
-        self.snps = None
+    def launch (self, reads, longReads=[]) :
         result = parameters.pop('reference', None)
-        if not result :
+        result = os.path.abspath(result) if result else None
+
+        self.cwd = os.getcwd()
+        self.folder = prefix
+        if not os.path.exists(self.folder) :
+            os.makedirs(self.folder)
+        assert os.path.isdir(self.folder), '"{0}" exists and is not a folder'.format(self.folder)
+        os.chdir(self.folder)
+
+        self.snps = None
+        if not result and len(reads) > 0 :
             if parameters['assembler'] == 'spades' :
                 result = self.do_spades(reads)
             else :
                 result = self.do_megahit(reads)
+        if sum([len(lr) for lr in longReads]) > 0 :
+            longReads = self.rename_longReads(longReads)
+            result = self.do_flye(longReads, result, parameters['metagenome'])
+
         if parameters['outgroup'] or parameters['excluded'] :
-            parameters['excluded'] = self.identify_outgroups(result, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
-        if not parameters['noPolish'] :
-            result = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            parameters['excluded'] = self.identify_outgroups(result, reads, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
+        for ite in np.arange(int(parameters['numPolish'])) :
+            result, n_changes = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            if not n_changes :
+                break
+
         if not parameters['noQuality'] :
             result = self.get_quality(result, reads)
-        return result
+        
+        result = os.path.abspath(result)
+        os.chdir(self.cwd)
+        logger('Final result is written into {0}'.format('{0}.result.fastq'.format(prefix)))
+        shutil.move(result, '{0}.result.fastq'.format(prefix))
+        return '{0}.result.fastq'.format(prefix)
+
+    def rename_longReads(self, longReads) :
+        for i0, libs in enumerate(longReads) :
+            for i1, lib in enumerate(libs) :
+                for i2, longRead in enumerate(lib) :
+                    revised = 'LR_{0}_{1}_{2}.fastq.gz'.format(i0, i1, i2)
+                    with uopen(longRead, 'rt') as fin, uopen(revised, 'wt') as fout :
+                        for lid, line in enumerate(fin) :
+                            if lid % 4 == 0 :
+                                fout.write('@{0}\n'.format(int(lid/4)))
+                            else :
+                                fout.write(line)
+                    lib[i2] = revised
+        return longReads
 
     def __get_read_len(self, reads) :
         read_len = 0.
@@ -39,9 +75,8 @@ class mainprocess(object) :
     
     def __markDuplicates(self, ori_bam, tgt_bam) :
         try:
-            x = Popen('{gatk} MarkDuplicates -O {output} -M {prefix}.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
-                output=tgt_bam, input=ori_bam, \
-                **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
+            x = Popen('{gatk} MarkDuplicates -O {output} -M etoki.mapping.dup --REMOVE_DUPLICATES true -I {input}'.format( \
+                output=tgt_bam, input=ori_bam, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True )
             x.communicate()
             assert x.returncode == 0
             os.unlink(ori_bam)
@@ -61,6 +96,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             se = [ lib[-1], '{0}.mapping.{1}.se1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.se.bam'.format(prefix, lib_id) ] if len(lib) != 2 else [None, None, None]
             pe = [ '{0} {1}'.format(*lib[:2]), '{0}.mapping.{1}.pe1.bam'.format(prefix, lib_id), '{0}.mapping.{1}.pe.bam'.format(prefix, lib_id) ] if len(lib) >= 2 else [None, None, None]
+
             for r, o1, o in (se, pe) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
@@ -76,6 +112,7 @@ class mainprocess(object) :
                                 r = r, o = o1, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o1)
+        
         return outputs
     def __run_bowtie(self, prefix, reference, reads, clean=True) :
         if not os.path.isfile(reference + '.4.bt2') or (os.path.getmtime(reference + '.4.bt2') < os.path.getmtime(reference)) :
@@ -134,8 +171,8 @@ class mainprocess(object) :
 
 
     def do_megahit(self, reads) :
-        outdir = prefix + '.megahit'
-        output_file = prefix + '.megahit.fasta'
+        outdir = 'megahit'
+        output_file = 'megahit.fasta'
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
         read_input = [[], [], []]
@@ -163,9 +200,198 @@ class mainprocess(object) :
         logger('MEGAHIT contigs in {0}'.format(output_file))
         return output_file
 
+    def _flye_dedup(self, input_name, output_name, assembly_info='') :
+        # special: remove large duplicates generated by flye
+        circular = {}
+        if os.path.isfile(assembly_info) :
+            with open(assembly_info) as fin :
+                fin.readline()
+                for line in fin :
+                    part = line.strip().split()
+                    if part[3] in ('+', 'Y') :
+                        circular[part[0]] = 1
+        cmd = '{makeblastdb} -dbtype nucl -in {0}'.format(input_name, **externals)
+        Popen(cmd, shell=True).communicate()
+        cmd = '{blastn} -num_threads 8 -db {0} -query {0} -outfmt "6 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue score qlen slen"'.format(input_name, **externals)
+        p = Popen(cmd, shell=True, universal_newlines=True, stdout=PIPE)
+        matches = pd.read_csv(p.stdout, sep='\t', header=None).values
+        matches = matches[(matches.T[2] >= 98.5) & (matches.T[3] >= 1000)]
+        matches = matches[(matches.T[0] != matches.T[1]) | (matches.T[6] != matches.T[8]) | (matches.T[7] != matches.T[9])]
+        matches.T[12] = np.min([matches.T[12] - matches.T[7], matches.T[6] - 1], 0)
+        matches = matches[matches.T[12] < 500]
+        matches = matches[np.argsort(-matches.T[3])]
+        matches = matches[np.argsort(matches.T[12])]
+        
+        toRemove = []
+        for mat in matches :
+            if mat[0] in circular :
+                continue
+            r0 = [mat[0], mat[6], mat[7]]
+            r1 = [mat[1]] + sorted([mat[8], mat[9]])
+            if r0[0] == r1[0] :
+                s, e = max(r1[1], r0[1]), min(r1[2], r0[2])
+                if (e - s + 1) > 0 :
+                    continue
+                
+            for r2 in toRemove :
+                if r1[0] == r2[0] :
+                    s, e = max(r1[1], r2[1]), min(r1[2], r2[2])
+                    if (e-s+1) >= 0.8 * (r1[2] -r1[1]+1) :
+                        r0 = []
+                        break
+                if r0[0] == r2[0] :
+                    s, e = max(r0[1], r2[1]), min(r0[2], r2[2])
+                    if (e-s+1) > 0 :
+                        r2[1:] = [min(r0[1], r2[1]), max(r0[2], r2[2])]
+                        r0 = []
+                        break
+            if r0 :
+                toRemove.append(r0)
+        toRemove.sort(reverse=True)
+
+        seq = OrderedDict()
+        with open(input_name) as fin :
+            for line in fin :
+                if line.startswith('>') :
+                    name = line[1:].strip()
+                    seq[name] = []
+                else :
+                    seq[name].extend(line.strip().split())
+        for n, s in seq.items() :
+            seq[n] = list(''.join(s))
+        for i, (n, s, e) in enumerate(toRemove) :
+            if e < len(seq[n]) :
+                seq[n+'.{0}'.format(i)] = seq[n][e:]
+            seq[n][(s-1):] = []
+ 
+        for n in circular :
+            s = seq.pop(n, None)
+            if s :
+                seq[n+'_circular'] = s
+
+        with open(output_name, 'w') as fout :
+            for n, s in seq.items() :
+                if len(s) > 100 :
+                    fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
+        return output_name
+
+    def do_flye(self, reads, contigs, isMetagenome) :
+        isMetagenomes = ['--meta'] if isMetagenome else ['', '--meta']
+        if contigs :
+            isMetagenomes.append('{0} --meta'.format(contigs))
+        outdir = 'flye'
+        output_file = 'flye.fasta'
+        
+        if os.path.isdir(outdir) :
+            shutil.rmtree(outdir)
+        
+        finished = False
+        for isMetagenome in isMetagenomes :
+            if len(reads[0]) and len(reads[1]) :
+                read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
+                              '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
+                cmds = ['{flye} -t 8 -g 5m --asm-coverage 60 --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
+                        '{flye} -t 8 -g 5m --asm-coverage 60 --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
+                finished = True
+                for cmd in cmds :
+                    flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
+                    flye_run.communicate()
+                    if flye_run.returncode != 0:
+                        finished = False
+                        break
+            else :
+                if len(reads[0]) and not len(reads[1]) :
+                    read_input = '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read]))
+                elif len(reads[1]) and not len(reads[0]) :
+                    read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
+    
+                cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
+                      flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
+    
+                flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
+                flye_run.communicate()
+                if flye_run.returncode == 0 :
+                    finished = True
+            if finished :
+                break
+        if not finished :
+            sys.exit(20155)
+                
+        flye_file = self._flye_dedup('{outdir}/assembly.fasta'.format(outdir=outdir), '{outdir}/assembly.dedup.fasta'.format(outdir=outdir), '{outdir}/assembly_info.txt'.format(outdir=outdir))
+        
+        if contigs :
+            # polish by two means. 
+            #(1) try combine two assemblies together
+            outdir2 = 'flye.hybrid'
+            if not os.path.isdir(outdir2) :
+                os.makedirs(outdir2)
+
+            asm1 = flye_file
+            asm2 = '{outdir2}/assembly.dedup.fasta'.format(outdir2=outdir2)
+            n1 = 0
+            with open(asm1, 'r') as fin, open(asm2, 'w') as fout :
+                for line in fin :
+                    if line.startswith('>') :
+                        fout.write('>x_{0}'.format(line[1:]))
+                        n1 += 1
+                    else :
+                        fout.write(line)
+
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} -o {outdir}'.format(
+                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
+
+            flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run.communicate()
+            if flye_run.returncode != 0 :
+                sys.exit(20123)
+            asm2 = self._flye_dedup('{outdir2}/assembly.fasta'.format(outdir2=outdir2), '{outdir2}/assembly.dedup.fasta'.format(outdir2=outdir2), '{outdir2}/assembly_info.txt'.format(outdir2=outdir2))
+            
+            with open(asm2, 'r') as fin :
+                for line in fin :
+                    if line.startswith('>') :
+                        n1 -= 1
+            if n1 >= 0 :
+                asm1 = asm2
+
+            #(1) polish flye assembly with contig sequences 
+            outdir3 = 'flye.polish'
+            if not os.path.isdir(outdir3) :
+                os.makedirs(outdir3)
+
+            asm2 = '{outdir3}/contigs.fasta'.format(outdir3=outdir3)
+            asm3 = '{outdir3}/flye_contig.fasta'.format(outdir3=outdir3)
+            with open(asm1, 'r') as fin, open(asm3, 'w') as fout :
+                for line in fin :
+                    if line.startswith('>') :
+                        fout.write('>x_{0}'.format(line[1:]))
+                    else :
+                        fout.write(line)
+            
+            with open(asm2, 'w') as fout :
+                for ite in (0,1,2,) :
+                    with open(contigs, 'r') as fin :
+                        for line in fin :
+                            if line.startswith('>') :
+                                fout.write('>x{1}_{0}'.format(line[1:], ite))
+                            else :
+                                fout.write(line)
+            
+            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
+                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3)
+            flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
+            flye_run.communicate()
+            if flye_run.returncode != 0 :
+                sys.exit(20123)
+            flye_file = '{outdir3}/polished_1.fasta'.format(outdir3=outdir3)
+        shutil.copyfile( flye_file, output_file )
+        logger('Flye assembly in {0}'.format(output_file))
+        return output_file
+
     def do_spades(self, reads) :
-        outdir = prefix + '.spades'
-        output_file = prefix + '.spades.fasta'
+        outdir = 'spades'
+        output_file = 'spades.fasta'
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
         read_len = min(self.__get_read_len(reads), 140)
@@ -213,29 +439,33 @@ class mainprocess(object) :
                 else :
                     sequence[cont][site-1] = base
 
-        with open('{0}.fasta'.format(prefix), 'w') as fout :
+        with open('etoki.fasta', 'w') as fout :
             for n, s in sorted(sequence.items()) :
                 s = ''.join(s)
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-        return '{0}.fasta'.format(prefix)
+        return 'etoki.fasta', 0
     
-    def identify_outgroups(self, reference, ingroup='', outgroup='', excluded='') :
+    def identify_outgroups(self, reference, reads, ingroup='', outgroup='', excluded='') :
         excludedReads = {}
-        ingroups, outgroups = list(set(ingroup.split(',') + [reference]) - set([''])), list(set(outgroup.split(',')) - set(['']))
-        assert np.all([os.path.isfile(fn) for fn in ingroups]), 'Some filenames in ingroup is not valid.'
-        assert np.all([os.path.isfile(fn) for fn in outgroups]), 'Some filenames in outgroup is not valid.'
+        ingroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in ingroup.split(',') if fn != '' ]
+        outgroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in outgroup.split(',') if fn != '' ]
+        ingroups, outgroups = list( set(ingroups + [reference]) ), list( set(outgroups) - set([reference]) )
+
+        assert np.all([os.path.isfile(fn) for fn in ingroups]), 'Some filenames in ingroup are not valid.'
+        assert np.all([os.path.isfile(fn) for fn in outgroups]), 'Some filenames in outgroup are not valid.'
         
-        inRef, outRef = '{0}.inRef'.format(parameters['prefix']), '{0}.outRef'.format(parameters['prefix'])
+        inRef, outRef = 'etoki.inRef', 'etoki.outRef'
         
         if len(outgroups) :
             Popen('cat {0} > {1}'.format(' '.join(outgroups), outRef), shell=True).communicate()
             if parameters['mapper'] == 'minimap2' :
-                bams = self.__run_minimap(prefix, outRef, reads, clean=False )
+                bams = self.__run_minimap('etoki', outRef, reads, clean=False )
+                os.unlink(outRef+'.mmi')
             elif parameters['mapper'] != 'bwa' :
-                bams = self.__run_bowtie(prefix, outRef, reads, clean=False )
+                bams = self.__run_bowtie('etoki', outRef, reads, clean=False )
             else :
-                bams = self.__run_bwa(prefix, outRef, reads, clean=False )
-            
+                bams = self.__run_bwa('etoki', outRef, reads, clean=False )
+            os.unlink(outRef) 
             for bam in bams :
                 p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
                 for line in p.stdout :
@@ -249,12 +479,13 @@ class mainprocess(object) :
             if len(ingroups) :
                 Popen('cat {0} > {1}'.format(' '.join(ingroups), inRef), shell=True).communicate()
                 if parameters['mapper'] == 'minimap2' :
-                    bams = self.__run_minimap(prefix, inRef, reads, clean=False )
+                    bams = self.__run_minimap('etoki', inRef, reads, clean=False)
+                    os.unlink(inRef+'.mmi')
                 elif parameters['mapper'] != 'bwa' :
-                    bams = self.__run_bowtie(prefix, inRef, reads, clean=False )
+                    bams = self.__run_bowtie('etoki', inRef, reads, clean=False )
                 else :
-                    bams = self.__run_bwa(prefix, inRef, reads, clean=False )
-                
+                    bams = self.__run_bwa('etoki', inRef, reads, clean=False )
+                os.unlink(inRef)
                 for bam in bams :
                     p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
                     for line in p.stdout :
@@ -269,7 +500,7 @@ class mainprocess(object) :
         
         if os.path.isfile(excluded) :
             excludedReads.update({ r:9999999999 for r in pd.read_csv(excluded, sep='\t').values.T[0]})
-        excludedFile = '{0}.excludedReads'.format(parameters['prefix'])
+        excludedFile = 'etoki.excludedReads'
         np.savetxt(excludedFile, list(excludedReads.items()), delimiter='\t', fmt='%s', header=[])
         return excludedFile
     
@@ -278,11 +509,11 @@ class mainprocess(object) :
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else :
             if parameters['mapper'] == 'minimap2' :
-                bams = self.__run_minimap(prefix, reference, reads )
+                bams = self.__run_minimap('etoki', reference, reads )
             elif parameters['mapper'] != 'bwa' :
-                bams = self.__run_bowtie(prefix, reference, reads )
+                bams = self.__run_bowtie('etoki', reference, reads )
             else :
-                bams = self.__run_bwa(prefix, reference, reads )
+                bams = self.__run_bwa('etoki', reference, reads )
             sites = {}
             for bam in bams :
                 if bam is not None :
@@ -294,24 +525,22 @@ class mainprocess(object) :
             sequence = readFasta(reference)
             sequence = {n:s for n,s in sequence.items() if n in sites}
 
-            with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
+            with open('{0}.mapping.reference.fasta'.format('etoki'), 'w') as fout :
                 for n, s in sorted(sequence.items()) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
 
             bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-            if reassemble :
-                pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-                Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
-            else :
-                pilon_cmd = '{pilon} --fix all --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-                Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+            fix_opt = '--fix all,breaks' if reassemble else '--fix all'
             
-            if not os.path.isfile('{0}.mapping.vcf'.format(prefix)) :
-                pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+            pilon_cmd = '{pilon} {fix_opt} --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, fix_opt=fix_opt, **parameters)
+            Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+            
+            if not os.path.isfile('etoki.mapping.vcf') :
+                pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
                 Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()                    
             
             snps = []
-            with open('{0}.mapping.vcf'.format(prefix)) as fin, open('{0}.mapping.changes'.format(prefix), 'w') as fout :
+            with open('etoki.mapping.vcf') as fin, open('etoki.mapping.changes', 'w') as fout :
                 for line in fin :
                     if line.startswith('#') : continue
                     part = line.strip().split('\t')
@@ -324,7 +553,7 @@ class mainprocess(object) :
                         except :
                             pass
 
-            os.unlink('{0}.mapping.vcf'.format(prefix))
+            os.unlink('etoki.mapping.vcf')
             for n in sequence.keys() :
                 sequence[n] = list(sequence[n])
             for n, site, ori, alt in reversed(snps) :
@@ -332,19 +561,19 @@ class mainprocess(object) :
                 end = site + len(ori)
                 s[site:end] = alt
             logger('Observed and corrected {0} changes using PILON'.format(len(snps)))
-            with open('{0}.fasta'.format(prefix), 'w') as fout :
+            with open('etoki.fasta', 'w') as fout :
                 for n, s in sorted(sequence.items()) :
                     s = ''.join(s)
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-            return '{0}.fasta'.format(prefix)
+            return 'etoki.fasta', len(snps)
 
     def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
-            bams = self.__run_minimap(prefix, reference, reads, )
+            bams = self.__run_minimap('etoki', reference, reads, )
         elif parameters['mapper'] != 'bwa' :
-            bams = self.__run_bowtie(prefix, reference, reads, )
+            bams = self.__run_bowtie('etoki', reference, reads, )
         else :
-            bams = self.__run_bwa(prefix, reference, reads, )
+            bams = self.__run_bwa('etoki', reference, reads, )
         
         sequence = readFasta(reference)
         for n, s in sequence.items() :
@@ -374,21 +603,21 @@ class mainprocess(object) :
             s[2] = s[1]/ave_depth
         logger('Average read depth: {0}'.format(ave_depth))
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
-        with open('{0}.mapping.reference.fasta'.format(prefix), 'w') as fout :
+        with open('etoki.mapping.reference.fasta', 'w') as fout :
             for n, s in sorted(sequence.items()) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in xrange(0, len(s[0]), 100)])))
         bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-        pilon_cmd = '{pilon} --fix all,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+        pilon_cmd = '{pilon} --fix all,breaks --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
         Popen( pilon_cmd.split(), stdout=PIPE, universal_newlines=True ).communicate()
-        if not os.path.isfile('{0}.mapping.vcf'.format(prefix)) :
-            pilon_cmd = '{pilon} --fix snps,indels,gaps,breaks --vcf --output {prefix}.mapping --genome {prefix}.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+        if not os.path.isfile('etoki.mapping.vcf') :
+            pilon_cmd = '{pilon} --fix snps,indels,gaps,breaks --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
             Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()                    
 
         cont_depth = [float(d) for d in parameters['cont_depth'].split(',')]
         logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]*ave_depth))
         logger('Contigs with more than {0} depth will be treated as duplicates'.format(cont_depth[1]*ave_depth))
         indels = []
-        with open('{0}.mapping.vcf'.format(prefix)) as fin, open('{0}.mapping.difference'.format(prefix), 'w') as fout :
+        with open('etoki.mapping.vcf') as fin :#, open('etoki.mapping.difference', 'w') as fout :
             for line in fin :
                 if line.startswith('#') : continue
                 part = line.strip().split('\t')
@@ -405,16 +634,16 @@ class mainprocess(object) :
                         pp = part[7].split(';')
                         dp = float(pp[0][3:])
                         af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
-                        if af <= 20 and dp >= 2 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
+                        if af <= 20 and dp >= 3 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
                             site = int(part[1])-1
                             qual = chr(int(pp[4][3:])+33)
                             sequence[part[0]][1][site] = qual
                         else :
-                            fout.write(line)
+                            pass #fout.write(line)
                     else :
-                        fout.write(line)
+                        pass #fout.write(line)
                 except :
-                    fout.write(line)
+                    pass #fout.write(line)
         for n, s, e in indels :
             sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
             
@@ -429,14 +658,14 @@ class mainprocess(object) :
                     for k in xrange(s, e) :
                         sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
-        with open('{0}.result.fastq'.format(prefix), 'w') as fout :
+        with open('etoki.result.fastq', 'w') as fout :
             p = prefix.rsplit('/', 1)[-1]
             for n, (s, q) in sequence.items() :
                 if sites[n][2] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( p+'_'+n, s, ''.join(q), *sites[n] ) )
-        os.unlink( '{0}.mapping.vcf'.format(prefix) )
-        logger('Final result is written into {0}'.format('{0}.result.fastq'.format(prefix)))
-        return '{0}.result.fastq'.format(prefix)
+        os.unlink( 'etoki.mapping.vcf' )
+        return 'etoki.result.fastq'
+    
 # postprocess
 class postprocess(object) :
     def launch (self, assembly) :
@@ -546,23 +775,20 @@ def assemble(args) :
     parameters.update(externals)
     prefix = parameters['prefix']
     
-    reads = []
-    for k, vs in zip(('pe', 'se'), (parameters['pe'], parameters['se'])) :
+    reads = OrderedDict([['PE', []],['SE', []],['PacBio', []],['ONT', []]])
+    for (k, d), vs in zip(reads.items(), (parameters['pe'], parameters['se'], parameters['pacbio'], parameters['ont'])) :
         for v in vs :
-            if k == 'pe' :
-                rnames = v.split(',')
-                if len(rnames) > 0 :
+            rnames = [os.path.abspath(rn) for rn in v.split(',')]
+            if len(rnames) > 0 :
+                if k == 'PE' :
                     assert len(rnames) == 2, 'Allows 2 reads per PE library. You specified {0}'.format(len(rnames))
-                    reads.append(rnames)
-            elif k == 'se' :
-                rnames = v.split(',')
-                if len(rnames) > 0 :
-                    assert len(rnames) == 1, 'Allows one file per SE library. You specified {0}'.format(len(rnames))
-                    reads.append(rnames)
+                elif k in ('SE', 'PacBio', 'ONT') :
+                    assert len(rnames) == 1, 'Allows one file per {1} library. You specified {0}'.format(len(rnames), k)
+                d.append(rnames)
 
-    logger('Load in {0} read files from {1} libraries'.format(sum([ len(lib) for lib in reads ]), len(reads)))
+    logger('Load in {0} read files from {1} libraries'.format(sum(len(l) for lib in reads.values() for l in lib), sum(len(lib) for lib in reads.values())))
     if not parameters['onlyEval'] :
-        assembly = mainprocess().launch(reads)
+        assembly = mainprocess().launch(reads['PE'] + reads['SE'], [reads['PacBio'], reads['ONT']])
     else :
         assembly = parameters['reference']
     
@@ -584,11 +810,13 @@ And
 ''', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--pe', action='append', help='comma delimited two files of PE reads. ', default=[])
     parser.add_argument('--se', action='append', help='one file of SE read. \n', default=[])
+    parser.add_argument('--pacbio', action='append', help='one file of pacbio read. \n', default=[])
+    parser.add_argument('--ont', action='append', help='one file of nanopore read. \n', default=[])
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_assemble', default='EToKi_assemble')
-    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome', default='')
+    parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome. \n Long reads will always be assembled with Flye', default='')
     parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this for reference mapping module. ', default=None)
     parser.add_argument('-k', '--kmers', help='relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
-    parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa and bowtie2', default='minimap2')
+    parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa or bowtie2', default='minimap2')
     parser.add_argument('-d', '--max_diff', help='Maximum proportion of variations allowed for a aligned reads. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)
     parser.add_argument('-i', '--ingroup', help='Additional references presenting intra-population genetic diversities. ', default='')
     parser.add_argument('-o', '--outgroup', help='Additional references presenting genetic diversities outside of the studied population. \nReads that are more similar to outgroups will be excluded from analysis. ', default='')
@@ -599,8 +827,8 @@ And
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
 
-    parser.add_argument('--noPolish', help='Do not do PILON polish.', action='store_true', default=False)
-    parser.add_argument('--reassemble', help='Do local re-assembly in PILON', action='store_true', default=False)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1, type=int)
+    parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
@@ -615,6 +843,8 @@ And
         args.max_diff = 0.1 if not args.metagenome else 0.05
     if args.metagenome :
         args.reassemble = False
+    if args.numPolish < 0 :
+        args.numPolish = 3 if args.pacbio or args.ont else 1
         
     return args
 

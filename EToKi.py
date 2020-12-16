@@ -1,54 +1,46 @@
 #! /usr/bin/python3
 import sys, os
+import argparse
 from modules.configure import logger
-#refMasker, profile2matrix
-#            ['metaCaller','secondary SNP caller for metagenomic samples with intra-species diversity'], 
+
+class MyParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
 
 commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['prepare',   'trim, collapse, downsize and rename the short reads.'],                       #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
-#            ['ortho',     'pan-genome (and wgMLST scheme) prediction'],        #
             ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
-#            ['cgMLST',    'pick core genes from wgMLST genes'], 
-            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
-#            ['evalHCC',   'evaluate HierCC to find the most stable clusters'], 
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
-            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
-            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
             ['EBEis',     'in silico serotype prediction for Escherichia coli and Shigella spp.'],                             #
-            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
             ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
-            ['clust',     'linear-time clustering of short sequences using mmseqs linclust']]                          #
-
+            ['clust',     'linear-time clustering of short sequences using mmseqs linclust'],                          #
+            ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
+#            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
+#            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
+#            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
+]
 
 def etoki():
-    try:
-        if len(sys.argv) <= 1 :
-            raise ValueError
-        try :
-            exec('from modules.{0} import {0}'.format(sys.argv[1]))
-        except (ImportError, SyntaxError) as e :
-            logger(str(e))
-            raise ValueError
-        else:
-            sys.argv[0] = ' '.join(sys.argv[:2])
-            
+    parser = MyParser('EToKi')
+    subparser = parser.add_subparsers(title='sub-commands', dest='cmd')
+    for cmd, help in commands :
+        subparser.add_parser(cmd, help=help)
+    arg, others = parser.parse_known_args(sys.argv[1:2])
+    if arg.cmd is None :
+        parser.print_help()
+        sys.exit(2)
+    try :
+        sys.argv[0] += ' ' + arg.cmd
+        exec('from modules.{0} import {0}'.format(arg.cmd))
+        eval(arg.cmd)(sys.argv[2:])
     except ValueError as e :
-        sys.stdout.write('''
-Program: EToKi (Enterobase Tool Kit)
-
-Usage:   EToKi.py <command> [options]
-
-Commands:
-'''
-              + '\n'.join(['    {0} {1}'.format(cmd[0].ljust(12), cmd[1]) for cmd in commands]) + 
-'''
-Use EToKi.py <command> -h to get help for each command.
-''')
-    else :
-        eval(sys.argv[1])(sys.argv[2:])
+        parser.print_help()
 
 
 if __name__ == '__main__' :

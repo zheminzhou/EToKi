@@ -1,1 +1,1 @@
-bbmap-folder/bbduk.sh
+bbmap/bbduk.sh

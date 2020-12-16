@@ -4,9 +4,9 @@
 import os, sys, numpy as np, argparse, subprocess, re, gzip
 from multiprocessing import Pool
 try :
-    xrange(1)
+    from .configure import readFastq, readFasta, xrange
 except :
-    xrange = range
+    from configure import readFastq, readFasta, xrange
 
 def parseArgs(argv) :
     parser = argparse.ArgumentParser(description='''Align multiple genomes onto a single reference. ''')
@@ -14,23 +14,485 @@ def parseArgs(argv) :
     parser.add_argument('-p', '--prefix', help='[OUTPUT] prefix for all outputs.', default='Enlign')
     parser.add_argument('-a', '--alignment', help='[OUTPUT] Generate core genomic alignments in FASTA format', default=False, action='store_true')
     parser.add_argument('-m', '--matrix', help='[OUTPUT] Do not generate core SNP matrix', default=True, action='store_false')
+    parser.add_argument('-l', '--last', help='Activate to use LAST as aligner. [DEFAULT: minimap2]', default=False, action='store_true')
     parser.add_argument('-c', '--core', help='[PARAM] percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)
     parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
+    parser.add_argument('-q', '--lowq', help='[OPTIONAL; INPUT] Genome of low quality. [DEFAULT: ]', default=[], action='append')
     parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
     args.reference = args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference]
     args.queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries ] if qt != args.reference[0] ])
+    args.lowq = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.lowq ] if qt != args.reference[0] ])
+    args.aligner = externals['minimap2'] if not args.last else [externals['lastdb'], externals['lastal']]
     return args
 
+class last_package(object) :
+    @staticmethod
+    def run_lastal( refdb, query, output, lastal ) :
+        cmd = '{0} -j4 -r1 -q2 -a7 -b1 {1} {2}'.format( lastal, refdb, query )
+        lastal_run = subprocess.Popen( cmd.split(), stdout=subprocess.PIPE, universal_newlines=True )
+        with open(output, 'w') as fout:
+            fout.write(lastal_run.communicate()[0])
+        if lastal_run.returncode != 0 :
+            fastq = readFastq(query)
+            with open(output+'.qry', 'w') as fout :
+                for n, (s, q) in fastq.items() :
+                    fout.write('@{0}\n{1}\n+\n{2}\n'.format(n, s, re.sub(r'[!"#$%&\']', '(', q)))
+            cmd = '{0} -Q1 -j4 -r1 -q2 -a7 -b1 {1} {2}'.format( lastal, refdb, output + '.qry' )
+            lastal_run = subprocess.Popen( cmd.split(), stdout=subprocess.PIPE )
+            with open(output, 'w') as fout:
+                fout.write(lastal_run.communicate()[0])
+            os.unlink(output + '.qry')
+        return output
+    @staticmethod
+    def call_mutation( comparison, rep_mask = 3 ) :
+        seq = [comparison[6], comparison[12]]
+        qual = comparison[13]
+        direct = [1 if comparison[4] == '+' else -1, 1 if comparison[10] == '+' else -1]
+        coord = [comparison[2] *direct[0] -1, comparison[8]*direct[1] -1]
+        low_complexity = [[coord[0]-999, coord[0]]]
+        low_qual = []
+        mutations = []
+        for id, s1 in enumerate(seq[0]) :
+            s2 = seq[1][id]
+            if s1 != '-' :
+                coord[0] += 1
+            if s2 != '-' :
+                coord[1] += 1
+            if qual[id] == 1 :
+                if len(low_qual) == 0 or low_qual[-1][3] + 3 < coord[1] :
+                    low_qual.append([coord[0], coord[0], coord[1], coord[1], 0])
+                else :
+                    low_qual[-1][1] = coord[0]
+                    low_qual[-1][3] = coord[1]
+            if s1.islower() or s2.islower() :
+                if len(low_complexity) == 0 or low_complexity[-1][1] < coord[0]-1 :
+                    low_complexity.append([coord[0], coord[0]])
+                else :
+                    low_complexity[-1][1] = coord[0]
+            if s1.upper() != s2.upper() : #and s1.upper() != 'N' and s2.upper() != 'N' :
+                ms1 = coord[0] 
+                ms2 = coord[1] 
+                if len(mutations) < 1 or ((ms1 != mutations[-1][0] or mutations[-1][4][-1] != '-') and (ms2 != mutations[-1][2] or mutations[-1][5][-1] != '-')) :
+                    mutations.append([ms1, ms1, ms2, ms2, s1.upper(), s2.upper()])
+                    if id == 0 :
+                        mutations[-1].append( max(qual[id:(id+2)]) )
+                    else :
+                        mutations[-1].append( max(qual[(id-1):(id+2)]) )
+                else :
+                    mutations[-1][1] = ms1
+                    mutations[-1][3] = ms2
+                    mutations[-1][4] += s1.upper()
+                    mutations[-1][5] += s2.upper()
+                    if id < len(seq[0]) -1 and mutations[-1][6] == 0 :
+                        mutations[-1][6] = qual[id+1]
+        low_complexity = [ reg for reg in low_complexity + [[coord[0]+1, coord[0]+1000]] if reg[1]-reg[0] +1 >= 50 ]
+        for lq in low_qual :
+            if lq[0] > comparison[2] :
+                lq[0] -= 1
+            if lq[1] < comparison[3] :
+                lq[1] += 1
+        comparison[6] = low_qual + low_complexity[1:-1]
+        comparison[12] = ''
+        comparison = comparison[:13]
+        if len(mutations) > 0 :
+            for mut in mutations :
+                if mut[6] == 0 :
+                    for reg in low_complexity :
+                        if mut[1] < reg[0]-rep_mask :
+                            break 
+                        elif mut[0] <= reg[1]+rep_mask :
+                            mut[6] = 1
+            comparison.extend(mutations)
+        ref_ins = [len(mut[5]) for mut in mutations if mut[5][0] == '-']
+        qry_ins = [len(mut[5]) for mut in mutations if mut[4][0] == '-']
+        gap_open = len(ref_ins) + len(qry_ins)
+        mut_num = len(mutations) - gap_open
+        comparison[0] = (comparison[3]-comparison[2]+1) - 3 * mut_num - 7*gap_open - sum(qry_ins) - 2*sum(ref_ins) 
+    
+        return comparison
+
+    # 0-6    score, ref_cont, ref_start, ref_end, ref_direct, ref_len, ref_seq
+    # 7-12  qry_cont, qry_start, qry_end, qry_direct, qry_len, qry_seq
+    # 13+   (mutations ...) 
+    @staticmethod
+    def sub_comparison(comparison, ref_coords=None, qry_coords=None) :
+        if (ref_coords is None) == (qry_coords is None) :
+            raise Exception('Exact only one set of coords, either qry or ref')
+        direct = [1 if comparison[4] == '+' else -1, 1 if comparison[10] == '+' else -1]
+        mutations = []
+        if ref_coords is not None :
+            if direct[0] > 0 :
+                rc = [max(ref_coords[0], comparison[2]), min(ref_coords[1], comparison[3])]
+            else :
+                rc = [max(-ref_coords[1], -comparison[2]), min(-ref_coords[0], -comparison[3])]
+            if rc[0] > rc[1] :
+                return []
+            qc = [0, 0]
+            mutations = [ mut[:] for mut in comparison[13:] if mut[1]>= rc[0] and mut[0] <= rc[1] ]
+            if len(mutations) > 0 :
+                if mutations[0][0] <= rc[0] and mutations[0][5][0] == '-' :
+                    qc[0] = mutations[0][2] + 1
+                    mutations[0][4] = mutations[0][4][(rc[0]-mutations[0][0]):]
+                    mutations[0][5] = mutations[0][5][(rc[0]-mutations[0][0]):]
+                    mutations[0][0] = rc[0]
+                elif mutations[0][4][0] == '-' :
+                    qc[0] = mutations[0][2] - (mutations[0][0]-rc[0]+1)
+                elif mutations[0][5][0] == '-' :
+                    qc[0] = mutations[0][2] - (mutations[0][0]-rc[0]-1)
+                else :
+                    qc[0] = mutations[0][2] - (mutations[0][0]-rc[0])
+                if mutations[-1][0] == rc[1] and mutations[-1][4][0] == '-' :
+                    qc[1] = mutations[-1][2]-1
+                    mutations.pop(-1)
+                else :
+                    qc[1] = mutations[-1][3] + (rc[1] - mutations[-1][1])
+                    if mutations[-1][1] >= rc[1] and mutations[-1][5][0] == '-' :
+                        mutations[-1][1] = rc[1]
+                        mutations[-1][4] = mutations[-1][4][:(rc[1]-mutations[-1][0]+1)]
+                        mutations[-1][5] = mutations[-1][5][:(rc[1]-mutations[-1][0]+1)]
+            else :
+                pre_mut = [ mut for mut in [[comparison[2]*direct[0], comparison[2], comparison[8]*direct[1], comparison[8]]] + comparison[13:] if mut[0] <= rc[0] ][-1]
+                delta = -pre_mut[0] + pre_mut[2]
+                qc = [rc[0]+delta, rc[1] + delta ]
+        else :
+            if direct[1] > 0 :
+                qc = [max(qry_coords[0], comparison[8]), min(qry_coords[1], comparison[9])]
+            else :
+                qc = [max(-qry_coords[1], -comparison[8]), min(-qry_coords[0], -comparison[9])]
+            if qc[0] > qc[1] :
+                return []
+            rc = [0, 0]
+            mutations = [ mut[:] for mut in comparison[13:] if mut[3]>= qc[0] and mut[2] <= qc[1] ]
+            if len(mutations) > 0 :
+                if mutations[0][2] <= qc[0] and mutations[0][4][0] == '-' :
+                    rc[0] = mutations[0][0] + 1
+                    mutations[0][4] = mutations[0][4][(qc[0]-mutations[0][2]):]
+                    mutations[0][5] = mutations[0][5][(qc[0]-mutations[0][2]):]
+                    mutations[0][2] = qc[0]
+                elif mutations[0][4][0] == '-' :
+                    rc[0] = mutations[0][0] - (mutations[0][2]-qc[0]-1)
+                elif mutations[0][5][0] == '-' :
+                    rc[0] = mutations[0][0] - (mutations[0][2]-qc[0]+1)
+                else :
+                    rc[0] = mutations[0][0] - (mutations[0][2]-qc[0])
+                if mutations[-1][2] >= qc[1] and mutations[-1][5][0] == '-' :
+                    rc[1] = mutations[-1][0]-1
+                    mutations.pop(-1)
+                else :
+                    rc[1] = mutations[-1][1] + (qc[1]-mutations[-1][3])
+                    if mutations[-1][3] >= qc[1] and mutations[-1][4][0] == '-' :
+                        mutations[-1][3] = qc[1]
+                        mutations[-1][4] = mutations[-1][4][:(qc[1]-mutations[-1][2]+1)]
+                        mutations[-1][5] = mutations[-1][5][:(qc[1]-mutations[-1][2]+1)] 
+            else :
+                pre_mut = [ mut for mut in [[comparison[2]*direct[0], comparison[2], comparison[8]*direct[1], comparison[8]]] + comparison[13:] if mut[2] <= qc[0] ][-1]
+                delta = -pre_mut[0] + pre_mut[2]
+                rc = [qc[0]-delta, qc[1] - delta ]
+    
+        ref_ins = [len(mut[5]) for mut in mutations if mut[5][0] == '-']
+        qry_ins = [len(mut[5]) for mut in mutations if mut[4][0] == '-']
+        gap_open = len(ref_ins) + len(qry_ins)
+        mut_num = len(mutations) - gap_open
+        score = (rc[1]-rc[0]+1) - 3 * mut_num - 7*gap_open - sum(qry_ins) - 2*sum(ref_ins) 
+        return [score, comparison[1], abs(rc[0]), abs(rc[1]), comparison[4], comparison[5], comparison[6], comparison[7], abs(qc[0]), abs(qc[1]), comparison[10], comparison[11], comparison[12]] + mutations
+
+    @staticmethod
+    def make_alignment( filename ) :
+        comparisons = []
+        with open(filename, 'r') as fin:
+            for line in fin:
+                if line[0] == 'a' :
+                    comparison = [ int(line.split(' ', 2)[1][6:]) ]
+                elif line[0] == 's' :
+                    part = line.strip().split()[1:]
+                    part[1:5] = [int(part[1]), int(part[2]), part[3], int(part[4])]
+                    if part[3] == '+' :
+                        part[1:3] = [part[1]+1, part[1]+part[2]]
+                    else :
+                        part[1:3] = [part[4]-part[1], part[4]-part[1]-part[2]+1]
+                    comparison.extend(part)
+                    if len(comparison) >= 13 :
+                        comparison.append([int((m in 'nN') or (n in 'Nn')) for m, n in zip(comparison[6], comparison[12])])
+                elif line[0] in 'pq' :
+                    part = line.strip().split()
+                    comparison[13] = [ max(comparison[13][id], int(b in '!"#$%&\'()*+,-./')) for id, b in enumerate(part[-1])]
+                elif len(line.strip()) == 0 :
+                    if comparison[0] >= 200 : 
+                        comparisons.append( last_package.call_mutation(comparison) )
+        
+        # remove significant low identity regions in query
+        comparisons.sort(key=lambda x: min(x[8:10]) )
+        comparisons.sort(key=lambda x: x[7] )
+    
+        low_q = []
+        for id, regi in enumerate(comparisons) :
+            if len(regi) == 0 : continue
+            for jd in xrange(id+1, len(comparisons)) :
+                regj = comparisons[jd]
+                if len(regj) == 0 : continue
+                if regi[7] != regj[7] : break
+                si, ei = sorted(regi[8:10])
+                sj, ej = sorted(regj[8:10])
+                s = max(si, sj)
+                e = min(ei, ej)
+                if e >= s :
+                    overlap_i = last_package.sub_comparison(regi, qry_coords=[s, e])
+                    overlap_j = last_package.sub_comparison(regj, qry_coords=[s, e])
+                    
+                    if overlap_i[0] < 0.95 * overlap_j[0] and ( regi[0] < regj[0] or ei < ej ) : 
+                        if s - si >= 30 :
+                            comparisons[id] = last_package.sub_comparison(regi, qry_coords=[si, s-1])
+                            #if overlap_i[3] < overlap_i[2] and overlap_i[4] == '+' :
+                                #print comparisons[id]
+                            overlap_i[12] = 'E'
+                            low_q.append(overlap_i)
+                            if overlap_i[3] >= overlap_i[2]  :
+                                regi = comparisons[id]
+                            if len(regi) == 0: break
+                        else :
+                            comparisons[id][12] = 'E'
+                            break
+                    elif overlap_i[0] * 0.95 > overlap_j[0] :
+                        if ej - e >= 30 :
+                            comparisons[jd] = last_package.sub_comparison(regj, qry_coords=[e+1, ej])
+                            overlap_j[12] = 'E'
+                            if overlap_j[3] >= overlap_j[2]  :
+                                low_q.append(overlap_j)
+                        else :
+                            comparisons[jd][12] = 'E'
+                    elif s == si and e == ei and regj[0] > regi[0]*3 and overlap_i[0] <= overlap_j[0] :
+                        comparisons[id][12] = 'E'
+                        break
+                    elif s == sj and e == ej and regi[0] > regj[0]*3 and overlap_i[0] >= overlap_j[0] :
+                        comparisons[jd][12] = 'E'
+                    else :
+                        comparisons[id][12] = 'D'
+                        comparisons[jd][12] = 'D'
+                else :
+                    break
+    
+        # remove significant low identity regions in reference
+        comparisons = sorted([x for x in comparisons if len(x) > 0] + low_q, key=lambda x: x[2] )
+        comparisons.sort(key=lambda x: x[1] )
+    
+        for id, regi in enumerate(comparisons) :
+            if len(regi) == 0 : continue
+            for jd in xrange(id+1, len(comparisons)) :
+                regj = comparisons[jd]
+                if len(regj) == 0 : continue
+                if regi[1] != regj[1] : break
+                si, ei = regi[2:4]
+                sj, ej = regj[2:4]
+                s = max(si, sj)
+                e = min(ei, ej)
+                if e >= s :                
+                    overlap_i = last_package.sub_comparison(regi, ref_coords=[s, e])
+                    overlap_j = last_package.sub_comparison(regj, ref_coords=[s, e])
+                    
+                    if overlap_i[0] < 0.95 * overlap_j[0] and ( regi[0] < regj[0] or ei < ej ) : 
+                        if s - si >= 30 :
+                            comparisons[id] = last_package.sub_comparison(regi, ref_coords=[si, s-1])
+                            regi = comparisons[id]
+                            if len(regi) == 0: break
+                        else :
+                            comparisons[id] = []
+                            break
+                    elif overlap_i[0] * 0.95 > overlap_j[0] :
+                        if ej - e >= 30 :
+                            comparisons[jd] = last_package.sub_comparison(regj, ref_coords=[e+1, ej])
+                        else :
+                            comparisons[jd] = []
+                    elif overlap_i[0] == overlap_j[0] and len(overlap_i) == len(overlap_j) :
+                        if si == sj and ei == ej:
+                            diff = 0
+                            for i, i_snp in enumerate(overlap_i[13:]) :
+                                j_snp = overlap_j[13+i]
+                                if i_snp[0] != j_snp[0] or i_snp[5] != j_snp[5] :
+                                    diff = 1
+                                    break
+                            if diff == 0 :
+                                if comparisons[id][12] in 'DE':
+                                    comparisons[id] = [] 
+                                    break
+                                else: 
+                                    comparisons[jd] = []
+                        elif si <= sj and ei >= ej :
+                            diff = 0
+                            for i, i_snp in enumerate(overlap_i[13:]) :
+                                j_snp = overlap_j[13+i]
+                                if i_snp[0] != j_snp[0] or i_snp[5] != j_snp[5] :
+                                    diff = 1
+                                    break
+                            if diff == 0 :
+                                comparisons[jd] = []
+                        elif si >= sj and ei <= ej:
+                            diff = 0
+                            for i, i_snp in enumerate(overlap_i[13:]) :
+                                j_snp = overlap_j[13+i]
+                                if i_snp[0] != j_snp[0] or i_snp[5] != j_snp[5] :
+                                    diff = 1
+                                    break
+                            if diff == 0 :
+                                comparisons[id] = []
+                                break
+                else :
+                    break
+            if len(comparisons[id]) > 0 :
+                regi = comparisons[id]
+                regi[6] = [lq for lq in regi[6] if lq[1] >= regi[2] and lq[0] <= regi[3]]
+        
+        # mark repetitive regions in query
+        repeats = []
+        mutations = {}
+        comparisons = sorted([x for x in comparisons if len(x) > 0 and x[12] != 'E'], key=lambda x: min(x[8:10]) )
+        comparisons.sort(key=lambda x: x[7] )
+        
+        for id, regi in enumerate(comparisons) :
+            for jd in xrange(id+1, len(comparisons)) :
+                regj = comparisons[jd]
+                if regi[7] != regj[7] : break
+                si, ei = sorted(regi[8:10])
+                sj, ej = sorted(regj[8:10])
+                s = max(si, sj)
+                e = min(ei, ej)
+                if e >= s :
+                    for mut in regi[13:] :
+                        if abs(min(mut[2:4])) <= e and abs(max(mut[2:4])) >= s :
+                            mut[6] = 1
+                    for mut in regj[13:] :
+                        if abs(min(mut[2:4])) <= e and abs(max(mut[2:4])) >= s :
+                            mut[6] = 1
+                    overlap_i = last_package.sub_comparison(regi, qry_coords=[s, e])
+                    overlap_j = last_package.sub_comparison(regj, qry_coords=[s, e])
+                    regi[6] = [lq for lq in regi[6] if lq[0] <overlap_i[2] or lq[1] > overlap_i[3]]
+                    regj[6] = [lq for lq in regj[6] if lq[0] <overlap_j[2] or lq[1] > overlap_j[3]]
+                    repeats.append(overlap_i[1:4] + [0])
+                    repeats.append(overlap_j[1:4] + [0])
+            
+        # identify repetitive regions in the reference
+        comparisons.sort(key=lambda x: x[2] )
+        comparisons.sort(key=lambda x: x[1] )
+    
+        for id, regi in enumerate(comparisons) :
+            if len(regi) == 0 : continue
+            for jd in xrange(id+1, len(comparisons)) :
+                regj = comparisons[jd]
+                if regi[1] != regj[1] : break
+                si, ei = sorted(regi[2:4])
+                sj, ej = sorted(regj[2:4])
+                s = max(si, sj)
+                e = min(ei, ej)
+                if e >= s :
+                    overlap_i = last_package.sub_comparison(regi, ref_coords=[s, e])
+                    overlap_j = last_package.sub_comparison(regj, ref_coords=[s, e])
+                    if len(overlap_i) == len(overlap_j) :
+                        diff = 0
+                        for i, i_snp in enumerate(overlap_i[13:]) :
+                            j_snp = overlap_j[13+i]
+                            if i_snp[0] != j_snp[0] or i_snp[5] != j_snp[5] :
+                                diff = 1
+                                break
+                        if diff == 1 :
+                            for mut in regi[13:] :
+                                if abs(mut[0]) <= e and abs(mut[1]) >= s :
+                                    mut[6] = 1
+                            for mut in regj[13:] :
+                                if abs(mut[0]) <= e and abs(mut[1]) >= s :
+                                    mut[6] = 1
+                            regi[6] = [lq for lq in regi[6] if lq[0] <s or lq[1] > e]
+                            regj[6] = [lq for lq in regj[6] if lq[0] <s or lq[1] > e]
+                            repeats.append([regi[1], s, e, 0])
+                    else :
+                        for mut in regi[13:] :
+                            if abs(mut[0]) <= e and abs(mut[1]) >= s :
+                                mut[6] = 1
+                        for mut in regj[13:] :
+                            if abs(mut[0]) <= e and abs(mut[1]) >= s :
+                                mut[6] = 1
+                        regi[6] = [lq for lq in regi[6] if lq[0] <s or lq[1] > e]
+                        regj[6] = [lq for lq in regj[6] if lq[0] <s or lq[1] > e]
+                        repeats.append([regi[1], s, e, 0])
+            for mut in regi[13:] :
+                if mut[6] == 0 :
+                    if regi[1] not in mutations : 
+                        mutations[ regi[1] ] = {}
+                    if mut[0] not in mutations[ regi[1] ]:
+                        mutations[ regi[1] ] [ mut[0] ] = {}
+                    if mut[5] not in mutations[ regi[1] ] [ mut[0] ] :
+                        mutations[ regi[1] ] [ mut[0] ] [ mut[5] ] = [regi[7], regi[10]] + mut
+                    else : 
+                        mutations[ regi[1] ] [ mut[0] ] [ mut[5] ].extend([regi[7], regi[10]] + mut)
+            repeats.extend([[regi[1]]+ lq[:2] + [1] for lq in regi[6]])
+        
+        repeats.sort(key=lambda x:x[1])
+        repeats.sort(key=lambda x:x[0])
+        repetitive_regions = []
+        for rep in repeats:
+            if len(repetitive_regions) == 0 or repetitive_regions[-1][0] != rep[0] or repetitive_regions[-1][2]+1 < rep[1] :
+                repetitive_regions.append(rep)
+            elif rep[2] > repetitive_regions[-1][2] :
+                repetitive_regions[-1][2] = rep[2]
+                if repetitive_regions[-1][3] > 0 :
+                    repetitive_regions[-1][3] = rep[3]
+        nocall = {}
+        for r in repetitive_regions + [c[1:] for c in comparisons if float(c[0])/(abs(c[3]-c[2])+1) < 0.7 or c[0] < 200] :
+            for s in xrange(r[1], r[2]+1) :
+                nocall[(r[0], s)] = 1
+        mutations = { contig:{ site:alters for site, alters in variation.items() if (contig, site) not in nocall } for contig, variation in mutations.items() }
+        comparisons = [c for c in comparisons if float(c[0])/(abs(c[3]-c[2])+1) >= 0.7 and c[0] >= 200]
+        return comparisons, repetitive_regions, mutations
+
+    @staticmethod
+    def write_down(filename, regions, repeats, mutations, reference, query, tag) :
+        with uopen(filename, 'w') as fout:
+            fout.write('##gff-version 3\n')
+            fout.write('## Reference: {0}\n'.format(reference))
+            fout.write('## Query: {0}\n'.format(query))
+            fout.write('## Tag: {0}\n'.format(tag))
+
+            fout.write('\n'.join(['{0}\trefMapper\tmisc_feature\t{1}\t{2}\t{3}\t{4}\t.\t{5}'.format(r[1], r[2], r[3], r[0], r[10], '/inference="Aligned%20with%20{0}:{1}-{2}"'.format(*r[7:10])) for r in regions]) + '\n')
+            fout.write('\n'.join(['{0}\trefMapper\tunsure\t{1}\t{2}\t.\t+\t.\t/inference="{3}"'.format(r[0], r[1], r[2], 'Repetitive%20region' if r[3] == 0 else 'Uncertain%20base%20calling%20or%20ambigious%20alignment') for r in repeats]) + '\n')
+            for contig, variation in sorted(mutations.items()):
+                for site, alters in sorted(variation.items()) :
+                    for alter, source in alters.items() :
+                        if source[6][0] == '-' :
+                            difference = '+{0}'.format(source[7])
+                            origin = '.'
+                        elif source[7][0] == '-' :
+                            difference = '-{0}'.format(source[6])
+                            origin = source[6]
+                        else :
+                            difference = source[7]
+                            origin = source[6]
+                        compare = ''
+                        for id in xrange(0, len(source), 9) :
+                            compare += '{0}:{1}-{2}:{3};'.format(source[id+0], abs(source[id+4]), abs(source[id+5]), source[id+1])
+                        fout.write('{0}\trefMapper\tvariation\t{1}\t{2}\t.\t+\t.\t{3}\n'.format(contig, source[2], source[3], '/replace="{0}";/compare="{1}";/origin="{2}"'.format(difference, compare[:-1], origin)))
+
+def lastAgainst(qry_tag, qry_file, refdb, prefix, ref_file, lastal) :
+    if not os.path.isfile('{0}.{1}.lastal'.format(prefix, qry_tag)) :
+        output = last_package.run_lastal(refdb, qry_file, '{0}.{1}.lastal'.format(prefix, qry_tag), lastal )
+    else :
+        output = '{0}.{1}.lastal'.format(prefix, qry_tag)
+    regions, repeats, mutations = last_package.make_alignment( output )
+    os.unlink(output)
+    outfile = '{0}.gff.gz'.format(prefix)
+    last_package.write_down(outfile, regions, repeats, mutations, ref_file, qry_file, qry_tag)
+    return [qry_tag, outfile]
+
+
 def alignAgainst(data) :
-    prefix, minimap2, db, (rtag, reference), (tag, query) = data
+    prefix, aligner, db, (rtag, reference), (tag, query) = data
+    if isinstance(aligner, list) :
+        return lastAgainst(tag, query, db, prefix, reference, aligner[1])
     try :
         qrySeq, qryQual = readFastq(query)
     except :
         return [tag, query]
     refSeq, refQual = readFastq(reference)
-    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A2 -B8 -O20,40 -E3,2 -r20 -g200 -p.000001 -N5000 -f1000,5000 -n2 -m30 -s30 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
-                                minimap2, db, query).split(), stdout=subprocess.PIPE, universal_newlines=True)
+    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A1 -B14 -O24,60 -E2,1 -r100 -g1000 -P -N5000 -f1000,5000 -n2 -m50 -s200 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+                                aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     alignments = []
     for lineId, line in enumerate(proc.stdout) :
         part = line.strip().split('\t')
@@ -139,7 +601,7 @@ def alignAgainst(data) :
                 r = ref[0][alnSite[0]:alnSite[0]+cl]
                 r1 = ref[1][alnSite[0]:alnSite[0]+cl]
                 q = qry[0][alnSite[1]:alnSite[1]+cl] if d > 0 else rc(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)])
-                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)]))
+                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[1][(alnSite[1]-cl+1):(alnSite[1]+1)]))
 
                 e =[alnSite[0]+cl, alnSite[1]+cl*d]
                 for qid in xrange(len(qryRepeat)-1, -1, -1) :
@@ -272,7 +734,7 @@ def readMap(data) :
                         miss = -99999999
             else :
                 break
-    print(mTag, mFile)
+    #print(mTag, mFile)
     with uopen(mFile) as fin :
         for line in fin :
             if line.startswith('#') : continue
@@ -290,56 +752,71 @@ def readMap(data) :
                 ori = re.findall(r'origin="([^"]+)"', part[8])
                 if len(alt) and len(ori) :
                     mutations.append([mTag, part[0], part[3], ori[0], alt[0]])
-    return presences, absences, mutations
+    return presences, sorted(absences), mutations
 
-def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
-    refSeq, refQual = readFastq(reference)
+def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, alignmentOut) :
+    refSeq, refQual = readFastq(reference[1])
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
-    alnId = { aln[0]:id for id, aln in enumerate(alignments) }
-    res = pool.map(readMap, alignments)
+    alnId = { aln[0]:id for id, aln in enumerate(alignments+lowq_aligns) }
+    res = pool.map(readMap, alignments+lowq_aligns)
+    res, low_res = res[:len(alignments)], res[len(alignments):]
     
     matrix = {}
-    for presences, absences, mutations in res :
-        for mut in mutations :
-            j = alnId[mut[0]]
-            site = tuple(mut[1:3])
-            if site not in matrix :
-                matrix[site] = [[], []]
-                matSites[mut[1]][mut[2]-1] = mut[2]
-            if len(mut[4]) == 1 :
-                if len(matrix[site][0]) == 0 :
-                    matrix[site][0] = ['-' for id in alnId]
-                matrix[site][0][j] = mut[4]
-            else :
-                if len(matrix[site][1]) == 0 :
-                    matrix[site][1] = ['-' for id in alnId]
-                matrix[site][1][j] = mut[4]
-    for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
-        j = alnId[mTag]
-        for n, s, e in presences :
-            coreSites[n][s-1:e] +=1
-            mutations = matSites[n][s-1:e]
-            for kk in mutations[mutations > 0] :
-                k = (n, kk)
-                if len(matrix[k][0]) and matrix[k][0][j] == '-' :
-                    matrix[k][0][j] = '.'
-                if len(matrix[k][1]) and matrix[k][1][j] == '-' :
-                    matrix[k][1][j] = '.'
-        for n, s, e, m in absences :
-            coreSites[n][s-1:e] -=1
-            mutations = matSites[n][s-1:e]
-            for kk in mutations[mutations > 0] :
-                k = (n, kk)
-                if len(matrix[k][0]) and matrix[k][0][j] == '.' :
-                    matrix[k][0][j] = '-'
-                if len(matrix[k][1]) and matrix[k][1][j] == '.' :
-                    matrix[k][1][j] = '-'
-    pres = np.unique(np.concatenate(list(coreSites.values())), return_counts=True)
-    pres = [pres[0][pres[0] > 0], pres[1][pres[0] > 0]]
-    coreNum = len(alignments) * core
+    for r in (res, low_res) :
+        for presences, absences, mutations in r :
+            for mut in mutations :
+                j = alnId[mut[0]]
+                site = tuple(mut[1:3])
+                if site not in matrix :
+                    matrix[site] = [[], []]
+                    matSites[mut[1]][mut[2]-1] = mut[2]
+                if len(mut[4]) == 1 :
+                    if len(matrix[site][0]) == 0 :
+                        matrix[site][0] = ['-' for id in alnId]
+                    matrix[site][0][j] = mut[4]
+                else :
+                    if len(matrix[site][1]) == 0 :
+                        matrix[site][1] = ['-' for id in alnId]
+                    matrix[site][1][j] = mut[4]
+    for gid, aln, r in ((0, alignments, res), (1, lowq_aligns, low_res)) :
+        for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
+            j = alnId[mTag]
+            for n, s, e in presences :
+                if gid == 0 :
+                    coreSites[n][s-1:e] +=1
+                mutations = matSites[n][s-1:e]
+                for kk in mutations[mutations > 0] :
+                    k = (n, kk)
+                    if len(matrix[k][0]) and matrix[k][0][j] == '-' :
+                        matrix[k][0][j] = '.'
+                    if len(matrix[k][1]) and matrix[k][1][j] == '-' :
+                        matrix[k][1][j] = '.'
+            for n, s, e, m in absences :
+                if gid == 0 :
+                    coreSites[n][s-1:e] -= (1 if mTag not in reference else len(alignments)+1)
+                mutations = matSites[n][s-1:e]
+                for kk in mutations[mutations > 0] :
+                    k = (n, kk)
+                    if len(matrix[k][0]) and matrix[k][0][j] == '.' :
+                        matrix[k][0][j] = '-'
+                    if len(matrix[k][1]) and matrix[k][1][j] == '.' :
+                        matrix[k][1][j] = '-'
+    coreNum = max(len(alignments) * core, 1)
+    for n in sorted(coreSites) :
+        sites = coreSites[n]
+        for site, num in enumerate(sites) :
+            cSite = (n, site+1)
+            if 1 <= num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
+                sites[site] = np.sum(matrix[cSite][1] != '-')
+                matrix[cSite][0] = []
+    
+    pres = np.concatenate(list(coreSites.values()))
+    pres[pres < 0] = 0
+    pres = list(np.unique(pres, return_counts=True))
+    
     for p, n in zip(*pres) :
-        sys.stderr.write('#{2} {0} {1}\n'.format(p, n, '' if p > coreNum else '#'))
+        sys.stderr.write('#{2} {0} {1}\n'.format(p if p >= 1 else 'Repetitive', n, '' if p >= coreNum else '#'))
 
     missings = []
     coreBases = {'A':0, 'C':0, 'G':0, 'T':0}
@@ -347,9 +824,6 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
         sites = coreSites[n]
         for site, num in enumerate(sites) :
             cSite = (n, site+1)
-            if num < coreNum and cSite in matrix and len(matrix[cSite][1]) > 0 :
-                num = np.sum(matrix[cSite][1] != '-')
-                matrix[cSite][0] = []
             if num < coreNum :
                 matrix.pop(cSite, None)
                 if len(missings) == 0 or missings[-1][0] != n or missings[-1][2] + 1 < cSite[1] :
@@ -360,9 +834,14 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                 b = refSeq[n][cSite[1]-1]
                 if cSite in matrix and len(matrix[cSite][0]) :
                     matrix[cSite][0] = [ (b if s == '.' else s) for s in matrix[cSite][0]]
+                    t = np.unique(matrix[cSite][0])
+                    t = t[t!= '-']
+                    if len(t) == 1 :
+                        coreBases[t[0]] = coreBases.get(t[0], 0) + 1
+                        matrix[cSite][0] = []
                 else :
                     coreBases[b] = coreBases.get(b, 0) + 1
-                    
+
     outputs = {}
     if matrixOut :
         outputs['matrix'] = prefix + '.matrix.gz'
@@ -372,7 +851,7 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
                 fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n])))
             for region in missings :
                 fout.write('## Missing_region: {0} {1} {2}\n'.format(*region))
-            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments ]) + '\n')
+            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments + lowq_aligns ]) + '\n')
             for site in sorted(matrix) :
                 bases = matrix[site]
                 if len(bases[0]) :
@@ -382,30 +861,34 @@ def getMatrix(prefix, reference, alignments, core, matrixOut, alignmentOut) :
     if alignmentOut :
         outputs['alignment'] = prefix + '.fasta.gz'
         sequences = []
-        for (mTag, mFile), (presences, absences, mutations) in zip(alignments, res) :
-            j = alnId[mTag]
-            seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
-            if j :
-                for n, s, e in presences :
-                    seq[n][s-1:e] = refSeq[n][s-1:e]
-                for n, s, e, c in absences :
-                    seq[n][s-1:e] = '-' * (e-s+1)
-            for site in matrix :
-                bases = matrix[site]
-                if len(bases[0]) :
-                    seq[site[0]][site[1]-1] = bases[0][j]
-            sequences.append(seq)
+        low_seq = []
+        for sequence, aln, r in ((sequences, alignments, res), (low_seq, lowq_aligns, low_res)) :
+            for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
+                j = alnId[mTag]
+                seq = { n:['-']*len(s) for n, s in refSeq.items() } if j > 0 else { n:list(s) for n, s in refSeq.items() }
+                if j :
+                    for n, s, e in presences :
+                        seq[n][s-1:e] = refSeq[n][s-1:e]
+                    for n, s, e, c in absences :
+                        seq[n][s-1:e] = '-' * (e-s+1)
+                for site in matrix :
+                    bases = matrix[site]
+                    if len(bases[0]) :
+                        seq[site[0]][site[1]-1] = bases[0][j]
+                sequence.append(seq)
         with uopen(prefix + '.fasta.gz', 'w') as fout :
             for id, n in enumerate(sorted(refSeq)) :
                 if id :
                     fout.write('=\n')
                 for (mTag, mFile), seq in zip(alignments, sequences) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
+                for (mTag, mFile), seq in zip(lowq_aligns, low_seq) :
+                    fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
     return outputs
 
-def runAlignment(prefix, reference, queries, core, minimap2) :
-    #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
-    alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id), minimap2, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
+def runAlignment(prefix, reference, queries, core, aligner) :
+    #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id+1), aligner, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
+    alignments = pool.map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id+1), aligner, prefix + '.mmi', reference, query] for id, query in enumerate(queries)])
 
     try :
         os.unlink(reference + '.mmi')
@@ -413,12 +896,66 @@ def runAlignment(prefix, reference, queries, core, minimap2) :
         pass
     return alignments
 
-def prepReference(prefix, reference, minimap2, pilercr, trf, **args) :
-    # prepare minimap2 reference
+
+def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
+    def mask_tandem(fasta_file) :
+        cmd = '{0} {1} 2 4 7 80 10 60 2000 -d -h -ngs'.format(trf, fasta_file)
+        trf_run = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, universal_newlines=True)
+    
+        region = []
+        for line in iter(trf_run.stdout.readline, r'') :
+            if line[0] == '@' :
+                cont_name = line[1:].strip().split()[0]
+            else :
+                part = line.split(' ',2)[:2]
+                region.append([cont_name, int(part[0])-2, int(part[1])+2])
+        return region
+    
+    def mask_crispr(fasta_file, prefix) :
+        cmd = '{0} -in {1} -out {2}.crispr'.format(pilercr, fasta_file, prefix)
+        subprocess.Popen(cmd.split(), stderr=subprocess.PIPE).communicate()
+        summary_trigger = 0
+    
+        region = []
+        with open('{0}.crispr'.format(prefix)) as fin :
+            for line in fin :
+                if line.startswith('SUMMARY BY POSITION') :
+                    summary_trigger = 1
+                elif summary_trigger :
+                    if line[0] == '>' :
+                        cont_name = line[1:].strip().split()[0]
+                    elif len(line) > 10 and line.strip()[0] in '0123456789' :
+                        part = line[24:].strip().split()
+                        region.append([cont_name, int(part[0]), int(part[0]) + int(part[1]) -1])
+        os.unlink('{0}.crispr'.format(prefix))
+        return region
+    # prepare reference
     if reference :
-        subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(minimap2, reference, prefix).split(), stderr=subprocess.PIPE).communicate()
-    sys.stdout.write(prefix)
-    return
+        if not isinstance(aligner, list) :
+            subprocess.Popen('{0} -k15 -w5 -d {2}.mmi {1}'.format(aligner, reference, prefix).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        else :
+            subprocess.Popen('{0} -cR01 {2}.mmi {1}'.format(aligner[0], reference, prefix).split()).communicate()
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir='.') as tf :
+            seq, _ = readFastq(reference)
+            tf_fas = '{0}.fasta'.format(tf.name)
+            with open(tf_fas, 'wt') as fout:
+                for n, s in seq.items() :
+                    fout.write('>{0}\n{1}\n'.format(n, s))
+            #tf_fas = '{0}.fasta'.format(tf.name)
+            #if reference.upper().endswith('GZ') :
+            #    subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            #else :
+            #    subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
+            repeats = mask_tandem(tf_fas) + mask_crispr(tf_fas, tf.name)
+            os.unlink(tf_fas)
+        alignments = alignAgainst([prefix +'.' + ref_tag.rsplit('.', 1)[0] + '.0', aligner, prefix + '.mmi', [ref_tag, reference], [ref_tag, reference]])
+        with uopen(alignments[1], 'a') as fout :
+            for r in repeats :
+                fout.write('{0}\trefMapper\tunsure\t{1}\t{2}\t.\t+\t.\t/inference="repetitive_regions"\n'.format(
+                    r[0], r[1], r[2], 
+                ))
+    return alignments
 
 def align(argv) :
     args = parseArgs(argv)
@@ -426,11 +963,13 @@ def align(argv) :
     global pool
     pool = Pool(args.n_proc)
     #print(args.reference)
-    refMask = prepReference(args.prefix, args.reference[1], **externals)
-    alignments = runAlignment(args.prefix, args.reference, [args.reference] + args.queries, args.core, externals['minimap2'])
-    outputs = {'mappings': dict(alignments)}
+    refMask = prepReference(args.prefix, args.reference[0], args.reference[1], args.aligner, **externals)
+    alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, args.aligner)
+    lowq_aligns = runAlignment(args.prefix, args.reference, args.lowq, args.core, args.aligner)
+    alignments = [refMask] + alignments
+    outputs = {'mappings': dict(alignments), 'low_qual_map': dict(lowq_aligns)}
     if args.matrix or args.alignment :
-        outputs.update(getMatrix(args.prefix, args.reference[1], alignments, args.core, args.matrix, args.alignment))
+        outputs.update(getMatrix(args.prefix, args.reference, alignments, lowq_aligns, args.core, args.matrix, args.alignment))
     import json
     sys.stdout.write(json.dumps(outputs, indent=2, sort_keys=True))
     return outputs
