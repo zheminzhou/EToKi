@@ -207,7 +207,7 @@ class preprocess(object) :
                                     lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id, **externals), shell=True).wait()
                 for lib in library :
                     try :
-                        os.unlink(lib)
+                        pass #os.unlink(lib)
                     except :
                         pass
         return new_reads

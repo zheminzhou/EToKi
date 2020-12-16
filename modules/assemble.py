@@ -270,7 +270,7 @@ class mainprocess(object) :
                 seq[n+'_circular'] = s
 
         with open(output_name, 'w') as fout :
-            for n, s in seq.items() :
+            for n, s in sorted(seq.items()) :
                 if len(s) > 100 :
                     fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
         return output_name
@@ -430,7 +430,7 @@ class mainprocess(object) :
         for n, s in sequence.items() :
             sequence[n] = list(s)
 
-        for cont, sites in snps.items() :
+        for cont, sites in sorted(snps.items()) :
             for site,base in reversed(sites) :
                 if base.startswith('+') :
                     sequence[cont][site-1:site-1] = base[1:]
@@ -599,7 +599,7 @@ class mainprocess(object) :
                 break
         ave_depth = acc[1]/acc[0]
         exp_mut_depth = max(ave_depth * 0.2, 2.)
-        for n, s in sites.items() :
+        for n, s in sorted(sites.items()) :
             s[2] = s[1]/ave_depth
         logger('Average read depth: {0}'.format(ave_depth))
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
@@ -648,7 +648,7 @@ class mainprocess(object) :
             sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
             
         if self.snps is not None :
-            for n, snvs in self.snps.items() :
+            for n, snvs in sorted(self.snps.items()) :
                 for site, snv in snvs :
                     if snv.find('N') >= 0 : continue
                     if snv.startswith('+') :
@@ -660,7 +660,7 @@ class mainprocess(object) :
 
         with open('etoki.result.fastq', 'w') as fout :
             p = prefix.rsplit('/', 1)[-1]
-            for n, (s, q) in sequence.items() :
+            for n, (s, q) in sorted(sequence.items()) :
                 if sites[n][2] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( p+'_'+n, s, ''.join(q), *sites[n] ) )
         os.unlink( 'etoki.mapping.vcf' )
@@ -707,14 +707,14 @@ class postprocess(object) :
                         seq[name] = [0, 0., []]
                     else :
                         seq[name][2].extend( line.strip().split() )
-                for n, s in seq.items() :
+                for n, s in sorted(seq.items()) :
                     s[2] = ''.join(s[2])
                     s[0] = len(s[2])
         return seq, fasfile
 
     def do_kraken(self, assembly, seq) :
         with open(assembly+'.filter', 'w') as fout :
-            for n, s in seq.items() :
+            for n, s in sorted(seq.items()) :
                 if s[0] > 1000 :
                     fout.write('>{0}\n{1}\n'.format(n, s[2]))
         cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}.filter'.format(
