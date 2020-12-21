@@ -276,7 +276,7 @@ EToKi.py prepare
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_prepare', default='EToKi_prepare')
     parser.add_argument('-q', '--read_qual', help='Minimum quality to be kept in bbduk. Default: 6', type=int, default=6)
     parser.add_argument('-b', '--max_base', help='Total amount of bases (in BPs) to be kept. \nDefault as -1 for no restriction. \nSuggest to use ~100X coverage for de novo assembly.', type=int, default=-1)
-    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 30g', default='30g')
+    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 20g', default='20g')
     parser.add_argument('--noTrim', help='Do not do quality trim using bbduk', action='store_true', default=False)
     parser.add_argument('--merge', help='Try to merge PE reads by their overlaps using bbmap', action='store_true', default=False)
     parser.add_argument('--noRename', help='Do not rename reads', action='store_true', default=False)

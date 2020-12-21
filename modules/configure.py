@@ -222,6 +222,10 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
 
+    if not getExecutable([externals['java']]) :
+        logger('You have not installed Java runtime. Please install it first. ')
+        sys.exit(1)
+
     if not getExecutable([externals['raxml_ng']]) :
         url = 'https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip'
         logger('Downloading raxml-ng package from {0}'.format(url))
@@ -354,9 +358,19 @@ def install_externals() :
         logger('Unpackaging kraken2 package')
         subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('v2.0.7-beta.tar.gz')
-        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).communicate()
+        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).communicate()
         logger('Done\n')
+
+    if not getExecutable(externals['samtools'].split()) :
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.11/samtools-1.11.tar.bz2'
+        logger('Downloading samtools from {0}'.format(samtools_url))
+        subprocess.Popen('cur -Lo samtools-1.11.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging samtools package')
+        subprocess.Popen('tar -xjf samtools-1.11.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-1.11.tar.bz2')
+        subprocess.Popen('cd samtools-1.11 && ./configure --disable-bz2 --disable-lzma && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-1.11/samtools ./samtools'.split()).communicate()
 
     if not getExecutable([externals['usearch']]) :
         logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html\nAnd copy it into the externals/usearch')
