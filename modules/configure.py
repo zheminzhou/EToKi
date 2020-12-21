@@ -222,7 +222,7 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
 
-    if not getExecutable([externals['java']]) :
+    if not getExecutable(['java']) :
         logger('You have not installed Java runtime. Please install it first. ')
         sys.exit(1)
 
