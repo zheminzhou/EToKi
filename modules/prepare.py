@@ -238,17 +238,22 @@ def prepare(args) :
     for lib_id, libary in enumerate(reads) :
         for lib_type, lib in libary.items() :
             for r_id, read in enumerate(lib) :
-                if lib_type == 'SE' :
-                    new_read = '{0}_L{1}_SE.fastq.gz'.format(parameters['prefix'], lib_id+1)
-                elif lib_type == 'MP' :
-                    new_read = '{0}_L{1}_MP.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                if os.path.isfile(read) :
+                    if lib_type == 'SE' :
+                        new_read = '{0}_L{1}_SE.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                    elif lib_type == 'MP' :
+                        new_read = '{0}_L{1}_MP.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                    else :
+                        new_read = '{0}_L{1}_R{2}.fastq.gz'.format(parameters['prefix'], lib_id+1, r_id+1)
+                    lib[r_id] = new_read
+                    os.rename(read, new_read)
                 else :
-                    new_read = '{0}_L{1}_R{2}.fastq.gz'.format(parameters['prefix'], lib_id+1, r_id+1)
-                lib[r_id] = new_read
-                os.rename(read, new_read)
+                    lib[r_id] = None
     report = []
     for libary in reads :
         for lib_type, lib in libary.items() :
+            if any(lib) == None :
+                continue
             if lib_type == 'PE' : 
                 report.extend(['--pe', '{0},{1}'.format(*lib)])
             else :
