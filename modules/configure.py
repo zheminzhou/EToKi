@@ -365,7 +365,7 @@ def install_externals() :
     if not getExecutable(externals['samtools'].split()) :
         samtools_url = 'https://github.com/samtools/samtools/releases/download/1.11/samtools-1.11.tar.bz2'
         logger('Downloading samtools from {0}'.format(samtools_url))
-        subprocess.Popen('cur -Lo samtools-1.11.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo samtools-1.11.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging samtools package')
         subprocess.Popen('tar -xjf samtools-1.11.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('samtools-1.11.tar.bz2')
