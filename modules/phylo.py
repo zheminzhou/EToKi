@@ -136,11 +136,11 @@ def parse_snps(prefix, id, seq, core=0.95) :
 
 def write_phylip(prefix, names, snps) :
     invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
-    for snp in snps[snps.T[3] == 0] :
+    for snp in snps[snps.T[3] < 0] :
         if snp[2][0] in invariants :
             invariants[ snp[2][0] ] += snp[1]
 
-    snp2 = snps[ (snps.T[3] == 1) & (np.array([s[0] in invariants for s in snps.T[2]])) ]
+    snp2 = snps[ (snps.T[3] >= 0) & (np.array([s[0] in invariants for s in snps.T[2]])) ]
     weights = snp2.T[1].astype(int).astype(str)
     with open(prefix+'.phy.weight', 'w') as fout :
         fout.write(' '.join(weights))
@@ -172,7 +172,7 @@ def write_phylips(prefix, names, snps, n_split=4) :
     for split_idx, (snp_idx, snp_weight) in enumerate(snp_expended) :
         pp = '{0}.{1}'.format(prefix, split_idx)
         invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
-        var_sites = np.array([ (snps[idx][3] == 1) for idx in snp_idx ])
+        var_sites = np.array([ (snps[idx][3] >= 0) for idx in snp_idx ])
         for idx in np.where(~var_sites)[0] :
             snp = snps[snp_idx[idx]]
             if snp[3] == 0 and snp[2][0] in invariants :
@@ -274,9 +274,9 @@ def run_raxml(prefix, phy, weights, asc, model='CAT', n_proc=5, invariants=None)
             cmd = '{0} -m GTR{4} -n {1} -f D -D -s {2} -a {3} -T {5} -p {6} --no-bfgs'.format(raxml, prefix, phy, weights, model, n_proc, rint)
     else :
         if model == 'CAT' :
-            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -D -V -s {2} -a {3} -T {6} -p {7} --asc-corr stamatakis --no-bfgs -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc, rint)
+            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -D --no-bfgs -V -s {2} -a {3} -T {6} -p {7} --asc-corr=stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc, rint)
         else :
-            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -D -s {2} -a {3} -T {6} -p {7} --asc-corr stamatakis --no-bfgs -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc, rint)
+            cmd = '{0} -m ASC_GTR{5} -n {1} -f D -D --no-bfgs -s {2} -a {3} -T {6} -p {7} --asc-corr=stamatakis -q {4}'.format(raxml, prefix, phy, weights, asc, model, n_proc, rint)
     run = Popen(cmd.split())
     run.communicate()
     if model == 'CAT' and not os.path.isfile('RAxML_bestTree.{0}'.format(prefix)) :

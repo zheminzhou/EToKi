@@ -378,7 +378,7 @@ def install_externals() :
     logger('')
     os.chdir(curdir)
 # -------------------------------------------------------------- #
-ETOKI = os.path.dirname(os.path.dirname(__file__))
+ETOKI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def configure(args) :
     configs = load_configure()
     args = add_args(args)
