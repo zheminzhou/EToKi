@@ -370,7 +370,7 @@ def install_externals() :
         logger('Unpackaging samtools package')
         subprocess.Popen('tar -xjf samtools-1.11.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('samtools-1.11.tar.bz2')
-        subprocess.Popen('cd samtools-1.11 && ./configure --disable-bz2 --disable-lzma && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('cd samtools-1.11 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
         subprocess.Popen('ln -fs samtools-1.11/samtools ./samtools'.split()).communicate()
 
     if not getExecutable([externals['usearch']]) :
