@@ -340,7 +340,7 @@ class recHMM(object) :
             rId, dId, vId = model['categories']['R/theta'][brId], model['categories']['delta'][brId], model['categories']['nu'][brId]
             if lower_limit and d < 1./self.n_base:
                 d = 1./self.n_base
-            m, r = min(d * model['theta'][rId], 0.745), min(d * model['R'][rId], 0.99)
+            m, r = min(d * model['theta'][rId], 0.745), min(np.min(d * model['R'][rId]), 0.99)
 
             a = np.zeros(shape=[self.n_a, self.n_a])
             a[0, 1:] = r
