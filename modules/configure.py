@@ -265,7 +265,7 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
-        url = 'http://cab.spbu.ru/files/release3.13.0/SPAdes-3.13.0-Linux.tar.gz'
+        url = 'https://github.com/ablab/spades/releases/download/v3.13.0/SPAdes-3.13.0-Linux.tar.gz'
         logger('Downloading SPAdes-3.13.0 package from {0}'.format(url))
         subprocess.Popen('curl -Lo SPAdes-3.13.0-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging SPAdes-3.13.0-Linux package'.format(url))
