@@ -567,6 +567,40 @@ class mainprocess(object) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
             return 'etoki.fasta', len(snps)
 
+    def get_ave_depth(self, sites, accurate_depth=False) :
+        if not accurate_depth :
+            sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
+        else :
+            glob_depth = np.zeros(65536, dtype=int)
+            for n, s in sites.items() :
+                ss = np.bincount(s)[:65536]
+                glob_depth[:ss.size] += ss
+            total_site = np.sum(glob_depth)
+            acc_site, iv = 0, [-1, -1]
+            for d, c in enumerate(glob_depth) :
+                acc_site += c
+                if acc_site >= 0.25 * total_site and iv[0] < 0 :
+                    iv[0] = d
+                if acc_site >= 0.75 * total_site :
+                    iv[1] = d
+                    break
+            div = max(3, 3*(iv[1] - iv[0]))
+            iv = [iv[0]-div, iv[1]+div]
+            sites = {n:[s.size, np.mean(s[ (iv[0] <= s) & (s <= iv[1]) ]), 0.] for n, s in sites.items() }
+        depth = np.array(list(sites.values()))
+        depth = depth[np.argsort(-depth.T[0])]
+        size = np.sum(depth.T[0])
+        acc = [0, 0]
+        for d in depth :
+            acc[0], acc[1] = acc[0] + d[0], acc[1] + d[0]*d[1]
+            if acc[0] *2 >= size :
+                break
+        ave_depth = acc[1]/acc[0]
+        #for n, s in sorted(sites.items()) :
+        #    s[2] = s[1]/ave_depth
+
+        return sites, ave_depth
+
     def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
             bams = self.__run_minimap('etoki', reference, reads, )
@@ -588,19 +622,11 @@ class mainprocess(object) :
                     part = line.strip().split()
                     if len(part) > 2 and float(part[2]) > 0 :
                         sites[part[0]][int(part[1]) - 1] += float(part[2])
-        sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
-        depth = np.array(list(sites.values()))
-        depth = depth[np.argsort(-depth.T[0])]
-        size = np.sum(depth.T[0])
-        acc = [0, 0]
-        for d in depth :
-            acc[0], acc[1] = acc[0] + d[0], acc[1] + d[0]*d[1]
-            if acc[0] *2 >= size :
-                break
-        ave_depth = acc[1]/acc[0]
+        sites, ave_depth = self.get_ave_depth(sites, parameters['accurate_depth'])
         exp_mut_depth = max(ave_depth * 0.2, 2.)
         for n, s in sorted(sites.items()) :
             s[2] = s[1]/ave_depth
+
         logger('Average read depth: {0}'.format(ave_depth))
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
         with open('etoki.mapping.reference.fasta', 'w') as fout :
@@ -826,6 +852,7 @@ And
     
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
+    parser.add_argument('--accurate_depth', help='A better estimation of read depths in each contig', action='store_true', default=False)
 
     parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1, type=int)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
@@ -843,6 +870,7 @@ And
         args.max_diff = 0.1 if not args.metagenome else 0.05
     if args.metagenome :
         args.reassemble = False
+        args.accurate_depth = True
     if args.numPolish < 0 :
         args.numPolish = 3 if args.pacbio or args.ont else 1
         
