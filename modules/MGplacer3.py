@@ -6,7 +6,7 @@ import theano, theano.tensor as t
 import click, pymc3 as pm
 import logging
 
-ch = logging.StreamHandler()
+ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
 ch.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def readAncestral(fname):
             for id, (cont, site) in enumerate(mat[:, :2]):
                 sites.append([(cont, int(site)), 1. ])
     logger.warning('Read Matrix DONE. Total SNP sites: {0}                '.format(len(sites)))
-    return np.array(sites), nodeNames, np.ascontiguousarray(np.vstack(data).T, dtype=np.int8)
+    return np.array(sites, dtype=object), nodeNames, np.ascontiguousarray(np.vstack(data).T, dtype=np.int8)
 
 
 # read bam file
