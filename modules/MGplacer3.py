@@ -180,7 +180,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
 
     for nGenotype in np.arange(1, maxGenotype + 1):
         logger.warning(
-            '----------\nRunning MCMC with assumption of {0} genotype(s) present in the sample.'.format(nGenotype))
+            '----------  Running MCMC with assumption of {0} genotype(s) present in the sample.'.format(nGenotype))
         ng = np.max([1, nGenotype])
         genotypes = np.zeros([ng, knownMatrix.shape[1]], dtype=np.int8)
         genotypes2 = t._shared(genotypes)
@@ -201,12 +201,12 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props_raw])
-            trace = pm.sample(progressbar=True, draws=10000, tune=15000,
-                              step=[step_br, step_others], chains=8, cores=8,
+            trace = pm.sample(progressbar=True, draws=5000, tune=15000,
+                              step=[step_br, step_others], chains=5, cores=5,
                               compute_convergence_checks=False)
 
         trace_logp = np.array([ np.median([ t['likelihood'] for t in strace ], 0) for strace in trace._straces.values() ])
-        logger.warning('Done.\n----------'.format(nGenotype))
+        logger.warning('Done.'.format(nGenotype))
         # select traces
         trace_id = np.argmax(trace_logp)
         logp = trace_logp[trace_id]
@@ -214,9 +214,9 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         lk = np.sort(lk)
         hd = trace.get_values('hetero_dist', chains=trace_id)
         hd = np.sort(hd)
-
+        logger.info('----------')
         logger.info(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.6f} [ {5:.6f} - {6:.6f} ]'.format(
+            'No. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.6f} [ {5:.6f} - {6:.6f} ]'.format(
                 nGenotype, logp, lk[int(lk.size * 0.025)], lk[int(lk.size * 0.975)],
                 #0., 0., 0.))
                 np.median(hd),            hd[int(hd.size * 0.025)], hd[int(hd.size * 0.975)] ))
