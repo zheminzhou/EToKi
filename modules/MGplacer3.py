@@ -204,9 +204,9 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
         hd = np.sort(hd)
 
         sys.stdout.write(
-            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1:.4E} [ {2:.4E} - {3:.4E} ]\thybrid_score:\t{4:.6E} [ {5:.4E} - {6:.4E} ]\n'.format(
-                nGenotype, logp, lk[int(lk.size * 0.025)], lk[int(lk.size * 0.975)],
-                np.mean(hd),     hd[int(hd.size * 0.025)], hd[int(hd.size * 0.975)] ))
+            '----------\nNo. Genotypes:\t{0}\tlogp:\t{1:.6E} [ {2:.6E} - {3:.6E} ]\thybrid_score:\t{4:.4E} [ {5:.4E} - {6:.4E} ]\n'.format(
+                nGenotype, np.mean(lk), lk[int(lk.size * 0.025)], lk[int(lk.size * 0.975)],
+                np.mean(hd),            hd[int(hd.size * 0.025)], hd[int(hd.size * 0.975)] ))
 
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
