@@ -237,7 +237,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
         logp = trace_logp[trace_id]
         lk = trace.get_values('likelihood', chains=trace_id)
         lk = np.sort(lk)
-        hd = trace.get_values('hetero_dist', chains=trace_id)
+        hd = trace.get_values('hetero_dist', chains=trace_id).ravel()
         hd = np.sort(hd)
         logger.info('----------')
         logger.info(
