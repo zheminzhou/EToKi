@@ -226,7 +226,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props_raw])
-            trace = pm.sample(progressbar=True, draws=5000, tune=15000,
+            trace = pm.sample(progressbar=True, draws=5000, tune=10000,
                               step=[step_br, step_others], chains=5, cores=5,
                               compute_convergence_checks=False)
 
