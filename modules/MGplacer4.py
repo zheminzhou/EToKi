@@ -149,8 +149,8 @@ def remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples) 
 @click.argument('ancestralfile')
 @click.argument('bamfile')
 @click.argument('treefile')
-@click.argument('maxgenotype', type=int, default=3)
-def main(ancestralfile, bamfile, treefile, maxgenotype=3):
+@click.argument('maxgenotype', type=int, default=2)
+def main(ancestralfile, bamfile, treefile, maxgenotype):
     maxGenotype = maxgenotype
     # prepare data: noticing sites, tree, and sample traces
     knownSites, knownNodes, knownMatrix = readAncestral(ancestralfile)
@@ -205,7 +205,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype=3):
     inferredHeterogeneity = np.zeros(1, dtype=float)
     inferredHeterogeneity2 = t._shared(inferredHeterogeneity)
 
-    for nGenotype in np.arange(2, maxGenotype + 1):
+    for nGenotype in np.arange(1, maxGenotype + 1):
         logger.warning(
             '----------  Running MCMC with assumption of {0} genotype(s) present in the sample.'.format(nGenotype))
         ng = np.max([1, nGenotype])
@@ -315,7 +315,7 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
                 encodeType[gId, -2] = -2147483647.
-        encodeType[:, -1] = np.exp(encodeType[:, -2] - np.max(encodeType[:-2]))
+        encodeType[:, -1] = np.exp(encodeType[:, -2] - np.max(encodeType[:, -2]))
         encodeType[:, -1] = encodeType[:, -1]/np.sum(encodeType[:, -1])
     for gId in range(encodeType.shape[0]) :
         if encodeType[gId, -1] > 0 :
