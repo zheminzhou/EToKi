@@ -6,6 +6,8 @@ import theano, theano.tensor as t
 import click, pymc3 as pm
 import logging
 
+theano.gof.compilelock.set_lock_status(False)
+
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
 ch.setLevel(logging.INFO)
@@ -217,7 +219,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
             props_raw = pm.Dirichlet('props_raw', a=np.ones(ng, dtype=float)) \
                 if ng > 1 else pm.DiscreteUniform('props_raw', upper=1, lower=1)
 
-            props = pm.Deterministic('props', props_raw*(1-0.01*ng) + 0.01)
+            props = pm.Deterministic('props', props_raw*1.0) #*(1-0.01*ng) + 0.01)
             sigma = pm.Gamma('sigma', alpha=1, beta=0.1, testval=1.)
 
             lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
@@ -229,7 +231,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props_raw])
             trace = pm.sample(progressbar=True, draws=4000, tune=4000*ng,
-                              step=[step_br, step_others], chains=5, cores=5, return_inferencedata=False,
+                              step=[step_br, step_others], chains=8, cores=8, return_inferencedata=False,
                               compute_convergence_checks=False)
 
         trace_logp = np.array([ np.median([ t['likelihood'] for t in strace ], 0) for strace in trace._straces.values() ])
@@ -245,7 +247,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
         hd = np.sort(hd)
         logger.info('----------')
         logger.info(
-            'No. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.6f}\t{5:.6f}'.format(
+            'No. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.8f}\t{5:.8f}'.format(
                 nGenotype, logp, lk[int(lk.size * 0.025)], lk[int(lk.size * 0.975)],
                 #0., 0., 0.))
                 np.median(ad), np.median(hd) ))
@@ -317,9 +319,10 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
 
                 encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
                 encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                p = 1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -5]/sigma)**2.)
+                p = 0.8*np.log(1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -5]/sigma)**2.))
+                p += 0.2*np.log(1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -4]/sigma)**2.))
                 #p = 0.5/sigma * np.exp(-encodeType[gId, -5]/sigma)
-                p = w[0]*np.log(p)
+                p = w[0]*p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
                 encodeType[gId, -2] = -2147483647.
@@ -332,7 +335,7 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 break
             else :
                 r -= encodeType[gId, -1]
-    return encodeType[ret, -2], encodeType[ret, -5]*w[0], (encodeType[ret, -4]*w[0] if w[1] > 1 else 0.)
+    return encodeType[ret, -2], np.square(encodeType[ret, -5])*w[0], (np.square(encodeType[ret, -4])*w[0] if w[1] > 1 else 0.)
 
 @nb.njit(fastmath=True, cache=True)
 def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, props, sigma, encodeType, cache,
@@ -355,7 +358,7 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
         lglk += lglk2
         inferredHeterogeneity[0] += ih1
         inferredHeterogeneity[1] += ih2
-    inferredHeterogeneity[:] /= np.sum(weights[0])
+    inferredHeterogeneity[:] = np.sqrt(inferredHeterogeneity)/np.sum(weights[0])
     return lglk
 
 @theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dvector, t.dvector, t.bvector], otypes=[t.dscalar])
