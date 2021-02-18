@@ -202,7 +202,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
     weights2 = t._shared(weights)
     knownMatrix2 = t._shared(knownMatrix)
     knownSamples2 = t._shared(knownSamples)
-    inferredHeterogeneity = np.zeros(1, dtype=float)
+    inferredHeterogeneity = np.zeros(2, dtype=float)
     inferredHeterogeneity2 = t._shared(inferredHeterogeneity)
 
     for nGenotype in np.arange(1, maxGenotype + 1):
@@ -228,8 +228,8 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props_raw])
-            trace = pm.sample(progressbar=True, draws=5000, tune=10000,
-                              step=[step_br, step_others], chains=5, cores=5,
+            trace = pm.sample(progressbar=True, draws=4000, tune=4000*ng,
+                              step=[step_br, step_others], chains=5, cores=5, return_inferencedata=False,
                               compute_convergence_checks=False)
 
         trace_logp = np.array([ np.median([ t['likelihood'] for t in strace ], 0) for strace in trace._straces.values() ])
@@ -239,14 +239,16 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
         logp = trace_logp[trace_id]
         lk = trace.get_values('likelihood', chains=trace_id)
         lk = np.sort(lk)
-        hd = trace.get_values('hetero_dist', chains=trace_id).ravel()
+        ad = trace.get_values('hetero_dist', chains=trace_id).T[0]
+        ad = np.sort(ad)
+        hd = trace.get_values('hetero_dist', chains=trace_id).T[1]
         hd = np.sort(hd)
         logger.info('----------')
         logger.info(
-            'No. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.6f} [ {5:.6f} - {6:.6f} ]'.format(
+            'No. Genotypes:\t{0}\tlogp:\t{1:.2f} [ {2:.2f} - {3:.2f} ]\thybrid_score:\t{4:.6f}\t{5:.6f}'.format(
                 nGenotype, logp, lk[int(lk.size * 0.025)], lk[int(lk.size * 0.975)],
                 #0., 0., 0.))
-                np.median(hd),            hd[int(hd.size * 0.025)], hd[int(hd.size * 0.975)] ))
+                np.median(ad), np.median(hd) ))
 
         sigma = trace.get_values('sigma', chains=trace_id)
         sigma = np.sort(sigma)
@@ -294,7 +296,6 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
             lId = (gId >> bId) & 1
             cache[bId] = branchEnd[bId, lId]
             xId = (xId << 2) + branchEnd[bId, lId]
-            #genotype[gId, bId] = branchEnd[bId, lId]
 
             if lId == 1 :
                 p *= loc[bId]
@@ -313,10 +314,11 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 cache[:] = 0.
                 for bId in range(props.size) :
                     cache[int(encodeType[gId, bId])] += props[bId]
-                p = 1.
-                encodeType[gId, -4] = np.sum(np.abs(np.sort(-cache)-np.sort(-sample)))
-                for bId in range(sample.size) :
-                    p *= 1/(sigma*(2*3.1415926)**0.5)*np.exp(-0.5*((cache[bId]-sample[bId])/sigma)**2)
+
+                encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
+                encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
+                p = 1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -5]/sigma)**2.)
+                #p = 0.5/sigma * np.exp(-encodeType[gId, -5]/sigma)
                 p = w[0]*np.log(p)
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
@@ -330,7 +332,7 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 break
             else :
                 r -= encodeType[gId, -1]
-    return encodeType[ret, -2], encodeType[ret, -4]*w[0] if w[1] > 1 else 0.
+    return encodeType[ret, -2], encodeType[ret, -5]*w[0], (encodeType[ret, -4]*w[0] if w[1] > 1 else 0.)
 
 @nb.njit(fastmath=True, cache=True)
 def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, props, sigma, encodeType, cache,
@@ -349,10 +351,11 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
         # list all possible nucleotide combinations
         if p == 0 :
             greedyType(encodeType, branchEnds[i], loc, gN, cache)
-        lglk2, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache)
+        lglk2, ih1, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache)
         lglk += lglk2
-        inferredHeterogeneity[0] += ih2
-    inferredHeterogeneity[0] /= np.sum(weights[0])
+        inferredHeterogeneity[0] += ih1
+        inferredHeterogeneity[1] += ih2
+    inferredHeterogeneity[:] /= np.sum(weights[0])
     return lglk
 
 @theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dvector, t.dvector, t.bvector], otypes=[t.dscalar])
@@ -360,7 +363,7 @@ def getGenotypesAndLK2(inferredHeterogeneity, knownMatrix, branches, weights, kn
     br = brs.astype(int)
     loc = brs - br
     branchEnds = knownMatrix[branches[br, :2].astype(int)].transpose(2,0,1)
-    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+4], dtype=float) # 2 bits for each genotype. A:00 C:01 G:10 T:11
+    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+5], dtype=float) # 2 bits for each genotype. A:00 C:01 G:10 T:11
     lk = getTypes(inferredHeterogeneity, branchEnds, knownSamples,
              weights, loc, props, sigma,
              encodeType, np.zeros(4, dtype=float), np.random.rand(branchEnds.shape[0]), pattern)
@@ -372,7 +375,7 @@ def getGenotypesAndLK1(inferredHeterogeneity, knownMatrix, branches, weights, kn
     loc = brs.reshape(1) - br
     props = np.array([props])
     branchEnds = knownMatrix[branches[br, :2].astype(int)].transpose(2,0,1)
-    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+4], dtype=float)
+    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+5], dtype=float)
     lk = getTypes(inferredHeterogeneity, branchEnds, knownSamples,
              weights, loc, props, sigma,
              encodeType, np.zeros(4, dtype=float), np.random.rand(branchEnds.shape[0]), pattern)
