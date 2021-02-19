@@ -219,7 +219,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype):
             props_raw = pm.Dirichlet('props_raw', a=np.ones(ng, dtype=float)) \
                 if ng > 1 else pm.DiscreteUniform('props_raw', upper=1, lower=1)
 
-            props = pm.Deterministic('props', props_raw*1.0) #*(1-0.01*ng) + 0.01)
+            props = pm.Deterministic('props', props_raw*(1.-0.02*ng) + 0.02)
             sigma = pm.Gamma('sigma', alpha=1, beta=0.1, testval=1.)
 
             lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
@@ -310,6 +310,10 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
 @nb.njit(fastmath=True, cache=True)
 def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
     ret = -1
+    p2 = np.sum(np.log(props)*props)
+    p2 += np.log(1./(sigma*(2.*3.1415926)**0.5))
+    #p2 += np.log(0.5/sigma)
+
     if stage <= 1 :
         for gId in range(encodeType.shape[0]) :
             if encodeType[gId, -3] > 0 :
@@ -319,10 +323,9 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
 
                 encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
                 encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                p = 0.8*np.log(1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -5]/sigma)**2.))
-                p += 0.2*np.log(1./(sigma*(2.*3.1415926)**0.5)*np.exp(-0.5*(encodeType[gId, -4]/sigma)**2.))
-                #p = 0.5/sigma * np.exp(-encodeType[gId, -5]/sigma)
-                p = w[0]*p
+                p = p2 - 0.5*(0.8*(encodeType[gId, -5]**2) + 0.2*(encodeType[gId, -5]**2))/(sigma**2.)
+                # p = p2 - (0.8*encodeType[gId, -5] + 0.2*encodeType[gId, -4])/sigma
+                p = w[0] * p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
                 encodeType[gId, -2] = -2147483647.
@@ -358,7 +361,7 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
         lglk += lglk2
         inferredHeterogeneity[0] += ih1
         inferredHeterogeneity[1] += ih2
-    inferredHeterogeneity[:] = np.sqrt(inferredHeterogeneity)/np.sum(weights[0])
+    inferredHeterogeneity[:] = np.sqrt(inferredHeterogeneity/np.sum(weights[0]))
     return lglk
 
 @theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dvector, t.dvector, t.bvector], otypes=[t.dscalar])
