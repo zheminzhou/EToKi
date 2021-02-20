@@ -310,9 +310,6 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
 @nb.njit(fastmath=True, cache=True)
 def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
     ret = -1
-    p2 = np.sum(np.log(props)*props)
-    # p2 += np.log(1./(sigma*(2.*3.1415926)**0.5))
-    p2 += np.log(0.5/sigma)
 
     if stage <= 1 :
         for gId in range(encodeType.shape[0]) :
@@ -320,11 +317,10 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 cache[:] = 0.
                 for bId in range(props.size) :
                     cache[int(encodeType[gId, bId])] += props[bId]
-
                 encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
                 encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                #p = p2 - 0.5*(1.*(encodeType[gId, -5]**2) + 0.2*(encodeType[gId, -5]**2))/(sigma**2.)
-                p = p2 - (0.8*encodeType[gId, -5] + 0.2*encodeType[gId, -4])/sigma
+                p = np.sum(np.log(cache)*cache) + np.log(1./(sigma*(2.*3.1415926)**0.5)) - 0.5*(.5*(encodeType[gId, -5]**2) + .5*(encodeType[gId, -5]**2))/(sigma**2.)
+                # p = np.sum(np.log(cache)*cache) + np.log(0.5/sigma) - (0.8*encodeType[gId, -5] + 0.2*encodeType[gId, -4])/sigma
                 p = w[0] * p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
