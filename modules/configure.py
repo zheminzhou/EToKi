@@ -1,12 +1,14 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 from datetime import datetime
-from _collections import OrderedDict
+#from _collections import OrderedDict
 
 if sys.version_info[0] < 3:
+    from collections import OrderedDict
     xrange = xrange
     from cStringIO import StringIO
     asc2int = np.uint8
 else :
+    from _collections import OrderedDict
     from io import StringIO
     xrange = range
     asc2int = np.uint32
