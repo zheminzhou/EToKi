@@ -319,8 +319,8 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                     cache[int(encodeType[gId, bId])] += props[bId]
                 encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
                 encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                p = np.sum(np.log(cache)*cache) + np.log(1./(sigma*(2.*3.1415926)**0.5)) - 0.5*(.5*(encodeType[gId, -5]**2) + .5*(encodeType[gId, -5]**2))/(sigma**2.)
-                # p = np.sum(np.log(cache)*cache) + np.log(0.5/sigma) - (0.8*encodeType[gId, -5] + 0.2*encodeType[gId, -4])/sigma
+                p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(1./(sigma*(2.*3.1415926)**0.5)) - 0.5*(.5*(encodeType[gId, -5]**2) + .5*(encodeType[gId, -5]**2))/(sigma**2.)
+                # p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(0.5/sigma) - (0.8*encodeType[gId, -5] + 0.2*encodeType[gId, -4])/sigma
                 p = w[0] * p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
