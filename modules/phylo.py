@@ -385,7 +385,7 @@ def read_matrix(fname) :
         snps.append( [len(snps), float(inv[1]), b_key, 0] )
     for snp in snps :
         snp[1] = np.ceil(snp[1])
-    return names, sites, np.array(snps), np.array(seqLens, dtype=object), np.array(missing, dtype=object)
+    return names, sites, np.array(snps, dtype=object), np.array(seqLens, dtype=object), np.array(missing, dtype=object)
 
 def read_ancestor(fname, names, snps) :
     snp_array = np.array([snp[2] for snp in snps]).T
