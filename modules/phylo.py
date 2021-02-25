@@ -663,7 +663,7 @@ def run_rapidnj(prefix, fastafile, invariants) :
 def run_raxml_ng(prefix, fastafile, invariants) :
     cnt = sum(invariants.values())
     inv = [invariants[65], invariants[67], invariants[71], invariants[84], ]
-    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-7 --blopt nr_safe --tree pars{{3}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), **externals)
+    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --blopt nr_safe --tree pars{{3}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile+'.raxml.bestTree', format=0)
