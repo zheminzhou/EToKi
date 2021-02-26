@@ -226,7 +226,7 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
                 if nGenotype > 1 \
                 else pm.DiscreteUniform('props_raw', upper=1, lower=1, testval=init_vals['props_raw'][0] )
 
-            props = pm.Deterministic('props', props_raw*(1.-0.02*nGenotype) + 0.02)
+            props = pm.Deterministic('props', props_raw*(1.-0.0*nGenotype) + 0.0)
             sigma = pm.Gamma('sigma', alpha=1, beta=0.1, testval=init_vals['sigma'] )
 
             lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
@@ -237,7 +237,7 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
 
             step_br = TreeWalker(brs, branches)
             step_others = pm.step_methods.Metropolis(vars=[sigma, props_raw])
-            trace = pm.sample(progressbar=True, draws=4000, tune=4000*nGenotype,
+            trace = pm.sample(progressbar=True, draws=5000, tune=5000*nGenotype,
                               step=[step_br, step_others], chains=8, cores=8, return_inferencedata=False,
                               compute_convergence_checks=False)
 
@@ -254,7 +254,7 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
             ls = {'brs':trace.get_values('brs', chains=trace_id)[-1],
                    'props_raw':trace.get_values('props_raw', chains=trace_id)[-1],
                    'sigma':trace.get_values('sigma', chains=trace_id)[-1]}
-        init_vals = {'brs':np.concatenate([ ls['brs'], [ls['brs'][np.argmax(ls['props_raw'])]] ]),
+        init_vals = {'brs':np.concatenate([ ls['brs'], np.random.rand(1)*branches.shape[0] ]),
                        'props_raw':np.concatenate([ls['props_raw'], [0.5]])/(0.5+np.sum(ls['props_raw'])),
                        'sigma':ls['sigma']}
 
@@ -337,12 +337,10 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                 cache[:] = 0.
                 for bId in range(props.size) :
                     cache[int(encodeType[gId, bId])] += props[bId]
-                encodeType[gId, -5] = np.sqrt(np.sum(np.square(cache-sample)))
-                encodeType[gId, -4] = np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(1./(sigma*(2.*3.1415926)**0.5)) \
+                encodeType[gId, -5] = np.sum(np.abs(cache-sample)) #np.sqrt(np.sum(np.square(cache-sample)))
+                encodeType[gId, -4] = np.sum(np.abs(np.sort(-cache)-np.sort(-sample))) #np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
+                p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(1./(sigma*2.506628275)) \
                     - .5*((1-rec_level)*(encodeType[gId, -5]**2) + rec_level*(encodeType[gId, -4]**2))/(sigma**2.)
-                #p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(0.5/sigma) \
-                #    - ((1-rec_level)*encodeType[gId, -5] + rec_level*encodeType[gId, -4])/sigma
                 p = w[0] * p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
             else :
@@ -473,7 +471,7 @@ class TreeWalker(pm.step_methods.Metropolis):
             if self.accepted / 100. > 0.2:
                 self.scaling = np.min([self.scaling * 1.5, 1000.])
             elif self.accepted / 100. <= 0.05:
-                self.scaling = np.max([self.scaling / 1.5, 1.])
+                self.scaling = np.max([self.scaling / 1.5, 10.])
             self.accepted = 0
 
         stats = {
