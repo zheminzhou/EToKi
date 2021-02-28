@@ -203,10 +203,11 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
     logger.warning('Found {0} SNP patterns and {1} read patterns from {2} SNP sites'.format(
         matrix_pattern, sample_pattern+matrix_pattern, knownSites.shape[0]))
 
+    brMatrix = np.array([knownMatrix[int(br[0])] + knownMatrix[int(br[1])]*4 for br in branches ], dtype=np.int8)
     patterns2 = t._shared(patterns)
-    branches2 = t._shared(branches)
+    #branches2 = t._shared(branches)
     weights2 = t._shared(weights)
-    knownMatrix2 = t._shared(knownMatrix)
+    brMatrix2 = t._shared(brMatrix)
     knownSamples2 = t._shared(knownSamples)
     inferredHeterogeneity = np.zeros(2, dtype=float)
     inferredHeterogeneity2 = t._shared(inferredHeterogeneity)
@@ -229,8 +230,8 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
             props = pm.Deterministic('props', props_raw*(1.-0.0*nGenotype) + 0.0)
             sigma = pm.Gamma('sigma', alpha=1., beta=1., testval=init_vals['sigma'] )
 
-            lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
-                                                          branches2, weights2, knownSamples2, \
+            lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, brMatrix2, \
+                                                          weights2, knownSamples2, \
                                                           sigma, brs, props, patterns2))
             pm.Deterministic('hetero_dist', inferredHeterogeneity2)
             pm.Potential('likelihood', lk)
@@ -315,8 +316,9 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
         xId = 0
         for bId in range(branchEnd.shape[0]) :
             lId = (gId >> bId) & 1
-            cache[bId] = branchEnd[bId, lId]
-            xId = (xId << 2) + branchEnd[bId, lId]
+            be = (branchEnd[bId] >> (lId << 1)) & 3
+            cache[bId] = be
+            xId = (xId << 2) + be
 
             if lId == 1 :
                 p *= loc[bId]
@@ -324,11 +326,16 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
                 p *= 1. - loc[bId]
         genotype[xId, -3] += p
         genotype[xId, :branchEnd.shape[0]] = cache[:branchEnd.shape[0]]
-    return
+    combs = np.sort(branchEnd)
+    n_comb = 1
+    for i in np.arange(1, combs.shape[0]):
+        if combs[i] != combs[i - 1]:
+            n_comb += 1
+    return n_comb
 
 rec_level = 0.
 @nb.njit(fastmath=True, cache=True)
-def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache, n_comb=1) :
+def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache, n_comb) :
     ret = -1
     if stage <= 1 :
         p2 = np.log(1./n_comb)
@@ -357,14 +364,13 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache, n_comb=1) :
     return encodeType[ret, -2], np.square(encodeType[ret, -5])*w[0], (np.square(encodeType[ret, -4])*w[0] if w[1] > 1 else 0.)
 
 @nb.njit(fastmath=True, cache=True)
-def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, props, sigma, encodeType, cache,
-             rands, pattern) :
-    inferredHeterogeneity[0] = 0.
+def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, props, sigma, rands, pattern) :
+    cache = np.zeros((4,), dtype=np.float64)
+    encodeType = np.zeros((4 ** branchEnds.shape[1], branchEnds.shape[1] + 5),
+                          dtype=np.float64)  # 2 bits for each genotype. A:00 C:01 G:10 T:11
+    inferredHeterogeneity[:] = 0.
     gN = 2**branchEnds.shape[1] # two (ancestral or derived) possibles for each genotype
     lglk = 0.
-    xend = np.zeros((branchEnds.shape[0], branchEnds.shape[1]), dtype=np.int16)
-    for i in np.arange(branchEnds.shape[1]) :
-        xend[:, i] = branchEnds[:, i, 0]*4 + branchEnds[:, i, 1]
     for i in range(branchEnds.shape[0]) :
         p = pattern[i]
         if i > 0 and p < 2 :
@@ -375,43 +381,41 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
 
         # list all possible nucleotide combinations
         if p == 0 :
-            greedyType(encodeType, branchEnds[i], loc, gN, cache)
-        lglk2, ih1, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache, np.unique(xend[i]).size )
+            n_comb = greedyType(encodeType, branchEnds[i], loc, gN, cache)
+        lglk2, ih1, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache, n_comb)
         lglk += lglk2
         inferredHeterogeneity[0] += ih1
         inferredHeterogeneity[1] += ih2
     inferredHeterogeneity[:] = np.sqrt(inferredHeterogeneity/np.sum(weights[0]))
     return lglk
 
-@theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dvector, t.dvector, t.bvector], otypes=[t.dscalar])
-def getGenotypesAndLK2(inferredHeterogeneity, knownMatrix, branches, weights, knownSamples, sigma, brs, props, pattern) :
+@theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dvector, t.dvector, t.bvector], otypes=[t.dscalar])
+def getGenotypesAndLK2(inferredHeterogeneity, brMatrix, weights, knownSamples, sigma, brs, props, pattern) :
     br = brs.astype(int)
     loc = brs - br
-    branchEnds = knownMatrix[branches[br, :2].astype(int)].transpose(2,0,1)
-    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+5], dtype=float) # 2 bits for each genotype. A:00 C:01 G:10 T:11
+    branchEnds = brMatrix[br].T
     lk = getTypes(inferredHeterogeneity, branchEnds, knownSamples,
              weights, loc, props, sigma,
-             encodeType, np.zeros(4, dtype=float), np.random.rand(branchEnds.shape[0]), pattern)
+             np.random.rand(branchEnds.shape[0]), pattern)
     return np.array(lk)
 
-@theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dscalar, t.dscalar, t.bvector], otypes=[t.dscalar])
-def getGenotypesAndLK1(inferredHeterogeneity, knownMatrix, branches, weights, knownSamples, sigma, brs, props, pattern) :
+@theano.compile.ops.as_op(itypes=[t.dvector, t.bmatrix, t.dmatrix, t.dmatrix, t.dscalar, t.dscalar, t.dscalar, t.bvector], otypes=[t.dscalar])
+def getGenotypesAndLK1(inferredHeterogeneity, brMatrix, weights, knownSamples, sigma, brs, props, pattern) :
     br = brs.reshape(1).astype(int)
     loc = brs.reshape(1) - br
     props = np.array([props])
-    branchEnds = knownMatrix[branches[br, :2].astype(int)].transpose(2,0,1)
-    encodeType = np.zeros([4**branchEnds.shape[1], branchEnds.shape[1]+5], dtype=float)
+    branchEnds = brMatrix[br].T
     lk = getTypes(inferredHeterogeneity, branchEnds, knownSamples,
              weights, loc, props, sigma,
-             encodeType, np.zeros(4, dtype=float), np.random.rand(branchEnds.shape[0]), pattern)
+             np.random.rand(branchEnds.shape[0]), pattern)
     return np.array(lk)
 
-def getGenotypesAndLK(inferredHeterogeneity, knownMatrix, branches, weights, knownSamples,
+def getGenotypesAndLK(inferredHeterogeneity, brMatrix, weights, knownSamples,
                       sigma, brs, props, patterns) :
-    return getGenotypesAndLK2(inferredHeterogeneity, knownMatrix, branches, weights, knownSamples,
+    return getGenotypesAndLK2(inferredHeterogeneity, brMatrix, weights, knownSamples,
                               sigma, brs, props, patterns) \
         if brs.type == t.dvector \
-        else getGenotypesAndLK1(inferredHeterogeneity, knownMatrix, branches, weights, knownSamples,
+        else getGenotypesAndLK1(inferredHeterogeneity, brMatrix, weights, knownSamples,
                                 sigma, brs, props, patterns)
 
 @theano.compile.ops.as_op(itypes=[t.bvector, t.bvector, t.dmatrix], otypes=[t.dscalar])
