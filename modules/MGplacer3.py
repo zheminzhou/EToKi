@@ -227,7 +227,7 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
                 else pm.DiscreteUniform('props_raw', upper=1, lower=1, testval=init_vals['props_raw'][0] )
 
             props = pm.Deterministic('props', props_raw*(1.-0.0*nGenotype) + 0.0)
-            sigma = pm.Gamma('sigma', alpha=1, beta=0.1, testval=init_vals['sigma'] )
+            sigma = pm.Gamma('sigma', alpha=1., beta=1., testval=init_vals['sigma'] )
 
             lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
                                                           branches2, weights2, knownSamples2, \
@@ -326,12 +326,12 @@ def greedyType(genotype, branchEnd, loc, gN, cache) :
         genotype[xId, :branchEnd.shape[0]] = cache[:branchEnd.shape[0]]
     return
 
-rec_level = 0.2
+rec_level = 0.
 @nb.njit(fastmath=True, cache=True)
-def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
+def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache, n_comb=1) :
     ret = -1
-
     if stage <= 1 :
+        p2 = np.log(1./n_comb)
         for gId in range(encodeType.shape[0]) :
             if encodeType[gId, -3] > 0 :
                 cache[:] = 0.
@@ -339,7 +339,7 @@ def gibbsType(encodeType, sample, props, sigma, w, r, stage, cache) :
                     cache[int(encodeType[gId, bId])] += props[bId]
                 encodeType[gId, -5] = np.sum(np.abs(cache-sample)) #np.sqrt(np.sum(np.square(cache-sample)))
                 encodeType[gId, -4] = np.sum(np.abs(np.sort(-cache)-np.sort(-sample))) #np.sqrt(np.sum(np.square(np.sort(-cache)-np.sort(-sample))))
-                p = np.sum(np.log(cache[cache>0])*cache[cache>0]) + np.log(1./(sigma*2.506628275)) \
+                p = p2 + np.log(1./(sigma*2.506628275)) \
                     - .5*((1-rec_level)*(encodeType[gId, -5]**2) + rec_level*(encodeType[gId, -4]**2))/(sigma**2.)
                 p = w[0] * p
                 encodeType[gId, -2] = p + np.log(encodeType[gId, -3])
@@ -362,6 +362,9 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
     inferredHeterogeneity[0] = 0.
     gN = 2**branchEnds.shape[1] # two (ancestral or derived) possibles for each genotype
     lglk = 0.
+    xend = np.zeros((branchEnds.shape[0], branchEnds.shape[1]), dtype=np.int16)
+    for i in np.arange(branchEnds.shape[1]) :
+        xend[:, i] = branchEnds[:, i, 0]*4 + branchEnds[:, i, 1]
     for i in range(branchEnds.shape[0]) :
         p = pattern[i]
         if i > 0 and p < 2 :
@@ -373,7 +376,7 @@ def getTypes(inferredHeterogeneity, branchEnds, knownSamples, weights, loc, prop
         # list all possible nucleotide combinations
         if p == 0 :
             greedyType(encodeType, branchEnds[i], loc, gN, cache)
-        lglk2, ih1, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache)
+        lglk2, ih1, ih2 = gibbsType(encodeType, knownSamples[i], props, sigma, weights.T[i], rands[i], p, cache, np.unique(xend[i]).size )
         lglk += lglk2
         inferredHeterogeneity[0] += ih1
         inferredHeterogeneity[1] += ih2
