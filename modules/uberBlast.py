@@ -1,4 +1,4 @@
-import os, sys, tempfile, time, shutil, numpy as np, pandas as pd, re
+import os, sys, tempfile, shutil, numpy as np, pandas as pd, re
 from numba import jit
 from subprocess import Popen, PIPE
 from multiprocessing.pool import ThreadPool, Pool

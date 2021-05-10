@@ -166,7 +166,7 @@ def write_phylip(prefix, names, snps) :
     return prefix+'.phy' , prefix + '.phy.weight', asc_file, invariants
 
 def write_phylips(prefix, names, snps, n_split=4) :
-    snp_expended = [ i for i, snp in enumerate(snps) for x in range(snp[1]) ]
+    snp_expended = [ i for i, snp in enumerate(snps) for x in range(int(snp[1])) ]
     snp_expended = [ np.unique(snp_expended[i::n_split], return_counts=True) for i in range(n_split) ]
     outputs = []
     for split_idx, (snp_idx, snp_weight) in enumerate(snp_expended) :
