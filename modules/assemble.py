@@ -404,8 +404,8 @@ class mainprocess(object) :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2}'.format(lib_id+1, lib[0], lib[1]))
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
-        cmd = '{spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
-              spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
+        cmd = '{python} {spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
+              python=sys.executable, spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
