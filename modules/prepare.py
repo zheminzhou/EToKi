@@ -42,7 +42,7 @@ class preprocess(object) :
             if len(library_file.get('PE', [])) :
                 Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['PE'][0]), shell=True).wait()
                 Popen('cat {0} > {1}'.format(' '.join([run[1] for run in library]), library_file['PE'][1]), shell=True).wait()
-                if parameters['repair'] :
+                if 1: #parameters['repair'] :
                     library_file2 = {'PE':['{0}.1.{1}.x.fastq.gz'.format(prefix, lib_id), '{0}.1.{1}.y.fastq.gz'.format(prefix, lib_id)]}
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={0} out2={1}'.format(*library_file2['PE'])
