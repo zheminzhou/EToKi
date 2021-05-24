@@ -67,7 +67,7 @@ class preprocess(object) :
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={0} outu1={1} outu2={2}'.format(library_file2['MP'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
-                        Popen('{bbmerge} -Xmx{memory} threads=8 loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
+                        Popen('{bbmerge} -Xmx{memory} threads=8 ordered=t loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
                             read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
@@ -90,7 +90,7 @@ class preprocess(object) :
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={1} out2={2} outs={0}'.format(library_file2['SE'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
-                        Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
+                        Popen('{bbduk} -Xmx{memory} threads=8 ordered=t ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
                             read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
@@ -114,7 +114,7 @@ class preprocess(object) :
                 outputs = 'out=' + library_file2['SE'][0]
 
                 bb_run, bb_out = monitor_proc(
-                    Popen('{bbduk} -Xmx{memory} threads=8 ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
+                    Popen('{bbduk} -Xmx{memory} threads=8 ordered=t ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
                         read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                 )
                 if bb_run.returncode == 0 :
@@ -238,17 +238,22 @@ def prepare(args) :
     for lib_id, libary in enumerate(reads) :
         for lib_type, lib in libary.items() :
             for r_id, read in enumerate(lib) :
-                if lib_type == 'SE' :
-                    new_read = '{0}_L{1}_SE.fastq.gz'.format(parameters['prefix'], lib_id+1)
-                elif lib_type == 'MP' :
-                    new_read = '{0}_L{1}_MP.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                if os.path.isfile(read) :
+                    if lib_type == 'SE' :
+                        new_read = '{0}_L{1}_SE.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                    elif lib_type == 'MP' :
+                        new_read = '{0}_L{1}_MP.fastq.gz'.format(parameters['prefix'], lib_id+1)
+                    else :
+                        new_read = '{0}_L{1}_R{2}.fastq.gz'.format(parameters['prefix'], lib_id+1, r_id+1)
+                    lib[r_id] = new_read
+                    os.rename(read, new_read)
                 else :
-                    new_read = '{0}_L{1}_R{2}.fastq.gz'.format(parameters['prefix'], lib_id+1, r_id+1)
-                lib[r_id] = new_read
-                os.rename(read, new_read)
+                    lib[r_id] = None
     report = []
     for libary in reads :
         for lib_type, lib in libary.items() :
+            if any(lib) == None :
+                continue
             if lib_type == 'PE' : 
                 report.extend(['--pe', '{0},{1}'.format(*lib)])
             else :
@@ -271,7 +276,7 @@ EToKi.py prepare
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_prepare', default='EToKi_prepare')
     parser.add_argument('-q', '--read_qual', help='Minimum quality to be kept in bbduk. Default: 6', type=int, default=6)
     parser.add_argument('-b', '--max_base', help='Total amount of bases (in BPs) to be kept. \nDefault as -1 for no restriction. \nSuggest to use ~100X coverage for de novo assembly.', type=int, default=-1)
-    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 30g', default='30g')
+    parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 20g', default='20g')
     parser.add_argument('--noTrim', help='Do not do quality trim using bbduk', action='store_true', default=False)
     parser.add_argument('--merge', help='Try to merge PE reads by their overlaps using bbmap', action='store_true', default=False)
     parser.add_argument('--noRename', help='Do not rename reads', action='store_true', default=False)

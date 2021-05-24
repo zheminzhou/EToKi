@@ -1,6 +1,5 @@
 import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
 from datetime import datetime
-#from _collections import OrderedDict
 
 if sys.version_info[0] < 3:
     from collections import OrderedDict
@@ -205,7 +204,7 @@ def download_krakenDB() :
     if not os.path.exists('minikraken2') :
         os.makedirs('minikraken2')
     os.chdir(os.path.join(moveTo, 'minikraken2'))
-    minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/minikraken2_v2_8GB_201904_UPDATE.tgz'
+    minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_v2_8GB_201904.tgz'
     logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))    
     subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
     logger('Unpackaging minikraken2.')
@@ -221,14 +220,19 @@ def install_externals() :
     moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
     os.chdir(moveTo)
 
+    if not getExecutable(['java']) :
+        logger('You have not installed Java runtime. Please install it first. ')
+        sys.exit(1)
+
     if not getExecutable([externals['raxml_ng']]) :
-        url = 'https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip'
+        #url = 'https://github.com/amkozlov/raxml-ng/releases/download/0.9.0/raxml-ng_v0.9.0_linux_x86_64.zip'
+        url = 'https://github.com/amkozlov/raxml-ng/releases/download/1.0.1/raxml-ng_v1.0.1_linux_x86_64.zip'
         logger('Downloading raxml-ng package from {0}'.format(url))
-        subprocess.Popen('curl -Lo raxml-ng_v0.9.0_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging raxml-ng package'.format(url))
-        subprocess.Popen('unzip raxml-ng_v0.9.0_linux_x86_64.zip -d raxml-ng_v0.9.0'.split()).communicate()
-        subprocess.Popen('ln -fs raxml-ng_v0.9.0/raxml-ng ./raxml-ng'.format(url).split(), stderr=subprocess.PIPE).communicate()
-        os.unlink('raxml-ng_v0.9.0_linux_x86_64.zip')
+        subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split()).communicate()
+        subprocess.Popen('ln -fs raxml-ng_v1.0.1/raxml-ng ./raxml-ng'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('raxml-ng_v1.0.1_linux_x86_64.zip')
         logger('Done\n')
 
     if not getExecutable(externals['pilon'].split()) :
@@ -259,7 +263,7 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
-        url = 'http://cab.spbu.ru/files/release3.13.0/SPAdes-3.13.0-Linux.tar.gz'
+        url = 'https://github.com/ablab/spades/releases/download/v3.13.0/SPAdes-3.13.0-Linux.tar.gz'
         logger('Downloading SPAdes-3.13.0 package from {0}'.format(url))
         subprocess.Popen('curl -Lo SPAdes-3.13.0-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging SPAdes-3.13.0-Linux package'.format(url))
@@ -353,16 +357,26 @@ def install_externals() :
         logger('Unpackaging kraken2 package')
         subprocess.Popen('tar -xzf v2.0.7-beta.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         os.unlink('v2.0.7-beta.tar.gz')
-        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', shell=True).communicate()
+        subprocess.Popen('cd kraken2-2.0.7-beta && bash install_kraken2.sh ./', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
         subprocess.Popen('ln -fs kraken2-2.0.7-beta/kraken2 ./kraken2'.split()).communicate()
         logger('Done\n')
+
+    if not getExecutable(externals['samtools'].split()) :
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.11/samtools-1.11.tar.bz2'
+        logger('Downloading samtools from {0}'.format(samtools_url))
+        subprocess.Popen('curl -Lo samtools-1.11.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging samtools package')
+        subprocess.Popen('tar -xjf samtools-1.11.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-1.11.tar.bz2')
+        subprocess.Popen('cd samtools-1.11 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-1.11/samtools ./samtools'.split()).communicate()
 
     if not getExecutable([externals['usearch']]) :
         logger('The 32-bit version of USEARCH is licensed at no charge for individual use. \nPlease download it at    https://www.drive5.com/usearch/download.html\nAnd copy it into the externals/usearch')
     logger('')
     os.chdir(curdir)
 # -------------------------------------------------------------- #
-ETOKI = os.path.dirname(os.path.dirname(__file__))
+ETOKI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def configure(args) :
     configs = load_configure()
     args = add_args(args)

@@ -66,7 +66,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("{pigz} -cd {0}|head -100000|awk 'NR%4 == 2'|wc".format(rname, **externals), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
+                p = Popen("{pigz} -cd {0}|head -30000000|awk 'NR%4 == 2'|wc".format(rname, **externals), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
@@ -270,7 +270,7 @@ class mainprocess(object) :
                 seq[n+'_circular'] = s
 
         with open(output_name, 'w') as fout :
-            for n, s in seq.items() :
+            for n, s in sorted(seq.items()) :
                 if len(s) > 100 :
                     fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
         return output_name
@@ -290,9 +290,9 @@ class mainprocess(object) :
             if len(reads[0]) and len(reads[1]) :
                 read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
                               '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
-                cmds = ['{flye} -t 8 -g 5m --asm-coverage 60 --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                cmds = ['{flye} -t 8 -g 5m --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
                         flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
-                        '{flye} -t 8 -g 5m --asm-coverage 60 --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        '{flye} -t 8 -g 5m --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
                         flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
                 finished = True
                 for cmd in cmds :
@@ -307,7 +307,7 @@ class mainprocess(object) :
                 elif len(reads[1]) and not len(reads[0]) :
                     read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
     
-                cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
+                cmd = '{flye} -t 8 -g 5m --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
                       flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
     
                 flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
@@ -339,7 +339,7 @@ class mainprocess(object) :
                     else :
                         fout.write(line)
 
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} -o {outdir}'.format(
+            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} -o {outdir}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
 
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
@@ -378,7 +378,7 @@ class mainprocess(object) :
                             else :
                                 fout.write(line)
             
-            cmd = '{flye} -t 8 -g 5m --asm-coverage 60 --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
+            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
                   flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3)
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
@@ -430,7 +430,7 @@ class mainprocess(object) :
         for n, s in sequence.items() :
             sequence[n] = list(s)
 
-        for cont, sites in snps.items() :
+        for cont, sites in sorted(snps.items()) :
             for site,base in reversed(sites) :
                 if base.startswith('+') :
                     sequence[cont][site-1:site-1] = base[1:]
@@ -567,6 +567,40 @@ class mainprocess(object) :
                     fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
             return 'etoki.fasta', len(snps)
 
+    def get_ave_depth(self, sites, accurate_depth=False) :
+        if not accurate_depth :
+            sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
+        else :
+            glob_depth = np.zeros(65536, dtype=int)
+            for n, s in sites.items() :
+                ss = np.bincount(s)[:65536]
+                glob_depth[:ss.size] += ss
+            total_site = np.sum(glob_depth)
+            acc_site, iv = 0, [-1, -1]
+            for d, c in enumerate(glob_depth) :
+                acc_site += c
+                if acc_site >= 0.25 * total_site and iv[0] < 0 :
+                    iv[0] = d
+                if acc_site >= 0.75 * total_site :
+                    iv[1] = d
+                    break
+            div = max(3, 3*(iv[1] - iv[0]))
+            iv = [iv[0]-div, iv[1]+div]
+            sites = {n:[s.size, np.mean(s[ (iv[0] <= s) & (s <= iv[1]) ]), 0.] for n, s in sites.items() }
+        depth = np.array(list(sites.values()))
+        depth = depth[np.argsort(-depth.T[0])]
+        size = np.sum(depth.T[0])
+        acc = [0, 0]
+        for d in depth :
+            acc[0], acc[1] = acc[0] + d[0], acc[1] + d[0]*d[1]
+            if acc[0] *2 >= size :
+                break
+        ave_depth = acc[1]/acc[0]
+        #for n, s in sorted(sites.items()) :
+        #    s[2] = s[1]/ave_depth
+
+        return sites, ave_depth
+
     def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
             bams = self.__run_minimap('etoki', reference, reads, )
@@ -588,19 +622,11 @@ class mainprocess(object) :
                     part = line.strip().split()
                     if len(part) > 2 and float(part[2]) > 0 :
                         sites[part[0]][int(part[1]) - 1] += float(part[2])
-        sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
-        depth = np.array(list(sites.values()))
-        depth = depth[np.argsort(-depth.T[0])]
-        size = np.sum(depth.T[0])
-        acc = [0, 0]
-        for d in depth :
-            acc[0], acc[1] = acc[0] + d[0], acc[1] + d[0]*d[1]
-            if acc[0] *2 >= size :
-                break
-        ave_depth = acc[1]/acc[0]
+        sites, ave_depth = self.get_ave_depth(sites, parameters['accurate_depth'])
         exp_mut_depth = max(ave_depth * 0.2, 2.)
-        for n, s in sites.items() :
+        for n, s in sorted(sites.items()) :
             s[2] = s[1]/ave_depth
+
         logger('Average read depth: {0}'.format(ave_depth))
         sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
         with open('etoki.mapping.reference.fasta', 'w') as fout :
@@ -648,7 +674,7 @@ class mainprocess(object) :
             sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
             
         if self.snps is not None :
-            for n, snvs in self.snps.items() :
+            for n, snvs in sorted(self.snps.items()) :
                 for site, snv in snvs :
                     if snv.find('N') >= 0 : continue
                     if snv.startswith('+') :
@@ -660,7 +686,7 @@ class mainprocess(object) :
 
         with open('etoki.result.fastq', 'w') as fout :
             p = prefix.rsplit('/', 1)[-1]
-            for n, (s, q) in sequence.items() :
+            for n, (s, q) in sorted(sequence.items()) :
                 if sites[n][2] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( p+'_'+n, s, ''.join(q), *sites[n] ) )
         os.unlink( 'etoki.mapping.vcf' )
@@ -707,14 +733,14 @@ class postprocess(object) :
                         seq[name] = [0, 0., []]
                     else :
                         seq[name][2].extend( line.strip().split() )
-                for n, s in seq.items() :
+                for n, s in sorted(seq.items()) :
                     s[2] = ''.join(s[2])
                     s[0] = len(s[2])
         return seq, fasfile
 
     def do_kraken(self, assembly, seq) :
         with open(assembly+'.filter', 'w') as fout :
-            for n, s in seq.items() :
+            for n, s in sorted(seq.items()) :
                 if s[0] > 1000 :
                     fout.write('>{0}\n{1}\n'.format(n, s[2]))
         cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}.filter'.format(
@@ -826,8 +852,9 @@ And
     
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
+    parser.add_argument('--accurate_depth', help='A better estimation of read depths in each contig', action='store_true', default=False)
 
-    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1, type=int)
     parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
@@ -843,6 +870,7 @@ And
         args.max_diff = 0.1 if not args.metagenome else 0.05
     if args.metagenome :
         args.reassemble = False
+        args.accurate_depth = True
     if args.numPolish < 0 :
         args.numPolish = 3 if args.pacbio or args.ont else 1
         

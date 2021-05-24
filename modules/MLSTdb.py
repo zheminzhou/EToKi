@@ -71,6 +71,7 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
                 locus = [ p.rsplit('_', 1)[0] for p in part ]
                 if locus[0] != locus[1] :
                     crossSites[part[0]] = locus[1]
+                    crossSites[part[1]] = locus[0]
                 
         # compare with references
         blastab = uberBlast('-r {0} -q {1} -f --blastn --diamondSELF --min_id {2} --min_ratio {3} -t 8 -p -s 1 -e 0,3'.format(\
@@ -84,13 +85,15 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
         locus = [ p.rsplit('_', 1)[0] for p in tab[:2] ]
         c = (tab[7]-tab[6]+1)/tab[12]
         e = max(abs(tab[8] - tab[6]), abs(tab[12]-tab[7] - (tab[13]-tab[9])))
-        if c >= coverage and tab[2] >= min_iden and e <= 0 :
+        if c >= coverage and tab[2] >= min_iden :
             if locus[0] != locus[1] :
                 crossSites[tab[0]] = locus[1]
-            elif tab[2] >= max_iden and tab[0] != tab[1] :
-                tooClose[tab[0]] = 1
-            else :
-                goodCandidates[tab[0]] = tab[2]
+                crossSites[tab[1]] = locus[0]
+            elif e <= 0 :
+                if tab[2] >= max_iden and tab[0] != tab[1] :
+                    tooClose[tab[0]] = 1
+                else :
+                    goodCandidates[tab[0]] = tab[2]
     paralogous_loci = {}
     for ref in references :
         key = '{0}_{1}'.format(ref['fieldname'], ref['value_id'])
@@ -137,7 +140,7 @@ def MLSTdb(args) :
     else :
         alleles = readFasta(StringIO(alleleFasta))
     alleles = [allele for allele in alleles \
-                   if allele['value_id'].isdigit() and int(allele['value_id']) > 0]
+                   if allele['value_id'].isdigit() and int(allele['value_id']) > 0 and allele['fieldname'].find('/') < 0]
     refAlleles = ''
     if refset is not None :
         if refstrain :
@@ -152,7 +155,7 @@ def MLSTdb(args) :
                     loci[allele['fieldname']] = 1
                     references.append(allele)
         
-        alleles, refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
+        allele_text, refAlleles = buildReference(alleles, references, max_iden, min_iden, coverage, paralog, relaxEnd)
         if refset :
             with open(str(refset), 'w') as fout :
                 fout.write(refAlleles + '\n')
@@ -163,10 +166,11 @@ def MLSTdb(args) :
             for allele in alleles :
                 conversion[0].append(get_md5(allele['value']))
                 conversion[1].append([allele['fieldname'], int(allele['value_id'])])
+
         conversion = pd.DataFrame(conversion[1], index=conversion[0])
         conversion.to_csv(database, header=False)
         logger('A lookup table of all alleles has been generated:  {0}'.format(database))
-    return alleles, refAlleles
+    return allele_text, refAlleles
 
 def getParams(args) :
     import argparse

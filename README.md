@@ -210,12 +210,8 @@ optional arguments:
 
 * Reference-guided assembly is also called "reference mapping". Short reads are aligned to a user-specified reference genome using minimap2. Nucleotide bases of the reference genome are updated using Pilon, according to the consensus base calls of the covered reads. Non-specific metagenomic reads of closely related species can sometimes also align to the reference genome and confuse consensus calling. Two arguments, **--outgroup** and **--ingroup**, are given to pre-filter these non-specific reads and obtain clean SNP calls. 
 ~~~~~~~~~~~~~~~~~
-usage: EToKi.py assemble [-h] [--pe PE] [--se SE] [-p PREFIX] [-a ASSEMBLER]
-                         [-k KMERS] [-m MAPPER] [-d MAX_DIFF] [-r REFERENCE]
-                         [-i INGROUP] [-o OUTGROUP] [-S SNP] [-c CONT_DEPTH]
-                         [--excluded EXCLUDED] [--metagenome] [--reassemble]
-                         [--noPolish] [--onlySNP] [--noQuality] [--onlyEval]
-                         [--kraken]
+usage: EToKi.py assemble [-h] [--pe PE] [--se SE] [--pacbio PACBIO] [--ont ONT] [-p PREFIX] [-a ASSEMBLER] [-r REFERENCE] [-k KMERS] [-m MAPPER] [-d MAX_DIFF] [-i INGROUP] [-o OUTGROUP] [-S SNP] [-c CONT_DEPTH]
+                         [--excluded EXCLUDED] [--metagenome] [--numPolish NUMPOLISH] [--reassemble] [--onlySNP] [--noQuality] [--onlyEval] [--kraken]
 
 EToKi.py assemble
 (1.1) Assembles short reads into assemblies, or
@@ -229,45 +225,48 @@ And
 optional arguments:
   -h, --help            show this help message and exit
   --pe PE               comma delimited two files of PE reads.
-  --se SE               a file of SE read.
+  --se SE               one file of SE read.
+  --pacbio PACBIO       one file of pacbio read.
+  --ont ONT             one file of nanopore read.
   -p PREFIX, --prefix PREFIX
                         prefix for the outputs. Default: EToKi_assemble
   -a ASSEMBLER, --assembler ASSEMBLER
-                        Assembler used for de novo assembly. 
+                        Assembler used for de novo assembly.
                         Disabled if you specify a reference.
-                        Default: spades for single colony isolates, megahit for metagenome
+                        Default: spades for single colony isolates, megahit for metagenome.
+                         Long reads will always be assembled with Flye
   -r REFERENCE, --reference REFERENCE
                         Reference for read mapping. Specify this for reference mapping module.
   -k KMERS, --kmers KMERS
                         relative lengths of kmers used in SPAdes. Default: 30,50,70,90
   -m MAPPER, --mapper MAPPER
                         aligner used for read mapping.
-                        options are: miminap (default), bwa and bowtie2
+                        options are: miminap (default), bwa or bowtie2
   -d MAX_DIFF, --max_diff MAX_DIFF
-                        Maximum proportion of variations allowed for a aligned reads. 
+                        Maximum proportion of variations allowed for a aligned reads.
                         Default: 0.1 for single isolates, 0.05 for metagenome
   -i INGROUP, --ingroup INGROUP
                         Additional references presenting intra-population genetic diversities.
   -o OUTGROUP, --outgroup OUTGROUP
-                        Additional references presenting genetic diversities outside of the studied population. 
+                        Additional references presenting genetic diversities outside of the studied population.
                         Reads that are more similar to outgroups will be excluded from analysis.
   -S SNP, --SNP SNP     Exclusive set of SNPs. This will overwrite the polish process.
                         Required format:
                         <cont_name> <site> <base_type>
                         ...
   -c CONT_DEPTH, --cont_depth CONT_DEPTH
-                        Allowed range of read depth variations relative to average value. 
+                        Allowed range of read depth variations relative to average value.
                         Default: 0.2,2.5
                         Contigs with read depths outside of this range will be removed from the final assembly.
   --excluded EXCLUDED   A name of the file that contains reads to be excluded from the analysis.
   --metagenome          Reads are from metagenomic samples
-                        this will set --cont_depth 0.0001,10000 --assembler megahit --max_diff 0.05
-  --noPolish            Do not do PILON polish.
-  --reassemble          Do local re-assembly in PILON
+  --numPolish NUMPOLISH
+                        Number of Pilon polish iterations. Default: 1
+  --reassemble          Do local re-assembly in PILON. Suggest to use this flag with long reads.
   --onlySNP             Only modify substitutions during the PILON polish.
   --noQuality           Do not estimate base qualities.
   --onlyEval            Do not run assembly/mapping. Only evaluate assembly status.
-  --kraken              Run kmer based species prediction on contigs.
+  --kraken              Run kmer based species predicton on contigs.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## ortho  - pan-genome (and wgMLST scheme) prediction
 **EToKi ortho** has now been migrated to a [separate repository](https://github.com/zheminzhou/PEPPA) and renamed as **PEPPA**. 
