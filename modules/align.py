@@ -871,6 +871,8 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                         seq[n][s-1:e] = refSeq[n][s-1:e]
                     for n, s, e, c in absences :
                         seq[n][s-1:e] = '-' * (e-s+1)
+                for n, s, e in missings :
+                    seq[n][s - 1:e] = '-' * (e - s + 1)
                 for site in matrix :
                     bases = matrix[site]
                     if len(bases[0]) :

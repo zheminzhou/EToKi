@@ -1,4 +1,4 @@
-import os, sys, tempfile, time, shutil, numpy as np, pandas as pd, re
+import os, sys, tempfile, shutil, numpy as np, pandas as pd, re
 from numba import jit
 from subprocess import Popen, PIPE
 from multiprocessing.pool import ThreadPool, Pool
@@ -572,11 +572,11 @@ def uberBlast(args, extPool=None) :
     parser.add_argument('--diamondSELF',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--gtable',       help='[DEFAULT: 11] genetic table to use. 11 for bacterial genomes and 4 for Mycoplasma', default=11, type=int)
     
-    parser.add_argument('--min_id', help='[DEFAULT: 0.3] Minimum identity before reScore for an alignment to be kept', type=float, default=0.3)
+    parser.add_argument('--min_id', help='[DEFAULT: 0.25] Minimum identity before reScore for an alignment to be kept', type=float, default=0.25)
     parser.add_argument('--min_cov', help='[DEFAULT: 40] Minimum length for an alignment to be kept', type=float, default=40.)
     parser.add_argument('--min_ratio', help='[DEFAULT: 0.05] Minimum length for an alignment to be kept, proportional to the length of the query', type=float, default=0.05)
 
-    parser.add_argument('-s', '--re_score', help='[DEFAULT: 0] Re-interpret alignment scores and identities. 0: No rescore; 1: Rescore with nucleotides; 2: Rescore with amino acid; 3: Rescore with codons', type=int, default=0)
+    parser.add_argument('-s', '--re_score', help='[DEFAULT: 2] Re-interpret alignment scores and identities. 0: No rescore; 1: Rescore with nucleotides; 2: Rescore with amino acid; 3: Rescore with codons', type=int, default=2)
     parser.add_argument('-f', '--filter', help='[DEFAULT: False] Remove secondary alignments if they overlap with any other regions', default=False, action='store_true')
     parser.add_argument('--filter_cov', help='[DEFAULT: 0.9] ', default=0.9, type=float)
     parser.add_argument('--filter_score', help='[DEFAULT: 0] ', default=0., type=float)

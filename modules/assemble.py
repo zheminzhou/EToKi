@@ -404,8 +404,8 @@ class mainprocess(object) :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2}'.format(lib_id+1, lib[0], lib[1]))
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
-        cmd = '{spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
-              spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
+        cmd = '{python} {spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
+              python=sys.executable, spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
@@ -532,11 +532,11 @@ class mainprocess(object) :
             bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
             fix_opt = '--fix all,breaks' if reassemble else '--fix all'
             
-            pilon_cmd = '{pilon} {fix_opt} --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, fix_opt=fix_opt, **parameters)
+            pilon_cmd = '{pilon} {fix_opt} --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, fix_opt=fix_opt, **parameters)
             Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
             
             if not os.path.isfile('etoki.mapping.vcf') :
-                pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+                pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
                 Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()                    
             
             snps = []
@@ -633,10 +633,10 @@ class mainprocess(object) :
             for n, s in sorted(sequence.items()) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in xrange(0, len(s[0]), 100)])))
         bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-        pilon_cmd = '{pilon} --fix all,breaks --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+        pilon_cmd = '{pilon} --fix all,breaks --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
         Popen( pilon_cmd.split(), stdout=PIPE, universal_newlines=True ).communicate()
         if not os.path.isfile('etoki.mapping.vcf') :
-            pilon_cmd = '{pilon} --fix snps,indels,gaps,breaks --vcf --output etoki.mapping --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
+            pilon_cmd = '{pilon} --fix snps,indels,gaps,breaks --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
             Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()                    
 
         cont_depth = [float(d) for d in parameters['cont_depth'].split(',')]
@@ -660,7 +660,7 @@ class mainprocess(object) :
                         pp = part[7].split(';')
                         dp = float(pp[0][3:])
                         af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
-                        if af <= 20 and dp >= 3 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
+                        if af <= 20 and dp >= 4 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
                             site = int(part[1])-1
                             qual = chr(int(pp[4][3:])+33)
                             sequence[part[0]][1][site] = qual

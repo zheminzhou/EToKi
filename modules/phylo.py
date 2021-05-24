@@ -166,7 +166,7 @@ def write_phylip(prefix, names, snps) :
     return prefix+'.phy' , prefix + '.phy.weight', asc_file, invariants
 
 def write_phylips(prefix, names, snps, n_split=4) :
-    snp_expended = [ i for i, snp in enumerate(snps) for x in range(snp[1]) ]
+    snp_expended = [ i for i, snp in enumerate(snps) for x in range(int(snp[1])) ]
     snp_expended = [ np.unique(snp_expended[i::n_split], return_counts=True) for i in range(n_split) ]
     outputs = []
     for split_idx, (snp_idx, snp_weight) in enumerate(snp_expended) :
@@ -385,7 +385,7 @@ def read_matrix(fname) :
         snps.append( [len(snps), float(inv[1]), b_key, 0] )
     for snp in snps :
         snp[1] = np.ceil(snp[1])
-    return names, sites, np.array(snps), np.array(seqLens, dtype=object), np.array(missing, dtype=object)
+    return names, sites, np.array(snps, dtype=object), np.array(seqLens, dtype=object), np.array(missing, dtype=object)
 
 def read_ancestor(fname, names, snps) :
     snp_array = np.array([snp[2] for snp in snps]).T
@@ -663,7 +663,7 @@ def run_rapidnj(prefix, fastafile, invariants) :
 def run_raxml_ng(prefix, fastafile, invariants) :
     cnt = sum(invariants.values())
     inv = [invariants[65], invariants[67], invariants[71], invariants[84], ]
-    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-7 --blopt nr_safe --tree pars{{3}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), **externals)
+    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --blopt nr_safe --tree pars{{3}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile+'.raxml.bestTree', format=0)
