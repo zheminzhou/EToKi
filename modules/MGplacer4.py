@@ -222,7 +222,7 @@ def main(ancestralfile, bamfile, treefile, maxgenotype, homoplasy):
             props_raw = pm.Dirichlet('props_raw', a=np.ones(ng, dtype=float)) \
                 if ng > 1 else pm.DiscreteUniform('props_raw', upper=1, lower=1)
 
-            props = pm.Deterministic('props', props_raw*(1.-0.02*ng) + 0.02)
+            props = pm.Deterministic('props', props_raw*(1.-0.0*ng) + 0.0)
             sigma = pm.Gamma('sigma', alpha=1, beta=0.1, testval=1.)
 
             lk = pm.Deterministic('lk', getGenotypesAndLK(inferredHeterogeneity2, knownMatrix2, \
