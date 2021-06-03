@@ -130,13 +130,13 @@ def eval(genotypes, offsets, props) :
     combinations = np.array([np.bincount(c, props, 4) for c in combinations])
     return combinations, freqs
 
-def remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples) :
+def remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples, to_del) :
     # remove branches that are not changing
-    for br in branches :
+    for td, br in zip(to_del, branches) :
         diff_sites = knownMatrix[br[0].astype(int)] != knownMatrix[br[1].astype(int)]
         snv = knownMatrix[br[1].astype(int), diff_sites]
         presence = knownSamples[diff_sites, snv] > 0
-        if np.count_nonzero(presence) == 0 or np.sum(knownSites[diff_sites, 1]*presence)*100 <= np.sum(knownSites[diff_sites, 1]) :
+        if td or np.count_nonzero(presence) == 0 or np.sum(knownSites[diff_sites, 1]*presence)*100 <= np.sum(knownSites[diff_sites, 1]) :
             knownMatrix[br[1].astype(int)] = 100
             branches[branches.T[0] == br[1], 0] = br[0]
             br[:2] = -1
@@ -154,7 +154,8 @@ def remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples) 
 @click.option('-n', '--maxgenotype', help='Assumed maximum number of genotypes in the short reads. Default: 2', type=int, default=2)
 @click.option('-m', '--mingenotype', help='Assumed minimum number of genotypes in the short reads. Default: 1', type=int, default=1)
 @click.option('-r', '--homoplasy', help='Assumed homoplastic ratio in the dataset. Default: 0.', type=float, default=0.)
-def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
+@click.option('-x', '--rmbranch', help='Remove some branches from the dataset. Default: None', default='')
+def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy, rmbranch):
     global rec_level
     rec_level = homoplasy
     maxGenotype = maxgenotype
@@ -185,7 +186,8 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
     knownSamples = knownSamples[idx]
 
     # remove unrelavant branches
-    branches, knownSites, knownMatrix, knownSamples = remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples)
+    to_del = np.in1d(branches.T[1], np.where(np.in1d(knownNodes, rmbranch.split(',')))[0])
+    branches, knownSites, knownMatrix, knownSamples = remove_unrelavant_branches(branches, knownSites, knownMatrix, knownSamples, to_del)
     weights = knownSites.T[1:].astype(float)
 
     # identify uniq patterns
@@ -205,7 +207,6 @@ def main(ancestralfile, bamfile, treefile, mingenotype, maxgenotype, homoplasy):
 
     brMatrix = np.array([knownMatrix[int(br[0])] + knownMatrix[int(br[1])]*4 for br in branches ], dtype=np.int8)
     patterns2 = t._shared(patterns)
-    #branches2 = t._shared(branches)
     weights2 = t._shared(weights)
     brMatrix2 = t._shared(brMatrix)
     knownSamples2 = t._shared(knownSamples)
