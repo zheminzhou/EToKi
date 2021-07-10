@@ -10,13 +10,14 @@ ete3
 numba
 numpy
 pandas
+psutil
 sklearn
 ~~~~~~~~~~
 
 All libraries can be installed using pip: 
 
 ~~~~~~~~~~
-pip install ete3 numba numpy pandas sklearn
+pip install ete3 numba numpy pandas sklearn psutil
 ~~~~~~~~~~
 EToKi also calls the following 3rd party programs for different pipelines:
 

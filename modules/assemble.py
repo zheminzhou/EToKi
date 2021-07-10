@@ -32,7 +32,7 @@ class mainprocess(object) :
             result = self.do_flye(longReads, result, parameters['metagenome'])
 
         if parameters['outgroup'] or parameters['excluded'] :
-            parameters['excluded'] = self.identify_outgroups(result, reads, parameters['ingroup'], parameters['outgroup'], parameters['excluded'])
+            parameters['excluded'] = self.identify_outgroups(result, reads, parameters['ingroup'], parameters['outgroup'], parameters['excluded'], parameters)
         for ite in np.arange(int(parameters['numPolish'])) :
             result, n_changes = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
             if not n_changes :
@@ -445,7 +445,7 @@ class mainprocess(object) :
                 fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
         return 'etoki.fasta', 0
     
-    def identify_outgroups(self, reference, reads, ingroup='', outgroup='', excluded='') :
+    def identify_outgroups(self, reference, reads, ingroup='', outgroup='', excluded='', parameters={}) :
         excludedReads = {}
         ingroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in ingroup.split(',') if fn != '' ]
         outgroups = [ os.path.abspath(os.path.join(self.cwd, fn)) for fn in outgroup.split(',') if fn != '' ]
@@ -467,7 +467,7 @@ class mainprocess(object) :
                 bams = self.__run_bwa('etoki', outRef, reads, clean=False )
             os.unlink(outRef) 
             for bam in bams :
-                p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
+                p = Popen('{samtools} view {0}'.format(bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
                 for line in p.stdout :
                     try :
                         rname, score = line.split('\t', 1)[0] , int(re.findall('AS:i:(\d+)', line)[0])
@@ -487,7 +487,7 @@ class mainprocess(object) :
                     bams = self.__run_bwa('etoki', inRef, reads, clean=False )
                 os.unlink(inRef)
                 for bam in bams :
-                    p = Popen('samtools view {0}'.format(bam).split(), stdout=PIPE, universal_newlines=True)
+                    p = Popen('{samtools} view {0}'.format(bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
                     for line in p.stdout :
                         rname = line.split('\t', 1)[0]
                         if rname in excludedReads:
