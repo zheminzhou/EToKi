@@ -160,7 +160,7 @@ class preprocess(object) :
                     stat[lib_type].append([n_base, seq_start])
             logger('Obtained {1} bases in {2} reads after Trimming in Lib {0}'.format(lib_id, *read_information))
             n_base = read_information[0]
-            sample_freq2 = float(parameters['max_base'])/n_base if parameters['max_base'] > 0 else 1.
+            sample_freq2 = float(parameters['max_base'])/n_base if parameters['max_base'] > 0 and n_base > 0 else 1.
             if sample_freq2 >= 1 :
                 for ss in stat.values() :
                     for s in ss :
