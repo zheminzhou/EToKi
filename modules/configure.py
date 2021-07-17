@@ -248,7 +248,10 @@ def install_externals() :
         logger('Unpackaging diamond package'.format(url))
         subprocess.Popen('tar -xzf diamond-linux64.tar.gz'.split()).communicate()
         os.unlink('diamond-linux64.tar.gz')
-        os.unlink('diamond_manual.pdf')
+        try :
+            os.unlink('diamond_manual.pdf')
+        except :
+            pass
         logger('Done\n')
 
     if not getExecutable(externals['flye'].split()) :
@@ -369,6 +372,7 @@ def install_externals() :
         os.unlink('samtools-1.13.tar.bz2')
         subprocess.Popen('cd samtools-1.13 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
         subprocess.Popen('ln -fs samtools-1.13/samtools ./samtools'.split()).communicate()
+        logger('Done\n')
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
