@@ -131,7 +131,7 @@ GCF_001566635:examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz
 ~~~~~~~~~~~
 ### Build ML tree using RAxML and place all SNPs onto branches in the tree
 ~~~~~~~~~~~
-cd examples && python ../EToKi.py phylo -t snp2mut -p phylo_out -s phylo_out.matrix.gz && cd ..
+cd examples && python ../EToKi.py phylo -t snp2mut -p phylo_out -s phylo_out.matrix.gz --ng && cd ..
 ~~~~~~~~~~~
 
 # USAGE:
