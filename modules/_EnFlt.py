@@ -25,12 +25,14 @@ for line in sys.stdin :
                     del outScore[part[0]]
         except :
             continue
-        if flag < 1024 :
-            gap = [int(g) for g in re.findall(r'(\d+)S', part[5])]
-            aln = len(part[9]) - sum(gap)
-        else :
+
+        if 'H' in part[5] :
             gap = [int(g) for g in re.findall(r'(\d+)H', part[5])]
             aln = len(part[9])
+        else :
+            gap = [int(g) for g in re.findall(r'(\d+)S', part[5])]
+            aln = len(part[9]) - sum(gap)
+
         if len(gap) > 1 and min(gap) >= 8 :
             continue
         if sum(gap) >= 1.5 * aln :

@@ -224,20 +224,33 @@ def install_externals() :
         logger('You have not installed Java runtime. Please install it first. ')
         sys.exit(1)
 
+    if not getExecutable([externals['nextpolish']]) :
+        url = 'https://github.com/Nextomics/NextPolish/releases/latest/download/NextPolish.tgz'
+        logger('Downloading NextPolish package from {0}'.format(url))
+        subprocess.Popen('curl -Lo NextPolish.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging NextPolish package')
+        subprocess.Popen('tar -xzf NextPolish.tgz'.split()).communicate()
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='NextPolish').communicate()
+        subprocess.Popen('ln -fs NextPolish/lib/nextpolish1.py ./nextpolish'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./nextpolish'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('NextPolish.tgz')
+        logger('Done\n')
+
+
     if not getExecutable([externals['raxml_ng']]) :
         url = 'https://github.com/amkozlov/raxml-ng/releases/download/1.0.1/raxml-ng_v1.0.1_linux_x86_64.zip'
         logger('Downloading raxml-ng package from {0}'.format(url))
         subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging raxml-ng package'.format(url))
+        logger('Unpackaging raxml-ng package')
         subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split(), stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('ln -fs raxml-ng_v1.0.1/raxml-ng ./raxml-ng'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('ln -fs raxml-ng_v1.0.1/raxml-ng ./raxml-ng'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('raxml-ng_v1.0.1_linux_x86_64.zip')
         logger('Done\n')
 
     if not getExecutable(externals['pilon'].split()) :
         url = 'https://github.com/broadinstitute/pilon/releases/download/v1.24/pilon-1.24.jar'
         logger('Downloading pilon-1.24.jar package from {0}'.format(url))
-        subprocess.Popen('curl -Lo pilon-1.23.jar {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo pilon-1.23.jar {0}'.split(), stderr=subprocess.PIPE).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['diamond']]) :
@@ -339,16 +352,6 @@ def install_externals() :
         subprocess.Popen('ln -fs last-1021/src/lastal ./lastal'.split()).communicate()
         subprocess.Popen('ln -fs last-1021/src/lastdb ./lastdb'.split()).communicate()
         logger('Done\n')
-     
-    if not getExecutable(externals['gatk'].split()) :
-        gatk_url = 'https://github.com/broadinstitute/gatk/releases/download/4.1.0.0/gatk-4.1.0.0.zip'
-        logger('Downloading gatk package from {0}'.format(gatk_url))
-        subprocess.Popen('curl -Lo gatk-4.1.0.0.zip {0}'.format(gatk_url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging gatk package')
-        subprocess.Popen('unzip -o gatk-4.1.0.0.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('gatk-4.1.0.0.zip')
-        subprocess.Popen('ln -fs gatk-4.1.0.0/gatk-package-4.1.0.0-local.jar ./gatk-package-4.1.0.0-local.jar'.split()).communicate()
-        logger('Done\n')
 
     if not getExecutable(externals['kraken2'].split()) :
         kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/refs/tags/v2.1.2.tar.gz'
@@ -423,7 +426,6 @@ def prepare_externals(conf=None) :
     if conf is None :
         conf = load_configure()
     externals = {k.strip():v.split('#')[0].strip().format(ETOKI=ETOKI) for k,v in conf.tolist()}
-    externals['gatk']  = 'java -Xmx31g -jar ' + externals.get('gatk', '')
     externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
     externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'.format(ETOKI=ETOKI)
     externals['pigz'] = getExecutable(['pigz'])[0] if getExecutable(['pigz']) else getExecutable(['gzip'])[0]

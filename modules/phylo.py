@@ -353,15 +353,16 @@ def read_matrix(fname) :
                 resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, len(sites) ))
 
             for m in mat :
-                btype, bidx = np.unique(['-'] + m[2:].tolist(), return_inverse=True)
+                btype, bidx = np.unique(['-'] + m[cols].tolist(), return_inverse=True)
                 if btype.size <= 2 :
                     continue
                 sites.append([m[0], int(m[1]), 1, np.array([])])
-                weights.append(m[w_cols].astype(float).prod(1) if w_cols.size else 1.)
+                weights.append(m[w_cols].astype(float).prod() if w_cols.size else 1.)
                 if '.' in btype or max(map(len, btype)) > 1 :
                     missing_val = np.where(btype == '-')[0][0]
                     bidx[bidx == missing_val] = 45
                     bidx[bidx < missing_val] += 1
+                    bidx[bidx == 45] = 0
                     sites[-1][3] = np.array(['-']+btype[btype != '-'].tolist())
                     sites[-1][2] = 2
                     bases.append(bidx[1:])
@@ -509,8 +510,9 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     parser.add_argument('--tree', '-z', help='phylogenetic tree. Required for "ancestral" task', default='')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
-    parser.add_argument('--nj', help='use rapidNJ instead of RAxML.', default=False, action='store_true')
-    parser.add_argument('--ng', help='use RAxML-NG instead of RAxML.', default=False, action='store_true')
+    parser.add_argument('--nj', help='use rapidNJ instead of RAxML-ng.', default=False, action='store_true')
+    parser.add_argument('--ng', help='Number of initial trees. Default: 3', default=3, type=int)
+    parser.add_argument('--raxml', help='use RAxML instead of RAxML-ng', default=False, action='store_true')
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
     args = parser.parse_args(a)
@@ -660,10 +662,10 @@ def run_rapidnj(prefix, fastafile, invariants) :
     return fname
 
 
-def run_raxml_ng(prefix, fastafile, invariants) :
+def run_raxml_ng(prefix, fastafile, invariants, n_start) :
     cnt = sum(invariants.values())
     inv = [invariants[65], invariants[67], invariants[71], invariants[84], ]
-    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --blopt nr_safe --tree pars{{3}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), **externals)
+    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --blopt nr_safe --tree pars{{{2}}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), n_start, **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile+'.raxml.bestTree', format=0)
@@ -694,7 +696,7 @@ def phylo(args) :
     # build tree
     if 'phylogeny' in args.tasks :
         args.tree = args.prefix+'.tre'
-        if not args.nj and not args.ng :
+        if not args.nj and args.raxml :
             phy, weights, asc, invariants = write_phylip(args.tree, names, snps)
             if phy != '' :
                 args.tree = run_raxml(args.tree, phy, weights, asc, 'CAT', args.n_proc, invariants)
@@ -704,7 +706,7 @@ def phylo(args) :
         else :
             fastafile, invariants = write_fasta(args.tree, names, snps)
             if not args.nj :
-                args.tree = run_raxml_ng(args.tree, fastafile, invariants)
+                args.tree = run_raxml_ng(args.tree, fastafile, invariants, args.ng)
             else :
                 args.tree = run_rapidnj(args.tree, fastafile, invariants)
         args.tree = get_root(args.prefix, args.tree)

@@ -1,4 +1,4 @@
-import os, sys, numpy as np, tempfile, shutil, re
+import os, sys, numpy as np, tempfile, shutil, re, gzip
 from subprocess import Popen, PIPE
 from operator import itemgetter
 try:
@@ -642,9 +642,15 @@ def nomenclature(genome, refAllele, parameters) :
 parameters = {}
 def MLSType(args) :
     parameters = getParams(args)
-    alleles = nomenclature(open(parameters['genome']).read(), open(parameters['refAllele']).read(), parameters)
+    alleles = nomenclature(gzip.open(parameters['genome'], 'rt').read() if parameters['genome'].upper().endswith('GZ') else open(parameters['genome']).read(), open(parameters['refAllele']).read(), parameters)
     if parameters['output'] is not None :
-        fout = open(parameters['output'], 'w') if parameters['output'].upper() != 'STDOUT' else sys.stdout
+        if parameters['output'].upper() == 'STDOUT' :
+            fout =sys.stdout
+        elif parameters['output'].upper().endswith('GZ') :
+            fout = gzip.open(parameters['output'], 'wt')
+        else :
+            fout = open(parameters['output'], 'w')
+
         fout.write(alleles + '\n')
         fout.close()
     return alleles

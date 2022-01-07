@@ -52,8 +52,7 @@ def minimapFilter(sourceFna, targetFna, targetFiltFna, max_iden, min_iden, cover
 
 def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.7, paralog=0.1, relaxEnd=False) :
     orderedLoci = { t['fieldname']:i for i, t in reversed(list(enumerate(references))) }
-    dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
-    try :
+    with tempfile.TemporaryDirectory(prefix='NS_', dir='.') as dirPath :
         sourceFna = os.path.join(dirPath, 'sourceFna')
         clsFna = os.path.join(dirPath, 'clsFna')
         targetFna = os.path.join(dirPath, 'targetFna')
@@ -70,25 +69,22 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
                 part = line.strip().split()
                 locus = [ p.rsplit('_', 1)[0] for p in part ]
                 if locus[0] != locus[1] :
-                    crossSites[part[0]] = locus[1]
-                    crossSites[part[1]] = locus[0]
+                    crossSites[part[0]] = crossSites.get(part[0], [])+[locus[1]]
+                    crossSites[part[1]] = crossSites.get(part[1], [])+[locus[0]]
                 
         # compare with references
         blastab = uberBlast('-r {0} -q {1} -f --blastn --diamondSELF --min_id {2} --min_ratio {3} -t 8 -p -s 1 -e 0,3'.format(\
             targetFna, exampler, min_iden, coverage ).split())
         #blastab = blastab[blastab.T[0] != blastab.T[1]]
-    except :
-        pass
-    finally :
-        shutil.rmtree(dirPath)
+
     for tab in blastab :
         locus = [ p.rsplit('_', 1)[0] for p in tab[:2] ]
         c = (tab[7]-tab[6]+1)/tab[12]
         e = max(abs(tab[8] - tab[6]), abs(tab[12]-tab[7] - (tab[13]-tab[9])))
         if c >= coverage and tab[2] >= min_iden :
             if locus[0] != locus[1] :
-                crossSites[tab[0]] = locus[1]
-                crossSites[tab[1]] = locus[0]
+                crossSites[tab[0]] = crossSites.get(tab[0], [])+[locus[1]]
+                crossSites[tab[1]] = crossSites.get(tab[0], [])+[locus[0]]
             elif e <= 0 :
                 if tab[2] >= max_iden and tab[0] != tab[1] :
                     tooClose[tab[0]] = 1
@@ -97,8 +93,12 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
     paralogous_loci = {}
     for ref in references :
         key = '{0}_{1}'.format(ref['fieldname'], ref['value_id'])
-        if key in crossSites and orderedLoci[ref['fieldname']] < orderedLoci[crossSites[key]] :
-            paralogous_loci[ref['fieldname']]=1
+        if key in crossSites:
+            conflicts = crossSites[key]
+            for cfl in conflicts :
+                if orderedLoci[ref['fieldname']] > orderedLoci[cfl] and cfl not in paralogous_loci :
+                    paralogous_loci[ref['fieldname']]=1
+                    break
     refsets = []
     for allele in alleles :
         if allele['fieldname'] in paralogous_loci :
@@ -162,8 +162,8 @@ def MLSTdb(args) :
         logger('A file of reference alleles has been generated:  {0}'.format(refset))
     if database :
         conversion = [[], []]
-        with open(database, 'w') as fout :
-            for allele in alleles :
+        for allele in alleles :
+            if allele['fieldname'] :
                 conversion[0].append(get_md5(allele['value']))
                 conversion[1].append([allele['fieldname'], int(allele['value_id'])])
 
@@ -180,7 +180,7 @@ def getParams(args) :
     parser.add_argument('-d', '--database',                  help='[DEFAULT: No allele DB] Output - A lookup table of all alleles. ', default=None)
     parser.add_argument('-s', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
-    parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.4 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.4)
+    parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
     parser.add_argument('-p', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.2)
     parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.7 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
     parser.add_argument('-e', '--relaxEnd',                  help='[DEFAULT: False ] Allow changed ends (for pubmlst). ', action='store_true', default=False)
@@ -188,4 +188,4 @@ def getParams(args) :
     return parser.parse_args(args).__dict__
     
 if __name__ == '__main__' :
-    sys.stdout.write(MLSTdb(sys.argv[1:])+'\n')
+    MLSTdb(sys.argv[1:])

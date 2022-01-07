@@ -15,13 +15,15 @@ commands = [['configure', 'install and/or configure 3rd party programs'],    #
             ['assemble',  'de novo or reference-guided assembly for genomic or metagenomic reads'],     #
             ['MLSTdb',    'Set up exemplar alleles and database for MLST schemes'],        #
             ['MLSType',   'MLST nomenclature using a local set of references'],                         #
+            ['MLSTsum',   'Summarise MLSType results and assign new allele designations'],
+            ['cgMLST',    'Select a list of genes for the cgMLST scheme'],
             ['align',     'align multiple queried genomes to a single reference'], 
             ['phylo',     'infer phylogeny and ancestral states from genomic alignments'], 
             ['EBEis',     'in silico serotype prediction for Escherichia coli and Shigella spp.'],                             #
             ['uberBlast', 'Use Blastn, uBlastp, minimap2 and/or mmseqs to identify similar sequences'],     #
             ['clust',     'linear-time clustering of short sequences using mmseqs linclust'],                          #
             ['isCRISPOL', 'in silico prediction of CRISPOL array for Salmonella enterica serovar Typhimurium'],                #
-#            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
+            #            ['hierCC',    'generate hierarchical clusters from cgMLST profiles'],                       #
 #            ['RecHMM',    'identify recombination sketches from a SNP matrix'], 
 #            ['RecFilter', 'Remove recombination sketches from a SNP matrix'], 
 ]

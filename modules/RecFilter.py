@@ -78,7 +78,12 @@ def write_filtered_matrix(fname, names, sites, snps, masks, m_weight) :
         if site[3].size == 0 :
             snvs = np.frompyfunc(chr, 1, 1)(snps[site[2]][2])
         else :
-            snvs = site[3][snps[site[2]][2]]
+            x = snps[site[2]][2]
+            if 45 in x :
+                if '-' not in site[3] :
+                    site[3] = np.concatenate([site[3], ['-']])
+                x[x == 45] = np.where(site[3] == '-')[0][0]
+            snvs = site[3][x]
         snv_x = []
         p = np.zeros(snvs.shape, dtype=bool)
         for m in masks.get(site[1], []) :
@@ -181,10 +186,10 @@ def RecFilter(argv) :
                 break
             elif m[2] not in masks :
                 masks[m[2]] = [r[4]]
-                m_weight[m[2]].pop(m[0])
+                m_weight[m[2]].pop(m[0], None)
             else :
                 masks[m[2]].append(r[4])
-                m_weight[m[2]].pop(m[0])
+                m_weight[m[2]].pop(m[0], None)
     write_filtered_matrix(args.prefix+'.filtered.gz', names, sites, snps, masks, m_weight)
     return
 

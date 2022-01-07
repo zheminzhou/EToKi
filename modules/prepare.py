@@ -107,7 +107,8 @@ class preprocess(object) :
                             except :
                                 pass
             if len(library_file.get('SE', [])) > 0 :
-                Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['SE'][0]), shell=True).wait()
+                if len(library_file.get('PE', [])) == 0 :
+                    Popen('cat {0} > {1}'.format(' '.join([run[0] for run in library]), library_file['SE'][0]), shell=True).wait()
                 if parameters['noTrim'] == False :
                     library_file2 = {'SE':['{0}.1.{1}.s.fastq.gz'.format(prefix, lib_id)]}
                 reads = 'in=' + library_file['SE'][0]
@@ -192,11 +193,11 @@ class preprocess(object) :
                         if parameters['noRename'] == False :
                             if s[1] > 0 :
                                 logger('Remove potential barcode bases at the beginning {0} bps of reads in {1}'.format( s[1], lib ))
-                                Popen("{pigz} -cd {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print substr($0, {3}, 9999999)}} else {{if(id==0) {{print \"@{4}_\"nr}} else {{print \"+\"}} }} }}'|{pigz} > {1}".format(
-                                    lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id, **externals), shell=True).wait()
+                                Popen("{pigz} -cd {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print substr($0, {3}, 9999999)}} else {{if(id==0) {{print \"@{4}_{5}_\"nr}} else {{print \"+\"}} }} }}'|{pigz} > {1}".format(
+                                    lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id, lib_type, **externals), shell=True).wait()
                             else :
-                                Popen("{pigz} -cd {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print $0}} else {{ if(id==0){{print \"@{4}_\"nr}} else {{print \"+\"}} }} }}'|{pigz} > {1}".format(
-                                    lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id, **externals), shell=True).wait()
+                                Popen("{pigz} -cd {0}|awk '{{nr = int((NR-1)/4)}} {{id=(NR-1)%4}} int(nr*{2}) > int((nr-1)*{2}) {{if (id==1 || id == 3) {{print $0}} else {{ if(id==0){{print \"@{4}_{5}_\"nr}} else {{print \"+\"}} }} }}'|{pigz} > {1}".format(
+                                    lib, nlib, min(sample_freq, 1.), s[1]+1, lib_id, lib_type, **externals), shell=True).wait()
                         else :
                             if s[1] > 0 :
                                 logger('Remove potential barcode bases at the beginning {0} bps of reads in {1}'.format( s[1], lib ))
