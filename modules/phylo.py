@@ -511,7 +511,7 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
     parser.add_argument('--nj', help='use rapidNJ instead of RAxML-ng.', default=False, action='store_true')
-    parser.add_argument('--ng', help='Number of initial trees. Default: 3', default=3, type=int)
+    parser.add_argument('--ng', help='[expired]', default=True, action='store_true')
     parser.add_argument('--raxml', help='use RAxML instead of RAxML-ng', default=False, action='store_true')
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
