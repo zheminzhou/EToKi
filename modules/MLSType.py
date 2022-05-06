@@ -181,7 +181,8 @@ class dualBlast(object) :
         ublast_cmd = '{usearch} -threads {n_thread} -db {qryAA} -ublast {refAA} -evalue 1e-3 -accel 0.9 -maxhits 6 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
             usearch=usearch, qryAA=qryAA, refAA=refAA, aaMatch=aaMatch, n_thread=n_thread)
         pp = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE)
-        pp.communicate()
+        usearch_res = pp.communicate()
+        print(usearch_res)
         
         blastab = self.parseBlast(open(naMatch), min_iden, min_len)
         blastab.extend(self.parseUBlast(open(aaMatch), qrySeq, refSeq, min_iden, min_len))
