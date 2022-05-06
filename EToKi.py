@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#! /usr/bin/env python
 import sys, os
 import argparse
 from modules.configure import logger
