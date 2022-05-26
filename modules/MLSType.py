@@ -190,7 +190,7 @@ class dualBlast(object) :
         ).split()
         blastp_cmd_arr.append('-outfmt')
         blastp_cmd_arr.append('6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq sstrand')
-        print(blastp_cmd_arr)
+        # print(blastp_cmd_arr)
         pp = Popen(blastp_cmd_arr, stderr=PIPE, stdout=PIPE)
         res = pp.communicate()
         #print(res)
