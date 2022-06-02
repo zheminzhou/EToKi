@@ -2,26 +2,6 @@
 set -e
 set -u
 
-### Trim genomic reads and assemble using SPAdes
-python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/prep_out
-
-python EToKi.py assemble --pe examples/prep_out_L1_R1.fastq.gz,examples/prep_out_L1_R2.fastq.gz --se examples/prep_out_L1_SE.fastq.gz -p examples/asm_out
-
-
-### Merge and trim metagenomic reads, and map onto reference genome
-python EToKi.py prepare --pe examples/S_R1.fastq.gz,examples/S_R2.fastq.gz -p examples/meta_out --noRename --merge
-
-python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz --metagenome \
---pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
--p examples/map_out -r examples/GCF_000010485.1_ASM1048v1_genomic.fna.gz \
--i examples/GCF_000214765.2_ASM21476v3_genomic.fna.gz -o examples/GCF_000005845.2_ASM584v2_genomic.fna.gz
-
-### Or you can assemble reads using MEGAHIT
-python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz \
---pe examples/meta_out_L1_R1.fastq.gz,examples/meta_out_L1_R2.fastq.gz --se examples/meta_out_L1_SE.fastq.gz \
--p examples/asm_out2 --assembler megahit
-
-
 ### Prepare reference alleles and a local database for 7 Gene MLST scheme
 python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples/Escherichia.Achtman.references.fasta -d examples/Escherichia.Achtman.convert.tab
 
