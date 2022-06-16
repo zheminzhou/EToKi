@@ -150,6 +150,7 @@ class dualBlast(object) :
             for n,s in qrySeq.items() :
                 fout.write('>{0}\n{1}\n'.format(n, s))
         
+        # Format a blast database for query genome
         Popen('{makeblastdb} -dbtype nucl -in {qry}'.format(makeblastdb=makeblastdb, qry=qryNA).split(), stderr=PIPE, stdout=PIPE).communicate()
 
         refs = [ [os.path.join(dirPath, 'ref.{0}'.format(id)), os.path.join(dirPath, 'ref.{0}.out'.format(id)), []] for id in range(n_thread)]
@@ -159,6 +160,7 @@ class dualBlast(object) :
             with open(r, 'w') as fout :
                 for n, s in refSeq2[id::n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
+            # Blastn reference alleles vs query assembly
             blast_cmd = '{blastn} -db {qry} -query {ref} -out {out} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -task blastn -evalue 1e-3 -dbsize 5000000 -reward 2 -penalty -2 -gapopen 6 -gapextend 2'.format(
                 blastn=blastn, qry=qryNA, ref=r, out=o)
             p.append(Popen(blast_cmd, stdout=PIPE, shell=True))
@@ -611,8 +613,10 @@ class seqOperation(object) :
 
 def nomenclature(genome, refAllele, parameters) :
     # write query
+    # TODO make this NS_ tempdir somewhere like /tmp instead of cluttering up the cwd
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
     try :
+        # Put the query genome and reference alleles into the tempdir
         qry = os.path.join(dirPath, 'query')
         ref = os.path.join(dirPath, 'reference')
         with open(qry, 'w') as fout :
