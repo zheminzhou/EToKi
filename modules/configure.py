@@ -341,12 +341,14 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['lastal']]) or not getExecutable([externals['lastdb']]) :
-        last_url = 'http://last.cbrc.jp/last-1021.zip'
+                
+        last_url = 'https://gitlab.com/mcfrith/last/-/archive/05ffb83b103f5b6b117807b90f82353e8c27490c/last-05ffb83b103f5b6b117807b90f82353e8c27490c.tar.gz'
         logger('Downloading LAST package from {0}'.format(last_url))
-        subprocess.Popen('curl -Lo last-1021.zip {0}'.format(last_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo last-1021.tar.gz {0}'.format(last_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging LAST package'.format(last_url))
-        subprocess.Popen('unzip -o last-1021.zip'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('last-1021.zip')
+        subprocess.Popen('tar -xf last-1021.tar.gz'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('last-1021.tar.gz')
+        os.rename('last-05ffb83b103f5b6b117807b90f82353e8c27490c', 'last-1021')
         logger('Installing LAST package'.format(last_url))
         subprocess.Popen('make'.split(), cwd='last-1021/src', stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         subprocess.Popen('ln -fs last-1021/src/lastal ./lastal'.split()).communicate()
