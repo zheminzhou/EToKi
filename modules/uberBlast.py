@@ -16,6 +16,8 @@ diamond = externals['diamond']
 def parseDiamond(data):
     fn, refseq, qryseq, min_id, min_cov, min_ratio = data
     blastab = []
+    if not os.path.isfile(fn) :
+        return None
     with open(fn) as fin :
         for line in fin:
             if line.startswith('@'):

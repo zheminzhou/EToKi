@@ -11,6 +11,8 @@ except :
 def parseArgs(argv) :
     parser = argparse.ArgumentParser(description='''Align multiple genomes onto a single reference. ''')
     parser.add_argument('-r', '--reference', help='[REQUIRED; INPUT] reference genomes to be aligned against. Use <Tag>:<Filename> format to assign a tag to the reference.', required=True)
+    parser.add_argument('-g', '--gff', help='[INPUT] gff for reference genomes. Used only to annotate SNPs', default=None)
+    parser.add_argument('--qry_list', help='[INPUT] name of a list file that contains genome queries (one per line).', default=None)
     parser.add_argument('-p', '--prefix', help='[OUTPUT] prefix for all outputs.', default='Enlign')
     parser.add_argument('-a', '--alignment', help='[OUTPUT] Generate core genomic alignments in FASTA format', default=False, action='store_true')
     parser.add_argument('-m', '--matrix', help='[OUTPUT] Do not generate core SNP matrix', default=True, action='store_false')
@@ -18,10 +20,9 @@ def parseArgs(argv) :
     parser.add_argument('-c', '--core', help='[PARAM] percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)
     parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('-q', '--lowq', help='[OPTIONAL; INPUT] Genome of low quality. [DEFAULT: ]', default=[], action='append')
-    parser.add_argument('queries', metavar='queries', nargs='+', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
+    parser.add_argument('queries', metavar='queries', nargs='*', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
     args.reference = args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference]
-    args.queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.queries ] if qt != args.reference[0] ])
     args.lowq = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.lowq ] if qt != args.reference[0] ])
     args.aligner = externals['minimap2'] if not args.last else [externals['lastdb'], externals['lastal']]
     return args
@@ -470,6 +471,7 @@ class last_package(object) :
                             compare += '{0}:{1}-{2}:{3};'.format(source[id+0], abs(source[id+4]), abs(source[id+5]), source[id+1])
                         fout.write('{0}\trefMapper\tvariation\t{1}\t{2}\t.\t+\t.\t{3}\n'.format(contig, source[2], source[3], '/replace="{0}";/compare="{1}";/origin="{2}"'.format(difference, compare[:-1], origin)))
 
+
 def lastAgainst(qry_tag, qry_file, refdb, prefix, ref_file, lastal) :
     if not os.path.isfile('{0}.{1}.lastal'.format(prefix, qry_tag)) :
         output = last_package.run_lastal(refdb, qry_file, '{0}.{1}.lastal'.format(prefix, qry_tag), lastal )
@@ -588,7 +590,7 @@ def alignAgainst(data) :
         cigar = p[-1][5:]
         d = 1 if p[4] == '+' else -1
         if d < 0 :
-            qryRepeat = [[q[1], q[0], -1, -1] for q in qryRepeat]
+            qryRepeat = [[q[1]-1, q[0]-1, -1, -1] for q in qryRepeat]
         else :
             qryRepeat = [[q[0], q[1], -1, -1] for q in reversed(qryRepeat)]
 
@@ -648,7 +650,7 @@ def alignAgainst(data) :
                 r1 = ref[1][alnSite[0]:alnSite[0]+cl]
                 if ord(min(list(r1))) >= 43 :
                     mut.append([alnSite[0], int(alnSite[1]+0.5*d), '.', '-' + r, p[4]])
-                for site in xrange(alnSite[0], alnSite[0]+2) :
+                for site in xrange(alnSite[0], alnSite[0]+len(r)) :
                     maskedRegion[(p[5], site)] = 0
                 alnSite[0]+=cl
         p[14] = mut
@@ -754,7 +756,47 @@ def readMap(data) :
                     mutations.append([mTag, part[0], part[3], ori[0], alt[0]])
     return presences, sorted(absences), mutations
 
-def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, alignmentOut) :
+def readGFF(fname) :
+    seq, cds = {}, {}
+    names = {}
+    fnames = fname.split(',')
+    fname = fnames[0]
+
+    for fn in fnames :
+        with uopen(fn) as fin :
+            for line in fin :
+                if line.startswith('#') :
+                    continue
+                else :
+                    part = line.strip().split('\t')
+                    if len(part) > 2 :
+                        name = re.findall(r'locus_tag=([^;]+)', part[8])
+                        if len(name) == 0 :
+                            parent = re.findall(r'Parent=([^;]+)', part[8])
+                            if len(parent) and parent[0] in names :
+                                name = names[parent[0]]
+                        if len(name) == 0 :
+                            name = re.findall(r'Name=([^;]+)', part[8])
+                        if len(name) == 0 :
+                            name = re.findall(r'ID=([^;]+)', part[8])
+                        if part[2] == 'CDS' :
+                            assert len(name) > 0, 'Error: CDS has no name. {0}'.format(line)
+                            gname = name[0]
+                            if gname not in cds :
+                                cds[gname] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, [], int(part[3]), int(part[4])]
+                            elif part[0] == cds[gname][1] and fname == cds[gname][0] :
+                                cds[gname].extend([int(part[3]), int(part[4])])
+                                cds[gname][3] = max(cds[gname][3], int(part[4]))
+                        else :
+                            ids = re.findall(r'ID=([^;]+)', part[8])
+                            if len(ids) :
+                                names[ids[0]] = name
+    return cds
+
+
+
+def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, alignmentOut, gff) :
+    genes = readGFF(gff) if gff else {}
     refSeq, refQual = readFastq(reference[1])
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
@@ -825,7 +867,12 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
         for site, num in enumerate(sites) :
             cSite = (n, site+1)
             if num < coreNum :
-                matrix.pop(cSite, None)
+                if cSite in matrix :
+                    indel = matrix[cSite][1]
+                    if sum(x != '-' for x in indel) >= coreNum :
+                        matrix[cSite][0] = []
+                    else :
+                        matrix.pop(cSite, None)
                 if len(missings) == 0 or missings[-1][0] != n or missings[-1][2] + 1 < cSite[1] :
                     missings.append([n, cSite[1], cSite[1]])
                 else :
@@ -842,6 +889,8 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                 else :
                     coreBases[b] = coreBases.get(b, 0) + 1
 
+    gff_info = get_mut_gff_info(genes, matrix, refSeq) if len(genes) else {}
+
     outputs = {}
     if matrixOut :
         outputs['matrix'] = prefix + '.matrix.gz'
@@ -851,13 +900,13 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                 fout.write('## Sequence_length: {0} {1}\n'.format(n, len(refSeq[n])))
             for region in missings :
                 fout.write('## Missing_region: {0} {1} {2}\n'.format(*region))
-            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments + lowq_aligns ]) + '\n')
+            fout.write('\t'.join(['#Seq', '#Site'] + [ mTag for mTag, mFile in alignments + lowq_aligns ] + (['#Genes:Site:Category'] if len(genes) else []) ) + '\n')
             for site in sorted(matrix) :
                 bases = matrix[site]
                 if len(bases[0]) :
-                    fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(bases[0])))
+                    fout.write('{0}\t{1}\t{2}\t{3}\n'.format(site[0], site[1], '\t'.join(bases[0]), gff_info.get((site[0], site[1]), '')))
                 if len(bases[1]) :
-                    fout.write('{0}\t{1}\t{2}\n'.format(site[0], site[1], '\t'.join(bases[1])))
+                    fout.write('{0}\t{1}\t{2}\t{3}\n'.format(site[0], site[1], '\t'.join(bases[1]), gff_info.get((site[0], site[1]), '').replace('Nonsyn', 'Indel').replace('Syn', 'Indel') ))
     if alignmentOut :
         outputs['alignment'] = prefix + '.fasta.gz'
         sequences = []
@@ -871,8 +920,8 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                         seq[n][s-1:e] = refSeq[n][s-1:e]
                     for n, s, e, c in absences :
                         seq[n][s-1:e] = '-' * (e-s+1)
-                for n, s, e in missings :
-                    seq[n][s - 1:e] = '-' * (e - s + 1)
+                    for n, s, e in missings :
+                        seq[n][s - 1:e] = '-' * (e - s + 1)
                 for site in matrix :
                     bases = matrix[site]
                     if len(bases[0]) :
@@ -887,6 +936,68 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                 for (mTag, mFile), seq in zip(lowq_aligns, low_seq) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
     return outputs
+
+
+def get_mut_gff_info(genes, matrix, refSeq) :
+    gene = sorted([ [g] + info[1:] for g, info in genes.items()], key=lambda g:g[1:4])
+    gi = 0
+    site_genes = {}
+    for (cont, site), (mut, indel) in sorted(matrix.items()) :
+        site_genes[(cont, site)] = []
+        while gi < len(gene) and (cont > gene[gi][0] or site > gene[gi][3] + 120) :
+            gi += 1
+        for i in np.arange(gi, len(gene)) :
+            g = gene[i]
+            if g[1] > cont or g[2] - 120 > site :
+                break
+            if site < g[2] :
+                outside = site - g[2] if g[4] == '+' else g[2] - site
+                if outside < 0 :
+                    site_genes[(cont, site)].append(['o', outside, g[0], 'Upstream'])
+                continue
+            elif site > g[3] :
+                outside = site - g[3] if g[4] == '+' else g[3] - site
+                if outside < 0 :
+                    site_genes[(cont, site)].append(['o', outside, g[0], 'Upstream'])
+                continue
+            in_gene = False
+            for s, e in zip(g[7::2], g[8::2]) :
+                if s <= site and site <= e :
+                    in_gene = True
+                    t = get_dNdS(refSeq, cont, s, e, g[4], site, mut) if len(mut) else 'Indel'
+                    site_genes[(cont, site)].append(['g', site - s+1 if g[4] == '+' else e - site+1, g[0], t])
+                    break
+            if not in_gene :
+                site_genes[(cont, site)].append(['i', site - g[2]+1 if g[4] == '+' else g[3] - site+1, g[0], 'Intergenic'])
+    res = {}
+    for cSite, gg in site_genes.items():
+        gg = sorted(gg)
+        if len(gg) > 0:
+            gg = [g for g in gg if g[0] == gg[0][0]]
+        res[cSite] = ';'.join(sorted(['{2}:{1}:{3}'.format(*g) for g in gg]))
+    return res
+
+def get_dNdS(refSeq, cont, s, e, d, site, mut) :
+    gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXYXYSSSSWCWCLFLF-'))
+    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
+    encode = {'A': 0, 'T': 3, 'G': 2, 'C': 1, 'N': -1000}
+    seq = list(refSeq[cont][s-1:e])
+    if d == '-' :
+        seq = [comp.get(c,'N') for c in seq[::-1]]
+        mut = [comp.get(m, 'N') for m in mut]
+    mut = [encode.get(m, -1000) for m in np.unique(mut)]
+    i = (site - s) if d == '+' else (e - site)
+    i0 = int(i/3)*3
+    ci = i - i0
+    codon = [encode.get(c, -1000) for c in np.array(seq)[i0:i0+3]]
+    aas = {}
+    for m in mut :
+        codon[ci] = m
+        x = codon[0]*16 + codon[1]*4 + codon[2]
+        if x >= 0 and x < len(gtable) :
+            aas[gtable[x]] = 1
+    return 'Nonsyn' if len(aas) > 1 else 'Syn'
+
 
 def runAlignment(prefix, reference, queries, core, aligner) :
     #alignments = list(map(alignAgainst, [[prefix +'.' + query[0].rsplit('.', 1)[0] + '.' + str(id+1), aligner, prefix + '.mmi', reference, query] for id, query in enumerate(queries)]))
@@ -944,11 +1055,6 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
             with open(tf_fas, 'wt') as fout:
                 for n, s in seq.items() :
                     fout.write('>{0}\n{1}\n'.format(n, s))
-            #tf_fas = '{0}.fasta'.format(tf.name)
-            #if reference.upper().endswith('GZ') :
-            #    subprocess.Popen('{0} -cd {1} > {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
-            #else :
-            #    subprocess.Popen('cp {1} {2}'.format(externals['pigz'], reference, tf_fas), shell=True).communicate()
             repeats = mask_tandem(tf_fas) + mask_crispr(tf_fas, tf.name)
             os.unlink(tf_fas)
         alignments = alignAgainst([prefix +'.' + ref_tag.rsplit('.', 1)[0] + '.0', aligner, prefix + '.mmi', [ref_tag, reference], [ref_tag, reference]])
@@ -961,17 +1067,26 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
 
 def align(argv) :
     args = parseArgs(argv)
-    
+
+    if args.qry_list == None :
+        queries = args.queries
+    else :
+        queries = []
+        with open(args.qry_list, 'rt') as fin :
+            for line in fin :
+                queries.append(line.strip().split()[0])
+    queries = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in queries ] if qt != args.reference[0] ])
+
+
     global pool
     pool = Pool(args.n_proc)
-    #print(args.reference)
     refMask = prepReference(args.prefix, args.reference[0], args.reference[1], args.aligner, **externals)
-    alignments = runAlignment(args.prefix, args.reference, args.queries, args.core, args.aligner)
+    alignments = runAlignment(args.prefix, args.reference, queries, args.core, args.aligner)
     lowq_aligns = runAlignment(args.prefix, args.reference, args.lowq, args.core, args.aligner)
     alignments = [refMask] + alignments
     outputs = {'mappings': dict(alignments), 'low_qual_map': dict(lowq_aligns)}
     if args.matrix or args.alignment :
-        outputs.update(getMatrix(args.prefix, args.reference, alignments, lowq_aligns, args.core, args.matrix, args.alignment))
+        outputs.update(getMatrix(args.prefix, args.reference, alignments, lowq_aligns, args.core, args.matrix, args.alignment, args.gff))
     import json
     sys.stdout.write(json.dumps(outputs, indent=2, sort_keys=True))
     return outputs

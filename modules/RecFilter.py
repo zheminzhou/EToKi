@@ -21,7 +21,7 @@ def parse_arg(a) :
     args = parser.parse_args(a)
     return args
 
-def read_clonalframe(fname, nodes) :
+def read_clonalframe(fname, nodes, seqname) :
     rec = {}
     with open(fname) as fin :
         fin.readline()
@@ -29,7 +29,7 @@ def read_clonalframe(fname, nodes) :
             branch, s, e = line.strip().split('\t')
             if branch not in rec :
                 rec[branch] = []
-            rec[branch].append([int(s), int(e), '', nodes[branch]])
+            rec[branch].append([seqname, int(s), int(e), '', nodes[branch]])
     return rec
 
 def read_simbac(fname, nodes) :
@@ -140,8 +140,9 @@ def RecFilter(argv) :
         sys.exit()
     names, sites, snps, seqLens, missing = phylo.read_matrix(args.matrix)
     tree = Tree(args.tree, format=1)
-    
-    final_tree, node_names, states = phylo.infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
+
+    final_tree, node_names, states = phylo.infer_ancestral(args.prefix, args.tree, names, snps)
+    #final_tree, node_names, states = phylo.infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
     nodes = {}
     for node in final_tree.traverse('postorder') :
         if node.is_leaf() :
@@ -151,7 +152,7 @@ def RecFilter(argv) :
 
     mutations = phylo.get_mut(final_tree, node_names, np.array(states), sites)
     if args.clonalframeml :
-        rec_regions = read_clonalframe(args.rec, nodes)
+        rec_regions = read_clonalframe(args.rec, nodes, sites[0][0])
     elif args.simbac :
         rec_regions = read_simbac(args.rec, nodes)
     else :

@@ -60,17 +60,32 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
             fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**s) for s in alleles]))
         with open(targetFna, 'w') as fout :
             fout.write('\n'.join(['>{fieldname}_{value_id}\n{value}'.format(**t) for t in references]))
-        # get cluster
-        exampler, cluster = clust('-i {0} -p {1} -d {2} -c 1 -t 8'.format(\
-            sourceFna, clsFna, max_iden).split())
-        tooClose, goodCandidates, crossSites = {}, {}, {}
-        with open(cluster) as fin :
-            for line in fin :
-                part = line.strip().split()
-                locus = [ p.rsplit('_', 1)[0] for p in part ]
-                if locus[0] != locus[1] :
-                    crossSites[part[0]] = crossSites.get(part[0], [])+[locus[1]]
-                    crossSites[part[1]] = crossSites.get(part[1], [])+[locus[0]]
+
+        if 1-paralog > max_iden :
+            exampler, cluster = clust('-i {0} -p {1} -d {2} -c 1 -t 8'.format( \
+                sourceFna, clsFna, 1-paralog).split())
+            tooClose, goodCandidates, crossSites = {}, {}, {}
+            with open(cluster) as fin:
+                for line in fin:
+                    part = line.strip().split()
+                    locus = [p.rsplit('_', 1)[0] for p in part]
+                    if locus[0] != locus[1]:
+                        crossSites[part[0]] = crossSites.get(part[0], []) + [locus[1]]
+                        crossSites[part[1]] = crossSites.get(part[1], []) + [locus[0]]
+            exampler, cluster = clust('-i {0} -p {1} -d {2} -c 1 -t 8'.format( \
+                sourceFna, clsFna, max_iden).split())
+        else :
+            # get cluster
+            exampler, cluster = clust('-i {0} -p {1} -d {2} -c 1 -t 8'.format(\
+                sourceFna, clsFna, max_iden).split())
+            tooClose, goodCandidates, crossSites = {}, {}, {}
+            with open(cluster) as fin :
+                for line in fin :
+                    part = line.strip().split()
+                    locus = [ p.rsplit('_', 1)[0] for p in part ]
+                    if locus[0] != locus[1] :
+                        crossSites[part[0]] = crossSites.get(part[0], [])+[locus[1]]
+                        crossSites[part[1]] = crossSites.get(part[1], [])+[locus[0]]
                 
         # compare with references
         blastab = uberBlast('-r {0} -q {1} -f --blastn --diamondSELF --min_id {2} --min_ratio {3} -t 8 -p -s 1 -e 0,3'.format(\
@@ -82,10 +97,10 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
         c = (tab[7]-tab[6]+1)/tab[12]
         e = max(abs(tab[8] - tab[6]), abs(tab[12]-tab[7] - (tab[13]-tab[9])))
         if c >= coverage and tab[2] >= min_iden :
-            if locus[0] != locus[1] :
+            if locus[0] != locus[1] and tab[2] >= 1-paralog :
                 crossSites[tab[0]] = crossSites.get(tab[0], [])+[locus[1]]
                 crossSites[tab[1]] = crossSites.get(tab[0], [])+[locus[0]]
-            elif e <= 0 :
+            elif e <= 0 or relaxEnd :
                 if tab[2] >= max_iden and tab[0] != tab[1] :
                     tooClose[tab[0]] = 1
                 else :
@@ -181,7 +196,7 @@ def getParams(args) :
     parser.add_argument('-s', '--refstrain',                 help='[DEFAULT: None] A single file contains alleles from the reference genome. ', default=None)
     parser.add_argument('-x', '--max_iden',                  help='[DEFAULT: 0.9 ] Maximum identities between resulting refAlleles. ', type=float, default=0.9)
     parser.add_argument('-m', '--min_iden',                  help='[DEFAULT: 0.6 ] Minimum identities between refstrain and resulting refAlleles. ', type=float, default=0.6)
-    parser.add_argument('-p', '--paralog',                   help='[DEFAULT: 0.1 ] Minimum differences between difference loci. ', type=float, default=0.2)
+    parser.add_argument('-p', '--paralog',                   help='[DEFAULT: 0.2 ] Minimum differences between difference loci. ', type=float, default=0.2)
     parser.add_argument('-c', '--coverage',                  help='[DEFAULT: 0.7 ] Proportion of aligned regions between alleles. ', type=float, default=0.7)
     parser.add_argument('-e', '--relaxEnd',                  help='[DEFAULT: False ] Allow changed ends (for pubmlst). ', action='store_true', default=False)
 

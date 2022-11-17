@@ -1,12 +1,11 @@
-import os, io, sys, re, shutil, numpy as np, pandas as pd
+import os, sys, re, shutil, numpy as np, pandas as pd
 from collections import OrderedDict
-from glob import glob
 from time import sleep
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE
 try:
-    from .configure import externals, logger, readFasta, xrange, uopen
+    from .configure import externals, logger, readFasta, xrange, uopen, ETOKI
 except :
-    from configure import externals, logger, readFasta, xrange, uopen
+    from configure import externals, logger, readFasta, xrange, uopen, ETOKI
 
 # mainprocess
 class mainprocess(object) :
@@ -34,7 +33,7 @@ class mainprocess(object) :
         if parameters['outgroup'] or parameters['excluded'] :
             parameters['excluded'] = self.identify_outgroups(result, reads, parameters['ingroup'], parameters['outgroup'], parameters['excluded'], parameters)
         for ite in np.arange(int(parameters['numPolish'])) :
-            result, n_changes = self.do_polish(result, reads, parameters['reassemble'], parameters['onlySNP'])
+            result, n_changes = self.do_polish(result, reads, parameters['onlySNP'])
             if not n_changes :
                 break
 
@@ -66,7 +65,7 @@ class mainprocess(object) :
         for lib_id, lib in enumerate(reads) :
             rl = [0, 0]
             for rname in lib :
-                p = Popen("{pigz} -cd {0}|head -30000000|awk 'NR%4 == 2'|wc".format(rname, **externals), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
+                p = Popen("{pigz} -cd {0}|head -30000000|awk 'NR%4 == 2'|wc".format(rname, **parameters), shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()[0].split()
                 rl[0] += int(p[0])
                 rl[1] += int(p[2]) - int(p[0])
             read_len = max(rl[1]/float(rl[0]), read_len) if float(rl[0]) > 0 else read_len
@@ -88,7 +87,7 @@ class mainprocess(object) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
                     if clean :
-                        cmd = '{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@8 - - | {samtools} sort -m 4G -@ 8 -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@8 -O BAM - {o}'.format(
+                        cmd = '{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@{n_cpu} - - | {samtools} sort -m 4G -@ {n_cpu} -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@{n_cpu} -O BAM - {o}'.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         for line in st_run[1].split('\n') :
@@ -96,7 +95,7 @@ class mainprocess(object) :
                         outputs.append(o) #self.__markDuplicates(o1, o))
                         Popen('{samtools} index {o}'.format(o=o, **parameters).split(), stdout=PIPE).communicate()
                     else :
-                        cmd = '''{minimap2} -t8 -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                        cmd = '''{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o)
@@ -116,7 +115,7 @@ class mainprocess(object) :
                 if r is not None :
                     logger('Run Bowtie2 with: {0}'.format(r))
                     if clean :
-                        cmd= '{bowtie2} -p 8 --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@8 - - | {samtools} sort -m 4G -@8 -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@8 -O BAM - {o}'.format(
+                        cmd= '{bowtie2} -p {n_cpu} --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | {enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@{n_cpu} - - | {samtools} sort -m 4G -@{n_cpu} -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@{n_cpu} -O BAM - {o}'.format(
                             r=r, o=o, reference=reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         for line in st_run[1].split('\n') :
@@ -124,7 +123,7 @@ class mainprocess(object) :
                         outputs.append(o)#self.__markDuplicates(o1, o))
                         Popen('{samtools} index {o}'.format(o=o, **parameters).split(), stdout=PIPE).communicate()
                     else :
-                        cmd = '''{bowtie2} -p 8 --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                        cmd = '''{bowtie2} -p {n_cpu} --no-unal --mp 4,4 --np 4 --sensitive-local -q -I 25 -X 800 -x {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o)
@@ -145,7 +144,7 @@ class mainprocess(object) :
                 if r is not None :
                     logger('Run bwa with: {0}'.format(r))
                     if clean :
-                        cmd= '{bwa} mem -A 2 -B 4 -T 40 -t 8 -m 40 {reference} {r} | {enbler_filter} {max_diff} {excluded} | | {samtools} fixmate -m -@8 - - | {samtools} sort -m 4G -@ 8 -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@8 -O BAM - {o}'.format(
+                        cmd= '{bwa} mem -A 2 -B 4 -T 40 -t {n_cpu} -m 40 {reference} {r} | {enbler_filter} {max_diff} {excluded} | | {samtools} fixmate -m -@{n_cpu} - - | {samtools} sort -m 4G -@{n_cpu} -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@{n_cpu} -O BAM - {o}'.format(
                             r=r, o=o, reference=reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         for line in st_run[1].split('\n') :
@@ -153,7 +152,7 @@ class mainprocess(object) :
                         outputs.append(o) #self.__markDuplicates(o1, o))
                         Popen('{samtools} index {o}'.format(o=o, **parameters).split(), stdout=PIPE).communicate()
                     else :
-                        cmd = '''{bwa} mem -A 2 -B 4 -T 40 -t 8 -m 40 {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                        cmd = '''{bwa} mem -A 2 -B 4 -T 40 -t {n_cpu} -m 40 {reference} {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o)
@@ -181,8 +180,8 @@ class mainprocess(object) :
                 read_input = '-1 {0} -2 {1}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
         else :
             read_input = '-r {2}'.format(','.join(read_input[0]), ','.join(read_input[1]), ','.join(read_input[2]))
-        cmd = '{megahit} {read_input} --k-max 201 --k-step 10 -t 8 -m 0.9 -o {outdir}'.format(
-              megahit=parameters['megahit'], read_input=read_input, outdir=outdir)
+        cmd = '{megahit} {read_input} --k-min 21 --k-max 201 --k-step 18 -t {n_cpu} -m 0.9 -o {outdir}'.format(
+              read_input=read_input, outdir=outdir, **parameters)
         run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
         run.communicate()
         if run.returncode != 0 :
@@ -201,9 +200,9 @@ class mainprocess(object) :
                     part = line.strip().split()
                     if part[3] in ('+', 'Y') :
                         circular[part[0]] = 1
-        cmd = '{makeblastdb} -dbtype nucl -in {0}'.format(input_name, **externals)
+        cmd = '{makeblastdb} -dbtype nucl -in {0}'.format(input_name, **parameters)
         Popen(cmd, shell=True).communicate()
-        cmd = '{blastn} -num_threads 8 -db {0} -query {0} -outfmt "6 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue score qlen slen"'.format(input_name, **externals)
+        cmd = '{blastn} -num_threads {n_cpu} -db {0} -query {0} -outfmt "6 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue score qlen slen"'.format(input_name, **parameters)
         p = Popen(cmd, shell=True, universal_newlines=True, stdout=PIPE)
         matches = pd.read_csv(p.stdout, sep='\t', header=None).values
         matches = matches[(matches.T[2] >= 98.5) & (matches.T[3] >= 1000)]
@@ -281,10 +280,10 @@ class mainprocess(object) :
             if len(reads[0]) and len(reads[1]) :
                 read_inputs = [ '--pacbio-raw {0}'.format(' '.join([r for read in reads for r2 in read for r in r2])), \
                               '--pacbio-raw {0}'.format(' '.join([r for read in reads[0] for r in read])) ]
-                cmds = ['{flye} -t 8 -g 5m --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
-                        flye=parameters['flye'], read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome), \
-                        '{flye} -t 8 -g 5m --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
-                        flye=parameters['flye'], read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome) ]
+                cmds = ['{flye} -t {n_cpu} -g 5m --iterations 0 --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        read_input=read_inputs[0], outdir=outdir, isMetagenome=isMetagenome, **parameters), \
+                        '{flye} -t {n_cpu} -g 5m --resume-from polishing --plasmids {read_input} {isMetagenome} -o {outdir}'.format( \
+                        read_input=read_inputs[1], outdir=outdir, isMetagenome=isMetagenome, **parameters) ]
                 finished = True
                 for cmd in cmds :
                     flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
@@ -298,8 +297,8 @@ class mainprocess(object) :
                 elif len(reads[1]) and not len(reads[0]) :
                     read_input = '--nano-raw {0}'.format(' '.join([r for read in reads[1] for r in read]))
     
-                cmd = '{flye} -t 8 -g 5m --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
-                      flye=parameters['flye'], read_input=read_input, outdir=outdir, isMetagenome=isMetagenome)
+                cmd = '{flye} -t {n_cpu} -g 5m --plasmids {read_input} {isMetagenome} -o {outdir}'.format(
+                      read_input=read_input, outdir=outdir, isMetagenome=isMetagenome, **parameters)
     
                 flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True )
                 flye_run.communicate()
@@ -330,8 +329,8 @@ class mainprocess(object) :
                     else :
                         fout.write(line)
 
-            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} -o {outdir}'.format(
-                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2]), outdir=outdir2)
+            cmd = '{flye} -t {n_cpu} -g 5m --plasmids --subassemblies {asm} -o {outdir}'.format(
+                  asm=' '.join([contigs, asm1, asm2]), outdir=outdir2, **parameters)
 
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
@@ -369,8 +368,8 @@ class mainprocess(object) :
                             else :
                                 fout.write(line)
             
-            cmd = '{flye} -t 8 -g 5m --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
-                  flye=parameters['flye'], asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3)
+            cmd = '{flye} -t {n_cpu} -g 5m --plasmids --subassemblies {asm} --polish-target {asm1} -o {outdir3}'.format(
+                  asm=' '.join([contigs, asm1, asm2, asm3]), asm1=asm1, outdir3=outdir3, **parameters)
             flye_run = Popen( cmd.split(), stdout=PIPE, bufsize=0, universal_newlines=True)
             flye_run.communicate()
             if flye_run.returncode != 0 :
@@ -396,14 +395,14 @@ class mainprocess(object) :
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
 
-        cmd = '{python} {spades} -t 8 --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
-              python=sys.executable, spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer, outdir=outdir)
+        cmd = '{python} {spades} -t {n_cpu} --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
+              python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
-            cmd = '{python} {spades} -t 8 {read_input} -k {kmer} -o {outdir}'.format(
-                python=sys.executable, spades=parameters['spades'], read_input=' '.join(read_input), kmer=kmer,
-                outdir=outdir)
+            cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
+                python=sys.executable, read_input=' '.join(read_input), kmer=kmer,
+                outdir=outdir, **parameters)
             spades_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
             spades_run.communicate()
             if spades_run.returncode != 0 :
@@ -503,73 +502,20 @@ class mainprocess(object) :
         return excludedFile
 
 
-    def do_polish2(self, reference, reads, reassemble=False, onlySNP=False) :
-        if parameters.get('SNP', None) is not None :
-            return self.do_polish_with_SNPs(reference, parameters['SNP'])
-        else :
-            if parameters['mapper'] == 'minimap2' :
-                bams = self.__run_minimap('etoki', reference, reads )
-            elif parameters['mapper'] != 'bwa' :
-                bams = self.__run_bowtie('etoki', reference, reads )
-            else :
-                bams = self.__run_bwa('etoki', reference, reads )
-            sites = {}
-            for bam in bams :
-                if bam is not None :
-                    depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
-                    for line in depth.stdout :
-                        part = line.strip().split()
-                        if len(part) > 2 and float(part[2]) > 0 :
-                            sites[part[0]] = 1
-            sequence = readFasta(reference)
-            sequence = {n:s for n,s in sequence.items() if n in sites}
-
-            with open('{0}.mapping.reference.fasta'.format('etoki'), 'w') as fout :
-                for n, s in sorted(sequence.items()) :
-                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-
-            bam_opt = ' '.join(['--bam {0}'.format(b) for b in bams if b is not None])
-            fix_opt = '--fix all,breaks' if reassemble else '--fix all'
-            
-            pilon_cmd = '{pilon} {fix_opt} --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, fix_opt=fix_opt, **parameters)
-            Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
-            
-            if not os.path.isfile('etoki.mapping.vcf') :
-                pilon_cmd = '{pilon} --fix snps,indels,gaps --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-                Popen( pilon_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()                    
-            
-            snps = []
-            with open('etoki.mapping.vcf') as fin, open('etoki.mapping.changes', 'w') as fout :
-                for line in fin :
-                    if line.startswith('#') : continue
-                    part = line.strip().split('\t')
-                    if part[-1] != '0/0':
-                        try :
-                            if (part[6] == 'PASS' or float(part[7][-4:]) >= 0.75) and re.match(r'^[ACGTN]+$', part[4]):
-                                if (not onlySNP) or (len(part[3]) == 1 and len(part[4]) == 1 ) :
-                                    snps.append( [ part[0], int(part[1])-1, part[3], part[4] ] )
-                                    fout.write(line)
-                        except :
-                            pass
-
-            os.unlink('etoki.mapping.vcf')
-            for n in sequence.keys() :
-                sequence[n] = list(sequence[n])
-            for n, site, ori, alt in reversed(snps) :
-                s = sequence[n]
-                end = site + len(ori)
-                s[site:end] = alt
-            logger('Observed and corrected {0} changes using PILON'.format(len(snps)))
-            with open('etoki.fasta', 'w') as fout :
-                for n, s in sorted(sequence.items()) :
-                    s = ''.join(s)
-                    fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[site:(site+100)] for site in xrange(0, len(s), 100)])))
-            return 'etoki.fasta', len(snps)
-
-    def do_polish(self, reference, reads, reassemble=False, onlySNP=False):
+    def do_polish(self, reference, reads, onlySNP=False):
         if parameters.get('SNP', None) is not None:
             return self.do_polish_with_SNPs(reference, parameters['SNP'])
         else:
+            if os.path.isdir('etoki.hapog') :
+                shutil.rmtree('etoki.hapog')
+            seq = readFasta(reference)
+            names = []
+            with open('etoki.hapog.ref', 'wt') as fout :
+                for id, (n, s) in enumerate(seq.items()) :
+                    fout.write('>{0}\n{1}\n'.format(id, s))
+                    seq[n] = list(s)
+                    names.append(n)
+            reference = 'etoki.hapog.ref'
             if parameters['mapper'] == 'minimap2':
                 bams = self.__run_minimap('etoki', reference, reads)
             elif parameters['mapper'] != 'bwa':
@@ -582,41 +528,31 @@ class mainprocess(object) :
                 merged_bam=merged_bam, bams=' '.join(bams), **parameters
             ).split(), stdout=PIPE, universal_newlines=True).communicate()
             Popen('{samtools} index {bam}'.format(bam=merged_bam, **parameters).split()).communicate()
-            seq = readFasta(reference)
-            with open('etoki.mapping.reference.fasta', 'wt') as fout :
-                for n in seq.keys() :
-                    fout.write('>{n}\n{s}\n'.format(n=n, s=seq[n]))
-                    seq[n] = list(seq[n])
-            Popen('{samtools} faidx etoki.mapping.reference.fasta'.format(**parameters).split()).communicate()
 
-            p = Popen('{nextpolish} -g etoki.mapping.reference.fasta -debug -t 1 -p 8 -s {bam}'.format(
-                bam=merged_bam, **parameters).split(), universal_newlines=True, stdout=PIPE, stderr=PIPE).communicate()
-            diffs = []
-            c_adjust = 0
-            for line in p[1].split('\n') :
-                if line != '' and not line.startswith('[INFO]') :
-                    cont, site, _, q, r = line.strip().split()
-                    site = int(site) - c_adjust
-                    if not onlySNP or (r != '.' and q != '.') :
-                        diffs.append([cont, site, r, q])
+            Popen('{samtools} faidx {0}'.format(reference, **parameters).split()).communicate()
 
-            for cont, site, r, q in diffs :
-                if r != '.' and q != '.' :
-                    seq[cont][site] = q
-                elif r == '.' :
-                    seq[cont][site] += q
-                else :
-                    seq[cont][site] = ''
+            my_env = os.environ.copy()
+            my_env["PATH"] = ETOKI + ':' + my_env["PATH"]
+            Popen('{hapog} -g {0} -u -t {n_cpu} -b {bam} -o etoki.hapog'.format(reference,
+                bam=merged_bam, **parameters).split(),
+                  universal_newlines=True, stdout=PIPE, stderr=PIPE, env=my_env).communicate()
+            try :
+                n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE, universal_newlines=True).communicate()
+                diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
+                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs ]
+                for n, i, o, r in diffs[::-1] :
+                    if not onlySNP or len(r) == 1 :
+                        seq[n][i] = r
+            except :
+                diffs = []
             with open('etoki.fasta', 'wt') as fout :
-                for n, s in seq.items() :
-                    fout.write('>{n}\n{s}\n'.format(n=n, s=''.join(s)))
+                for n, s in seq.items():
+                    fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
             return 'etoki.fasta', len(diffs)
 
 
-    def get_ave_depth(self, sites, accurate_depth=False) :
-        if not accurate_depth :
-            sites = {n:[s.size, np.max([np.median(s), np.exp(np.mean(np.log(s + 0.5)))-0.5]), 0.] for n, s in sites.items()}
-        else :
+    def get_ave_depth(self, sites, accurate_depth=False, isMetagenome=False) :
+        if True :
             glob_depth = np.zeros(65536, dtype=int)
             for n, s in sites.items() :
                 ss = np.bincount(s)[:65536]
@@ -631,9 +567,16 @@ class mainprocess(object) :
                     iv[1] = d
                     break
             div = max(3, 3*(iv[1] - iv[0]))
-            iv = [iv[0]-div, iv[1]+div]
-            sites = {n:[s.size, np.mean(s[ (iv[0] <= s) & (s <= iv[1]) ]), 0.] for n, s in sites.items() }
-        depth = np.array(list(sites.values()))
+            iv = [iv[0]-div, iv[1]+div] if not isMetagenome else [0, 65536]
+            sites2 = {}
+            for n, s in sites.items() :
+                x = s[ (iv[0] <= s) & (s <= iv[1]) ]
+                if len(x) :
+                    sites2[n] = [s.size, np.mean(s[ (iv[0] <= s) & (s <= iv[1]) ]), 0.]
+                else :
+                    sites2[n] = [s.size, 0., 0.]
+
+        depth = np.array(list(sites2.values()))
         depth = depth[np.argsort(-depth.T[0])]
         size = np.sum(depth.T[0])
         acc = [0, 0]
@@ -642,10 +585,15 @@ class mainprocess(object) :
             if acc[0] *2 >= size :
                 break
         ave_depth = acc[1]/acc[0]
-        #for n, s in sorted(sites.items()) :
-        #    s[2] = s[1]/ave_depth
 
-        return sites, ave_depth
+        return sites2, ave_depth
+
+    def __calc_qual(self, n_ref, n_alt):
+        if n_ref < n_alt :
+            return 0
+        p1, p2 = 0.1, 0.5
+        qual = int(10*n_ref*(np.log10(1-p1) - np.log10(1-p2)) + 10*n_alt*(np.log10(p1) - np.log10(p2))+0.5)
+        return max(qual, 0)
 
     def get_quality(self, reference, reads ) :
         if parameters['mapper'] == 'minimap2' :
@@ -654,86 +602,52 @@ class mainprocess(object) :
             bams = self.__run_bowtie('etoki', reference, reads, )
         else :
             bams = self.__run_bwa('etoki', reference, reads, )
-        
+
+        merged_bam = 'etoki.mapping.merged.bam'
+        Popen('{samtools} merge -f {merged_bam} {bams}'.format(
+            merged_bam=merged_bam, bams=' '.join(bams), **parameters
+        ).split(), stdout=PIPE, universal_newlines=True).communicate()
+        Popen('{samtools} index {bam}'.format(bam=merged_bam, **parameters).split()).communicate()
+
+        Popen('{samtools} faidx {0}'.format(reference, **parameters).split()).communicate()
+
         sequence = readFasta(reference)
         for n, s in sequence.items() :
             q = ['!'] * len(s)
             sequence[n] = [s, q]
 
         sites = { n:np.array([0 for _ in s[1] ]) for n, s in sequence.items() }
-        for bam in bams :
-            if bam is not None :
-                depth = Popen('{samtools} depth -q 0 -Q 0 {bam}'.format(bam=bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
-                for line in depth.stdout :
-                    part = line.strip().split()
-                    if len(part) > 2 and float(part[2]) > 0 :
-                        sites[part[0]][int(part[1]) - 1] += float(part[2])
-        sites, ave_depth = self.get_ave_depth(sites, parameters['accurate_depth'])
-        exp_mut_depth = max(ave_depth * 0.2, 2.)
+        depth = Popen('{samtools} depth -aa -q 0 -Q 0 {bam}'.format(bam=merged_bam, **parameters).split(), stdout=PIPE, universal_newlines=True)
+        for line in depth.stdout :
+            part = line.strip().split()
+            if len(part) > 2 and float(part[2]) > 0 :
+                sites[part[0]][int(part[1]) - 1] = float(part[2])
+
+        sites, ave_depth = self.get_ave_depth(sites, parameters['accurate_depth'], parameters['metagenome'])
+        cont_depth = [float(d)*ave_depth for d in parameters['cont_depth'].split(',')]
+        logger('Average read depth: {0}'.format(ave_depth))
+        logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]))
         for n, s in sorted(sites.items()) :
             s[2] = s[1]/ave_depth
 
-        logger('Average read depth: {0}'.format(ave_depth))
-        sequence = {n:s for n, s in sequence.items() if sites[n][1]>0.}
-        with open('etoki.mapping.reference.fasta', 'w') as fout :
-            for n, s in sorted(sequence.items()) :
-                fout.write('>{0}\n{1}\n'.format(n, '\n'.join([ s[0][site:(site+100)] for site in xrange(0, len(s[0]), 100)])))
-        Popen('{samtools} faidx etoki.mapping.reference.fasta'.format(**parameters).split()).communicate()
-        bam_opt = ' '.join(['--bam {0}'.format(b) if 'pe.bam' in b else '--unpaired {0}'.format(b) for b in bams if b is not None])
-        pilon_cmd = '{pilon} --fix snps,indels --vcf --output etoki.mapping --flank 3 --genome etoki.mapping.reference.fasta {bam_opt}'.format(bam_opt=bam_opt, **parameters)
-        Popen( pilon_cmd.split(), stdout=PIPE, universal_newlines=True ).communicate()
+        cmd = '{samtools} mpileup -ABf {0} {1}'.format(reference, merged_bam, **parameters)
+        q = Popen( cmd.split(), stdout=PIPE, universal_newlines=True )
+        for line in q.stdout:
+            p = line.strip().split()
+            depth = int(p[3])
+            n_ref = p[4].count('.') + p[4].count(',')
+            n_alt = depth - n_ref
+            if depth > cont_depth[1] :
+                n_ref -= depth - cont_depth[1]
+            q = self.__calc_qual(n_ref, n_alt)
+            sequence[p[0]][1][int(p[1])-1] = chr( min(q, 40) + 33 )
 
-        cont_depth = [float(d) for d in parameters['cont_depth'].split(',')]
-        logger('Contigs with less than {0} depth will be removed from the assembly'.format(cont_depth[0]*ave_depth))
-        logger('Contigs with more than {0} depth will be treated as duplicates'.format(cont_depth[1]*ave_depth))
-        indels = []
-        with open('etoki.mapping.vcf') as fin :#, open('etoki.mapping.difference', 'w') as fout :
-            for line in fin :
-                if line.startswith('#') : continue
-                part = line.strip().split('\t')
-                if sites[part[0]][2] < cont_depth[0] or sites[part[0]][2] >= cont_depth[1] :
-                    continue
-                if part[-1] == '1/1':
-                    if len(part[3]) > 1 :
-                        indels.append([part[0], max(0, int(site)-1), int(site)-1+len(part[3])+2])
-                    elif len(part[4]) > 1 and part[4] != '<DUP>' :
-                        indels.append([part[0], max(0, int(site)-2), int(site)-1+len(part[3])+2])
-
-                try:
-                    if part[-1] == '0/0' and len(part[3]) == 1 and len(part[4]) == 1 :
-                        pp = part[7].split(';')
-                        dp = float(pp[0][3:])
-                        af = 100 - sorted([float(af) for af in pp[6][3:].split(',')])[-1]
-                        if af <= 20 and dp >= 4 and dp * af/100. <= exp_mut_depth and (part[6] == 'PASS' or (part[6] == 'LowCov' and parameters['metagenome'])) :
-                            site = int(part[1])-1
-                            qual = chr(int(pp[4][3:])+33)
-                            sequence[part[0]][1][site] = qual
-                        else :
-                            pass #fout.write(line)
-                    else :
-                        pass #fout.write(line)
-                except :
-                    pass #fout.write(line)
-        for n, s, e in indels :
-            sequence[n][1][s:e] = ['!'] * len(sequence[n][1][s:e])
-            
-        if self.snps is not None :
-            for n, snvs in sorted(self.snps.items()) :
-                for site, snv in snvs :
-                    if snv.find('N') >= 0 : continue
-                    if snv.startswith('+') :
-                        s, e = site-4, site+3+len(snv)
-                    else :
-                        s, e = site-4, site+4
-                    for k in xrange(s, e) :
-                        sequence[n][1][k] = max(chr(40+33), sequence[n][1][k])
 
         with open('etoki.result.fastq', 'w') as fout :
             p = prefix.rsplit('/', 1)[-1]
             for n, (s, q) in sorted(sequence.items()) :
-                if sites[n][2] >= cont_depth[0] :
+                if sites[n][1] >= cont_depth[0] :
                     fout.write( '@{0} {3} {4} {5}\n{1}\n+\n{2}\n'.format( p+'_'+n, s, ''.join(q), *sites[n] ) )
-        os.unlink( 'etoki.mapping.vcf' )
         return 'etoki.result.fastq'
     
 # postprocess
@@ -787,7 +701,7 @@ class postprocess(object) :
             for n, s in sorted(seq.items()) :
                 if s[0] > 1000 :
                     fout.write('>{0}\n{1}\n'.format(n, s[2]))
-        cmd = '{kraken2} -db {kraken_database} --threads 8 --output - --report {assembly}.kraken {assembly}.filter'.format(
+        cmd = '{kraken2} -db {kraken_database} --threads {n_cpu} --output - --report {assembly}.kraken {assembly}.filter'.format(
             assembly=assembly, **parameters
         )
             
@@ -896,10 +810,10 @@ And
     
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
-    parser.add_argument('--accurate_depth', help='A better estimation of read depths in each contig', action='store_true', default=False)
+    parser.add_argument('--accurate_depth', help='A better estimation of read depths in each contig', action='store_true', default=True)
 
-    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 1', default=-1, type=int)
-    parser.add_argument('--reassemble', help='Do local re-assembly in PILON. Suggest to use this flag with long reads.', action='store_true', default=False)
+    parser.add_argument('--n_cpu', help='Number of CPUs. Default: 8', default=8, type=int)
+    parser.add_argument('--numPolish', help='Number of Pilon polish iterations. Default: 3 (single) or 1 (metagenome)', default=-1, type=int)
     parser.add_argument('--onlySNP', help='Only modify substitutions during the PILON polish.', action='store_true', default=False)
     parser.add_argument('--noQuality', help='Do not estimate base qualities.', action='store_true', default=False)
     parser.add_argument('--onlyEval', help='Do not run assembly/mapping. Only evaluate assembly status.', action='store_true', default=False)
@@ -912,12 +826,9 @@ And
         args.assembler = 'spades' if not args.metagenome else 'megahit'
     if args.max_diff < 0 :
         args.max_diff = 0.1 if not args.metagenome else 0.05
-    if args.metagenome :
-        args.reassemble = False
-        args.accurate_depth = True
     if args.numPolish < 0 :
-        args.numPolish = 3 if args.pacbio or args.ont else 1
-        
+        args.numPolish = 3 if not args.metagenome else 1
+
     return args
 
 if __name__ == '__main__' :

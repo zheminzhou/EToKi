@@ -132,6 +132,17 @@ def rc(seq, missingValue='N') :
     return ''.join([complement.get(s, missingValue) for s in reversed(seq.upper())])
 
 
+def rev_transeq(s, transl_table=11) :
+    if transl_table == 4 :
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXY*YSSSSWCWCLFLF-'))
+    else :
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXY*YSSSSXCWCLFLF-'))
+    rev_seq = {}
+    na = ['A', 'C', 'G', 'T', '-']
+    for aa, codon in zip(*np.unique(gtable, return_index=True)) :
+        rev_seq[aa] = ''.join([na[int(codon/16)], na[int((codon%16)/4)], na[codon%4]])
+    return ''.join([ rev_seq.get(x, '---') for x in s ])
+
 baseConv = np.repeat(-100, 255)
 baseConv[(np.array(['-', 'A', 'C', 'G', 'T']).view(asc2int),)] = (-100000, 0, 1, 2, 3)
 def transeq(seq, frame=7, transl_table=None, markStarts=False) :
@@ -224,16 +235,28 @@ def install_externals() :
         logger('You have not installed Java runtime. Please install it first. ')
         sys.exit(1)
 
-    if not getExecutable([externals['nextpolish']]) :
-        url = 'https://github.com/Nextomics/NextPolish/releases/latest/download/NextPolish.tgz'
-        logger('Downloading NextPolish package from {0}'.format(url))
-        subprocess.Popen('curl -Lo NextPolish.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging NextPolish package')
-        subprocess.Popen('tar -xzf NextPolish.tgz'.split()).communicate()
-        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='NextPolish').communicate()
-        subprocess.Popen('ln -fs NextPolish/lib/nextpolish1.py ./nextpolish'.split(), stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('chmod 755 ./nextpolish'.split(), stderr=subprocess.PIPE).communicate()
-        os.unlink('NextPolish.tgz')
+    if not getExecutable([externals['treetime']]) :
+        url = 'https://github.com/neherlab/treetime/archive/refs/tags/v0.9.0.tar.gz'
+        logger('Downloading treetime package from {0}'.format(url))
+        subprocess.Popen('curl -Lo treetime.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging treetime package')
+        subprocess.Popen('tar -xzf treetime.tar.gz'.split()).communicate()
+        subprocess.Popen('cp treetime-0.9.0/bin/treetime treetime-0.9.0/treetime_cmd'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('ln -fs treetime-0.9.0/treetime_cmd ./treetime'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./treetime'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('treetime.tar.gz')
+        logger('Done\n')
+
+    if not getExecutable([externals['hapog']]) :
+        url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/1.2.tar.gz'
+        logger('Downloading Hapo-G package from {0}'.format(url))
+        subprocess.Popen('curl -Lo hapog.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging Hapo-G package')
+        subprocess.Popen('tar -xzf hapog.tar.gz'.split()).communicate()
+        subprocess.Popen('bash build.sh', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='HAPO-G-1.2').communicate()
+        subprocess.Popen('ln -fs HAPO-G-1.2/hapog.py ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('hapog.tar.gz')
         logger('Done\n')
 
 
@@ -247,15 +270,8 @@ def install_externals() :
         os.unlink('raxml-ng_v1.0.1_linux_x86_64.zip')
         logger('Done\n')
 
-    if not getExecutable(externals['pilon'].split()) :
-        url = 'https://github.com/broadinstitute/pilon/releases/download/v1.24/pilon-1.24.jar'
-        logger('Downloading pilon-1.24.jar package from {0}'.format(url))
-        subprocess.Popen('curl -Lo pilon-1.23.jar {0}'.split(), stderr=subprocess.PIPE).communicate()
-        logger('Done\n')
-
     if not getExecutable([externals['diamond']]) :
         url = 'https://github.com/bbuchfink/diamond/releases/download/v2.0.11/diamond-linux64.tar.gz'
-        # url = 'https://github.com/bbuchfink/diamond/releases/download/v0.9.29/diamond-linux64.tar.gz'
         logger('Downloading diamond package from {0}'.format(url))
         subprocess.Popen('curl -Lo diamond-linux64.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging diamond package'.format(url))
@@ -269,7 +285,6 @@ def install_externals() :
 
     if not getExecutable(externals['flye'].split()) :
         url = 'https://github.com/fenderglass/Flye/archive/refs/tags/2.8.3.tar.gz'
-        #url = 'https://github.com/fenderglass/Flye/archive/2.7.tar.gz'
         logger('Downloading Flye from {0}'.format(url))
         subprocess.Popen('curl -Lo Flye.2.8.3.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging Flye'.format(url))
@@ -281,7 +296,6 @@ def install_externals() :
 
     if not getExecutable([externals['spades']]) :
         url = 'https://github.com/ablab/spades/releases/download/v3.15.2/SPAdes-3.15.2-Linux.tar.gz'
-        #url = 'https://github.com/ablab/spades/releases/download/v3.13.0/SPAdes-3.13.0-Linux.tar.gz'
         logger('Downloading SPAdes-3.15.2 package from {0}'.format(url))
         subprocess.Popen('curl -Lo SPAdes-3.15.2-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging SPAdes-3.15.2-Linux package'.format(url))
@@ -355,7 +369,6 @@ def install_externals() :
 
     if not getExecutable(externals['kraken2'].split()) :
         kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/refs/tags/v2.1.2.tar.gz'
-        # kraken2_url = 'https://github.com/DerrickWood/kraken2/archive/v2.0.7-beta.tar.gz'
         logger('Downloading kraken2 package from {0}'.format(kraken2_url))
         subprocess.Popen('curl -Lo kraken2.1.2.tar.gz {0}'.format(kraken2_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging kraken2 package')
@@ -366,15 +379,14 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable(externals['samtools'].split()) :
-        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.13/samtools-1.13.tar.bz2'
-        # samtools_url = 'https://github.com/samtools/samtools/releases/download/1.11/samtools-1.11.tar.bz2'
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.15/samtools-1.15.tar.bz2'
         logger('Downloading samtools from {0}'.format(samtools_url))
-        subprocess.Popen('curl -Lo samtools-1.13.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo samtools-1.15.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging samtools package')
-        subprocess.Popen('tar -xjf samtools-1.13.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('samtools-1.13.tar.bz2')
-        subprocess.Popen('cd samtools-1.13 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
-        subprocess.Popen('ln -fs samtools-1.13/samtools ./samtools'.split()).communicate()
+        subprocess.Popen('tar -xjf samtools-1.15.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-1.15.tar.bz2')
+        subprocess.Popen('cd samtools-1.15 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-1.15/samtools ./samtools'.split()).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
@@ -426,7 +438,7 @@ def prepare_externals(conf=None) :
     if conf is None :
         conf = load_configure()
     externals = {k.strip():v.split('#')[0].strip().format(ETOKI=ETOKI) for k,v in conf.tolist()}
-    externals['pilon'] = 'java -Xmx63g -jar ' + externals.get('pilon', '')
+    externals['treetime'] = sys.executable + ' ' + externals.get('treetime', '')
     externals['enbler_filter'] = sys.executable + ' {ETOKI}/modules/_EnFlt.py'.format(ETOKI=ETOKI)
     externals['pigz'] = getExecutable(['pigz'])[0] if getExecutable(['pigz']) else getExecutable(['gzip'])[0]
     return externals

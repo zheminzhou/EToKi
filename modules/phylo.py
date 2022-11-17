@@ -1,3 +1,6 @@
+import shutil
+import subprocess
+
 from ete3 import Tree
 import sys, numpy as np, os, glob, re, argparse, resource
 from subprocess import Popen, PIPE
@@ -9,9 +12,9 @@ import pandas as pd
 rint = random.randint(0, 262144)
 
 try :
-    from configure import externals, uopen, asc2int, logger
+    from configure import externals, uopen, asc2int, logger, readFasta
 except :
-    from .configure import externals, uopen, asc2int, logger
+    from .configure import externals, uopen, asc2int, logger, readFasta
 
 raxml = externals['raxml']
 
@@ -501,8 +504,8 @@ mutation: assign SNPs into branches from AS matrix
 You can run multiple tasks by sending a comma delimited task list.
 There are also some pre-defined task combo:
 all: matrix,phylogeny,ancestral,mutation
-aln2phy: matrix,phylogeny [default]
-snp2mut: phylogeny,ancestral''', default='aln2phy')
+aln2phy: matrix,phylogeny
+snp2mut: phylogeny,ancestral,mutation [default]''', default='snp2mut')
 
     parser.add_argument('--prefix', '-p', help='prefix for all outputs.', required=True)
     parser.add_argument('--alignment', '-m', help='aligned sequences in either fasta format or Xmfa format. Required for "matrix" task.', default='')
@@ -510,8 +513,9 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     parser.add_argument('--tree', '-z', help='phylogenetic tree. Required for "ancestral" task', default='')
     parser.add_argument('--ancestral', '-a', help='Inferred ancestral states in a specified format. Required for "mutation" task', default='')
     parser.add_argument('--core', '-c', help='Core genome proportion. Default: 0.95', type=float, default=0.95)
-    parser.add_argument('--nj', help='use rapidNJ instead of RAxML-ng.', default=False, action='store_true')
-    parser.add_argument('--ng', help='[expired]', default=True, action='store_true')
+    parser.add_argument('--nj', help='use rapidNJ instead of iqtree.', default=False, action='store_true')
+    parser.add_argument('--ng', help='add a non-zero number to use raxml-ng instead of iqtree. default: 0 [disabled]', default=0, type=int)
+    parser.add_argument('--iqtree', help='use iqtree --fast instead of RAxML-ng', default=True, action='store_true')
     parser.add_argument('--raxml', help='use RAxML instead of RAxML-ng', default=False, action='store_true')
     parser.add_argument('--n_proc', '-n', help='Number of processes. Default: 7. ', type=int, default=7)
 
@@ -524,6 +528,72 @@ snp2mut: phylogeny,ancestral''', default='aln2phy')
     ).get(args.tasks, args.tasks).split(',')
 
     return args
+
+
+def infer_ancestral(prefix, tree, names, snps) :
+    tree = Tree(tree, format=1)
+    node_names = {}
+    for id, branch in enumerate(tree.traverse('postorder')) :
+        digit = ''
+        if not branch.is_leaf() :
+            try :
+                float(branch.name)
+                digit = branch.name
+                branch.name = ''
+            except :
+                pass
+        if branch.name == '' :
+            if digit == '' :
+                branch.name = 'N_' + str(len(node_names))
+            else :
+                branch.name = 'N_' + str(len(node_names)) + '__{0}'.format(digit)
+        if not branch.up and len(branch.children) == 2 :
+            branch.children[1].dist += branch.children[0].dist - 1e-8
+            branch.children[0].dist = 1e-8
+        node_names[str(branch.name)] = id
+    tree.write(format=1, outfile=prefix + '.labelled.nwk')
+    fastafile, invariants = write_fasta(prefix+'.anc', names, snps, writeIndel=True)
+    if fastafile :
+        p = subprocess.Popen('{treetime} ancestral --aln {0} --tree {1}.labelled.nwk --outdir {1}.treetime --aa --reconstruct-tip-states'.format(
+            fastafile, prefix, **externals).split(), stdout=subprocess.PIPE)
+        p.communicate()
+        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
+            indels = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta'))
+    else :
+        indels = None
+
+    fastafile, invariants = write_fasta(prefix+'.anc', names, snps)
+    if fastafile :
+        p = subprocess.Popen('{treetime} ancestral --aln {0} --tree {1}.labelled.nwk --outdir {1}.treetime --reconstruct-tip-states'.format(
+            fastafile, prefix, **externals).split(), stdout=subprocess.PIPE)
+        p.communicate()
+        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
+            seqs = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta'))
+        names = [n for n in seqs.keys()]
+        decode = {x:i for i, x in enumerate('-ACDEFGHIKLMNPQRSTVWXY')}
+    else :
+        seqs = None
+
+    indels = np.vectorize(decode.get)(np.array([ list(indels[n]) for n in names ])).T if indels else None
+    seqs = np.vectorize(ord)(np.array([ list(seqs[n]) for n in names ])).T if seqs else None
+    states = []
+    for s in snps :
+        if s[3] == 1 :
+            states.append(seqs[0])
+            seqs = seqs[int(s[1]):]
+        elif s[3] == 2 :
+            states.append(indels[0])
+            indels = indels[int(s[1]):]
+        else :
+            states.append(np.repeat(s[2][0], len(names)))
+    os.unlink('{0}.anc.fasta'.format(prefix))
+    shutil.rmtree('{0}.treetime'.format(prefix))
+    names = np.array(names)
+    names[names == 'NODE_0000000'] = tree.name
+    return tree, names, np.array(states)
+
+
+
 
 def infer_ancestral2(data) :
     state, branches, n_node, infer = data
@@ -585,7 +655,7 @@ def infer_ancestral2(data) :
                 r[t] = path[t][r[s]]
         return tag[r]
 
-def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
+def infer_ancestral3(tree, names, snps, sites, infer='margin', rescale=1.0) :
     global pool
     if not pool :
         pool = Pool(5)
@@ -630,15 +700,27 @@ def infer_ancestral(tree, names, snps, sites, infer='margin', rescale=1.0) :
     states = pool.imap(infer_ancestral2, prep(states), chunksize=100)
     return tree, [ k for k, v in sorted(node_names.items(), key=lambda x:x[1])], np.array(list(states), dtype=np.uint8) if infer =='viterbi' else list(states)
 
-def write_fasta(prefix, names, snps) :
+def write_fasta(prefix, names, snps, writeIndel=False) :
     invariants = {65:0, 67:0, 71:0, 84:0, 45:0}
     for snp in snps :
         if snp[3] == 0 and snp[2][0] in invariants :
             invariants[ snp[2][0] ] += snp[1]
 
-    snp2 = [ snp for snp in snps if snp[3] == 1 and snp[2][0] in invariants ]
-    invariants[-1] = len(snp2)
-    snp_array = np.array([s[2] for s in snp2 for x in np.arange(s[1])]).T
+    if not writeIndel :
+        snp2 = [ snp for snp in snps if snp[3] == 1 and snp[2][0] in invariants ]
+        if len(snp2) == 0 :
+            return None, None
+        snp_array = np.array([s[2] for s in snp2 for x in np.arange(s[1])]).T
+    else :
+        snp2 = [ snp for snp in snps if snp[3] > 1 ]
+        if len(snp2) == 0 :
+            return None, None
+        snp_array = np.array([s[2] for s in snp2 for x in np.arange(s[1])]).T
+        snp_array[snp_array>=22] = 0
+        encode = {i: ord(x) for i, x in enumerate('-ACDEFGHIKLMNPQRSTVWXY')}
+        snp_array = np.vectorize(encode.get)(snp_array)
+
+    invariants[-1] = snp_array.shape[1]
     with open(prefix + '.fasta', 'w') as fout :
         for id, n in enumerate(names) :
             fout.write('>{0}\n{1}\n'.format(n, ''.join(np.frompyfunc(chr, 1, 1)(snp_array[id]))))
@@ -646,7 +728,7 @@ def write_fasta(prefix, names, snps) :
 
 def run_rapidnj(prefix, fastafile, invariants) :
     cnt = sum(invariants.values())
-    ratio = cnt/invariants[-1]
+    ratio = invariants[-1]/cnt
     cmd = '{rapidnj} -i fa {0}'.format(fastafile, **externals)
     run = Popen(cmd.split(), stdout=PIPE, universal_newlines=True)
     tree = run.communicate()[0]
@@ -655,8 +737,8 @@ def run_rapidnj(prefix, fastafile, invariants) :
     fname = '{0}.unrooted.nwk'.format(prefix)
     for node in tre.traverse() :
         node.name = node.name.strip("'")
-        node.dist /= ratio
-        if -0.5 < node.dist * cnt < 0.5 :
+        node.dist *= ratio
+        if -0.3 < node.dist * cnt < 0.3 :
             node.dist = 0.0
     tre.write(outfile=fname, format=5)
     return fname
@@ -665,15 +747,36 @@ def run_rapidnj(prefix, fastafile, invariants) :
 def run_raxml_ng(prefix, fastafile, invariants, n_start) :
     cnt = sum(invariants.values())
     inv = [invariants[65], invariants[67], invariants[71], invariants[84], ]
-    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --blopt nr_safe --tree pars{{{2}}}'.format(fastafile, '/'.join([str(int(x+0.5)) for x in inv]), n_start, **externals)
+    cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --site-repeats on --tree pars{{{2}}}'.format(
+        fastafile, '/'.join([str(int(x+0.5)) for x in inv]), n_start, **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile+'.raxml.bestTree', format=0)
     
     fname = '{0}.unrooted.nwk'.format(prefix)
     for node in tre.traverse() :
-        if -0.5 < node.dist * cnt < 0.5 :
+        if -0.3 < node.dist * cnt < 0.3 :
             node.dist = 0.0
+    tre.write(outfile=fname, format=5)
+    return fname
+
+
+def run_iqtree(prefix, fastafile, invariants):
+    snv_cnt = invariants[-1]
+    cnt = sum(invariants.values())
+
+    #cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --site-repeats on --tree pars{{{2}}}'.format(
+    cmd='{iqtree} -redo -fast -nt 8 -s {0} -m GTR+G+ASC '.format(fastafile, **externals)
+    run = Popen(cmd.split(), universal_newlines=True)
+    run.communicate()
+    tre = Tree(fastafile + '.treefile', format=0)
+
+    fname = '{0}.unrooted.nwk'.format(prefix)
+    for node in tre.traverse():
+        if -0.05 < node.dist * snv_cnt < 0.05:
+            node.dist = 0.0
+        else :
+            node.dist *= snv_cnt/cnt
     tre.write(outfile=fname, format=5)
     return fname
 
@@ -705,10 +808,12 @@ def phylo(args) :
                     fout.write('({0}:0.0);'.format(':0.0,'.join(names)))
         else :
             fastafile, invariants = write_fasta(args.tree, names, snps)
-            if not args.nj :
-                args.tree = run_raxml_ng(args.tree, fastafile, invariants, args.ng)
-            else :
+            if args.nj :
                 args.tree = run_rapidnj(args.tree, fastafile, invariants)
+            elif args.ng:
+                args.tree = run_raxml_ng(args.tree, fastafile, invariants, args.ng)
+            else:
+                args.tree = run_iqtree(args.tree, fastafile, invariants)
         args.tree = get_root(args.prefix, args.tree)
     elif 'rescale' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
@@ -721,17 +826,18 @@ def phylo(args) :
 
     # map snp
     if 'ancestral' in args.tasks :
-        final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
-        final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
+        final_tree, node_names, states = infer_ancestral(args.prefix, args.tree, names, snps)
+        #final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='viterbi')
+        #final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
         write_states(args.prefix+'.ancestral_states.gz', node_names, states, sites, seqLens, missing)
     elif 'mutation' in args.tasks :
         final_tree = Tree(args.tree, format=1)
         node_names, states, sites = read_states(args.ancestral)
 
-    if 'ancestral_proportion' in args.tasks :
-        final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='margin')
-        final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
-        write_ancestral_proportion(args.prefix+'.ancestral_proportion.gz', node_names, states, sites, seqLens, missing)
+    # if 'ancestral_proportion' in args.tasks :
+    #     final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='marginal')
+    #     final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
+    #     write_ancestral_proportion(args.prefix+'.ancestral_proportion.gz', node_names, states, sites, seqLens, missing)
 
     if 'mutation' in args.tasks :
         mutations = get_mut(final_tree, node_names, states, sites)

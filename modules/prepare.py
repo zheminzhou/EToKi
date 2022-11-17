@@ -67,7 +67,7 @@ class preprocess(object) :
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={0} outu1={1} outu2={2}'.format(library_file2['MP'][0], *library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
-                        Popen('{bbmerge} -Xmx{memory} threads=8 ordered=t loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
+                        Popen('{bbmerge} -Xmx{memory} threads={n_cpu} ordered=t loose=t mininsert=25 mininsert0=23 qtrim2=t overwrite=t qout=33 entropy=t maxns=2 trimq={read_qual} {read} {outputs}'.format( \
                             read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
@@ -89,11 +89,22 @@ class preprocess(object) :
                     library_file2 = {'PE':['{0}.1.{1}.r1.fastq.gz'.format(prefix, lib_id), '{0}.1.{1}.r2.fastq.gz'.format(prefix, lib_id)], 'SE':['{0}.1.{1}.3.fastq.gz'.format(prefix, lib_id)]}
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={1} out2={2} outs={0}'.format(library_file2['SE'][0], *library_file2['PE'])
-                    bb_run, bb_out = monitor_proc(
-                        Popen('{bbduk} -Xmx{memory} threads=8 ordered=t ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
-                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-                    )
+                    if not parameters['reference'] :
+                        bb_run, bb_out = monitor_proc(
+                            Popen('{bbduk} -Xmx{memory} threads={n_cpu} ordered=t ref=adapters ktrim=r overwrite=t refstats=PE.refstats qout=33 k=25 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
+                                read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                        )
+                    else :
+                        bb_run, bb_out = monitor_proc(
+                            Popen('{bbduk} -Xmx{memory} threads={n_cpu} ordered=t ktrim=r overwrite=t ref=adapters,{reference} refstats=PE.refstats qout=33 k=31 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 trimq={read_qual} qtrim=rl {read} {outputs}'.format( \
+                                read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                        )
+
                     if bb_run.returncode == 0 :
+                        with open('PE.refstats') as fin :
+                            fin.readline()
+                            for line in fin :
+                                logger(line.strip())
                         for fname in library_file['PE'] :
                             try:
                                 os.unlink(fname)
@@ -113,12 +124,23 @@ class preprocess(object) :
                     library_file2 = {'SE':['{0}.1.{1}.s.fastq.gz'.format(prefix, lib_id)]}
                 reads = 'in=' + library_file['SE'][0]
                 outputs = 'out=' + library_file2['SE'][0]
-
-                bb_run, bb_out = monitor_proc(
-                    Popen('{bbduk} -Xmx{memory} threads=8 ordered=t ref=adapters ktrim=r overwrite=t qout=33 k=23 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
-                        read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
-                )
+                if not parameters['reference'] :
+                    bb_run, bb_out = monitor_proc(
+                        Popen('{bbduk} -Xmx{memory} threads={n_cpu} ordered=t ref=adapters ktrim=r overwrite=t refstats=SE.refstats qout=33 k=25 mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
+                            read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                    )
+                else :
+                    bb_run, bb_out = monitor_proc(
+                        Popen(
+                            '{bbduk} -Xmx{memory} threads={n_cpu} ordered=t ktrim=r overwrite=t qout=33 k=31 ref=adapters,{reference} refstats=SE.refstats mink=13 minlength=23 tbo=t entropy=0.75 entropywindow=25 mininsert=23 maxns=2 qtrim=rl trimq={read_qual} {read} {outputs}'.format( \
+                                read=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE,
+                            universal_newlines=True)
+                    )
                 if bb_run.returncode == 0 :
+                    with open('SE.refstats') as fin:
+                        fin.readline()
+                        for line in fin:
+                            logger(line.strip())
                     for fname in library_file['SE'] :
                         try:
                             os.unlink(fname)
@@ -172,7 +194,10 @@ class preprocess(object) :
                     if lib_type in stat :
                         ss = stat[lib_type]
                         n_base = sum([s[0] for s in ss])
-                        sample_freq = float(max_base)/n_base
+                        if n_base :
+                            sample_freq = float(max_base)/n_base
+                        else :
+                            sample_freq = 0.
                         for s in ss :
                             s.append(sample_freq)
                         max_base = 0. if n_base >= max_base else max_base - n_base
@@ -276,13 +301,17 @@ EToKi.py prepare
     parser.add_argument('--se', action='append', help='comma delimited files of SE reads from the same library.\ne.g. --se c_SE.fq.gz,d_SE.fq.gz\nThis can be specified multiple times for different libraries. ', default=[])
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_prepare', default='EToKi_prepare')
     parser.add_argument('-q', '--read_qual', help='Minimum quality to be kept in bbduk. Default: 6', type=int, default=6)
+    parser.add_argument('-r', '--reference', help='Comma-delimited list of reference files. Reads similar to references will be removed Default: ""', default=None)
     parser.add_argument('-b', '--max_base', help='Total amount of bases (in BPs) to be kept. \nDefault as -1 for no restriction. \nSuggest to use ~100X coverage for de novo assembly.', type=int, default=-1)
+    parser.add_argument('-c', '--n_cpu', help='number of CPUs to be used. Default: 8', default=8, type=int)
     parser.add_argument('-m', '--memory', help='maximum amount of memory to be used in bbduk. Default: 20g', default='20g')
     parser.add_argument('--noTrim', help='Do not do quality trim using bbduk', action='store_true', default=False)
     parser.add_argument('--merge', help='Try to merge PE reads by their overlaps using bbmap', action='store_true', default=False)
     parser.add_argument('--noRename', help='Do not rename reads', action='store_true', default=False)
 
     args = parser.parse_args(a)
+    if args.reference and args.memory == '20g' :
+        args.memory = '60g'
     return args
 
 if __name__ == '__main__' :
