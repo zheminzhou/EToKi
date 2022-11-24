@@ -402,7 +402,7 @@ def install_externals() :
         os.chdir(moveTo)
         os.unlink('nextpolish-1.4.1.tgz')
         logger('Done\n')
-        os.chdir(curdir)
+        os.chdir(moveTo)
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
