@@ -235,7 +235,7 @@ def install_externals() :
         logger('You have not installed Java runtime. Please install it first. ')
         sys.exit(1)
 
-    if not getExecutable([externals['treetime']]) :
+    if not getExecutable(externals['treetime'].split()) :
         url = 'https://github.com/neherlab/treetime/archive/refs/tags/v0.9.0.tar.gz'
         logger('Downloading treetime package from {0}'.format(url))
         subprocess.Popen('curl -Lo treetime.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
@@ -438,7 +438,7 @@ def configure(args) :
         if fname not in {'kraken_database', 'enbler_filter', 'pigz'} :
             if not getExecutable(flinks) :
                 logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
-                #sys.exit(0)
+                sys.exit(1)
             else :
                 logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
     if not os.path.exists(externals['kraken_database']) :
