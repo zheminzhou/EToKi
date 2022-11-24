@@ -399,10 +399,11 @@ def install_externals() :
         subprocess.Popen('tar -xzf nextpolish-1.4.1.tgz'.split()).communicate()
         os.chdir('NextPolish')
         subprocess.Popen('make -s'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./lib/nextpolish1.py'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./lib/nextpolish2.py'.split(), stderr=subprocess.PIPE).communicate()
         os.chdir(moveTo)
         os.unlink('nextpolish-1.4.1.tgz')
         logger('Done\n')
-        os.chdir(moveTo)
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
