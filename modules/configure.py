@@ -391,6 +391,19 @@ def install_externals() :
         subprocess.Popen('ln -fs samtools-1.15/samtools ./samtools'.split()).communicate()
         logger('Done\n')
 
+    if not getExecutable([externals['nextpolish']]):
+        url = 'https://github.com/Nextomics/NextPolish/releases/download/v1.4.1/NextPolish.tgz'
+        logger('Downloading nextPolish package from {0}'.format(url))
+        subprocess.Popen('curl -Lo nextpolish-1.4.1.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging nextPolish package')
+        subprocess.Popen('tar -vxzf nextpolish-1.4.1.tgz'.split()).communicate()
+        os.chdir('NextPolish')
+        subprocess.Popen('make', stderr=subprocess.PIPE).communicate()
+        os.chdir(moveTo)
+        os.unlink('nextpolish-1.4.1.tgz')
+        logger('Done\n')
+        os.chdir(curdir)
+
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
         blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
         logger('Downloading ncbi-blast package from {0}'.format(blast_url))
