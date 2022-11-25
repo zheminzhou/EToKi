@@ -1,4 +1,4 @@
-import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
+import os, sys, subprocess, numpy as np, pandas as pd, argparse, shutil, gzip, io, re
 from datetime import datetime
 
 if sys.version_info[0] < 3:
@@ -228,8 +228,8 @@ def download_krakenDB() :
 
 def install_externals() :
     curdir = os.path.abspath(os.curdir)
-    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
-    os.chdir(moveTo)
+    externals_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    os.chdir(externals_dir)
 
     if not getExecutable(['java']) :
         logger('You have not installed Java runtime. Please install it first. ')
@@ -248,12 +248,25 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['hapog']]) :
+        # HAPO depends on installed htslib which may not be available on host, so do a local install
+        url = 'https://github.com/samtools/htslib/releases/download/1.3.2/htslib-1.3.2.tar.bz2'
+        logger('Downloading htslib from {0}'.format(url))
+        subprocess.Popen('curl -Lo htslib.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging htslib package')
+        subprocess.Popen('tar -xjf htslib.tar.bz2'.split()).communicate()
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='htslib-1.3.2').communicate()
+        htslib_dir = '{0}/htslib'.format(externals_dir)
+        subprocess.Popen('make prefix={0} install'.format(htslib_dir), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='htslib-1.3.2').communicate()
+        os.unlink('htslib.tar.bz2')
+        shutil.rmtree('htslib-1.3.2')
+        logger('Done\n')
+
         url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/1.2.tar.gz'
         logger('Downloading Hapo-G package from {0}'.format(url))
         subprocess.Popen('curl -Lo hapog.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging Hapo-G package')
         subprocess.Popen('tar -xzf hapog.tar.gz'.split()).communicate()
-        subprocess.Popen('bash build.sh', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='HAPO-G-1.2').communicate()
+        subprocess.Popen('bash build.sh -l {0}'.format(htslib_dir), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='HAPO-G-1.2').communicate()
         subprocess.Popen('ln -fs HAPO-G-1.2/hapog.py ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
         subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('hapog.tar.gz')
@@ -397,11 +410,9 @@ def install_externals() :
         subprocess.Popen('curl -Lo nextpolish-1.4.1.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging nextPolish package')
         subprocess.Popen('tar -xzf nextpolish-1.4.1.tgz'.split()).communicate()
-        os.chdir('NextPolish')
-        subprocess.Popen('make -s'.split(), stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('chmod 755 ./lib/nextpolish1.py'.split(), stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('chmod 755 ./lib/nextpolish2.py'.split(), stderr=subprocess.PIPE).communicate()
-        os.chdir(moveTo)
+        subprocess.Popen('make -s'.split(), stderr=subprocess.PIPE, cwd='NextPolish').communicate()
+        subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish1.py'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish2.py'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('nextpolish-1.4.1.tgz')
         logger('Done\n')
 
