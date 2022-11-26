@@ -276,9 +276,11 @@ def install_externals() :
     if not getExecutable([externals['raxml_ng']]) :
         url = 'https://github.com/amkozlov/raxml-ng/releases/download/1.0.1/raxml-ng_v1.0.1_linux_x86_64.zip'
         logger('Downloading raxml-ng package from {0}'.format(url))
-        subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(),
+                         stderr=subprocess.PIPE).communicate()
         logger('Unpackaging raxml-ng package')
-        subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split(),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         subprocess.Popen('ln -fs raxml-ng_v1.0.1/raxml-ng ./raxml-ng'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('raxml-ng_v1.0.1_linux_x86_64.zip')
         logger('Done\n')
