@@ -322,7 +322,7 @@ def install_externals() :
     if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]) or not getExecutable([externals['repair']]):
         url = 'https://netcologne.dl.sourceforge.net/project/bbmap/BBMap_38.90.tar.gz'
         logger('Downloading BBmap package from {0}'.format(url))
-        subprocess.Popen('curl -Lo BBMap_38.90.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lko BBMap_38.90.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging BBmap package'.format(url))
         subprocess.Popen('tar -xzf BBMap_38.90.tar.gz'.split()).communicate()
         os.unlink('BBMap_38.90.tar.gz')
