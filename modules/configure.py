@@ -412,7 +412,7 @@ def install_externals() :
         subprocess.Popen('curl -Lo nextpolish-1.4.1.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging nextPolish package')
         subprocess.Popen('tar -xzf nextpolish-1.4.1.tgz'.split()).communicate()
-        subprocess.Popen('make -s'.split(), stderr=subprocess.PIPE, cwd='NextPolish').communicate()
+        subprocess.Popen('make'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='NextPolish').communicate()
         subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish1.py'.split(), stderr=subprocess.PIPE).communicate()
         subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish2.py'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('nextpolish-1.4.1.tgz')
