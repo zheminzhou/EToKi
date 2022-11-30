@@ -247,6 +247,17 @@ def install_externals() :
         os.unlink('treetime.tar.gz')
         logger('Done\n')
 
+    if not getExecutable(externals['minimap2'].split()) :
+        url = 'https://github.com/lh3/minimap2/releases/download/v2.24/minimap2-2.24_x64-linux.tar.bz2'
+        logger('Downloading minimap2 package from {0}'.format(url))
+        subprocess.Popen('curl -Lo minimap2.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging minimap2 package')
+        subprocess.Popen('tar -xjf minimap2.tar.bz2'.split()).communicate()
+        subprocess.Popen('ln -fs minimap2-2.24_x64-linux/minimap2 ./minimap2'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('minimap2.tar.bz2')
+        logger('Done\n')
+
+
     if not getExecutable([externals['hapog']]) :
         # HAPO depends on installed htslib which may not be available on host, so do a local install
         url = 'https://github.com/samtools/htslib/releases/download/1.3.2/htslib-1.3.2.tar.bz2'
