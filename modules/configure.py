@@ -407,14 +407,14 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable(externals['samtools'].split()) :
-        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.15/samtools-1.15.tar.bz2'
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.10/samtools-1.10.tar.bz2'
         logger('Downloading samtools from {0}'.format(samtools_url))
-        subprocess.Popen('curl -Lo samtools-1.15.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo samtools-1.10.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging samtools package')
-        subprocess.Popen('tar -xjf samtools-1.15.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('samtools-1.15.tar.bz2')
-        subprocess.Popen('cd samtools-1.15 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
-        subprocess.Popen('ln -fs samtools-1.15/samtools ./samtools'.split()).communicate()
+        subprocess.Popen('tar -xjf samtools-1.10.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-1.10.tar.bz2')
+        subprocess.Popen('cd samtools-1.10 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-1.10/samtools ./samtools'.split()).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['nextpolish']]):

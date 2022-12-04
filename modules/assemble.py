@@ -532,7 +532,7 @@ class mainprocess(object) :
             Popen('{samtools} faidx {0}'.format(reference, **parameters).split()).communicate()
 
             my_env = os.environ.copy()
-            my_env["PATH"] = ETOKI + ':' + my_env["PATH"]
+            my_env["PATH"] = ETOKI+'/externals' + ':' + my_env["PATH"]
             Popen('{hapog} -g {0} -u -t {n_cpu} -b {bam} -o etoki.hapog'.format(reference,
                 bam=merged_bam, **parameters).split(),
                   universal_newlines=True, stdout=PIPE, stderr=PIPE, env=my_env).communicate()
