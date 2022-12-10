@@ -533,9 +533,11 @@ class mainprocess(object) :
 
             my_env = os.environ.copy()
             my_env["PATH"] = ETOKI+'/externals' + ':' + my_env["PATH"]
-            Popen('{hapog} -g {0} -u -t {n_cpu} -b {bam} -o etoki.hapog'.format(reference,
+            out, err = Popen('{hapog} -g {0} -u -t {n_cpu} -b {bam} -o etoki.hapog'.format(reference,
                 bam=merged_bam, **parameters).split(),
                   universal_newlines=True, stdout=PIPE, stderr=PIPE, env=my_env).communicate()
+            if len(err):
+                logger(err)
             try :
                 n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE, universal_newlines=True).communicate()
                 diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
