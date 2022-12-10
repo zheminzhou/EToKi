@@ -260,35 +260,43 @@ def install_externals() :
 
     if not getExecutable([externals['hapog']]) :
 
-        hapog_version = '1.2'
-        hapog_name = 'HAPO-G-'+hapog_version
-        url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/1.2.tar.gz'
+        # HAPO depends on installed htslib which may not be available on host, so do a local install
+        htslib_ver = '1.3.2'
+        url = 'https://github.com/samtools/htslib/releases/download/{0}/htslib-{0}.tar.bz2'.format(htslib_ver)
+        logger('Downloading htslib from {0}'.format(url))
+        subprocess.Popen('curl -Lo htslib.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging htslib package')
+        subprocess.Popen('tar -xjf htslib.tar.bz2'.split()).communicate()
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         cwd='htslib-{0}'.format(htslib_ver)).communicate()
+        htslib_dir = '{0}/htslib'.format(externals_dir)
+        subprocess.Popen('make prefix={0} install'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, cwd='htslib-{0}'.format(htslib_ver)).communicate()
+        os.unlink('htslib.tar.bz2')
+        shutil.rmtree('htslib-{0}'.format(htslib_ver))
+        logger('Done\n')
+
+        hapog_ver = '1.2'
+        hapog_name = 'HAPO-G-'+hapog_ver
+        url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/{0}.tar.gz'.format(hapog_ver)
         logger('Downloading Hapo-G package from {0}'.format(url))
         subprocess.Popen('curl -Lo hapog.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging Hapo-G package')
         subprocess.Popen('tar -xzf hapog.tar.gz'.split()).communicate()
+
         os.unlink('hapog.tar.gz')
         gcc_ver = int(subprocess.Popen(['gcc', '-dumpversion'], stdout=subprocess.PIPE).communicate()[0].
                       strip().split(b'.')[0])
         if gcc_ver < 9:
-            os.makedirs('HAPO-G-1.2/build', exist_ok=True)
+            #  Compiling hapog with earlier versions of gcc creates an executable that runs
+            #  but fails with a segmentation fault when processing data
+            #  Use precompiled which works with a locally compileed htslib
+            os.makedirs('HAPO-G-{0}/build'.format(hapog_ver), exist_ok=True)
             shutil.copy('../bin/hapog','HAPO-G-1.2/build')
-            os.makedirs('HAPO-G-1.2/bin', exist_ok=True)
-            subprocess.Popen('ln -fs ../build/hapog HAPO-G-1.2/bin/hapog'.split(), stderr=subprocess.PIPE).communicate()
+            os.makedirs('HAPO-G-{0}/bin'.format(hapog_ver), exist_ok=True)
+            subprocess.Popen('ln -fs ../build/hapog HAPO-G-{0}/bin/hapog'.format(hapog_ver).
+                             split(), stderr=subprocess.PIPE).communicate()
         else:
-           # HAPO depends on installed htslib which may not be available on host, so do a local install
-            url = 'https://github.com/samtools/htslib/releases/download/1.3.2/htslib-1.3.2.tar.bz2'
-            logger('Downloading htslib from {0}'.format(url))
-            subprocess.Popen('curl -Lo htslib.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-            logger('Unpackaging htslib package')
-            subprocess.Popen('tar -xjf htslib.tar.bz2'.split()).communicate()
-            subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='htslib-1.3.2').communicate()
-            htslib_dir = '{0}/htslib'.format(externals_dir)
-            subprocess.Popen('make prefix={0} install'.format(htslib_dir), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='htslib-1.3.2').communicate()
-            os.unlink('htslib.tar.bz2')
-            shutil.rmtree('htslib-1.3.2')
-            logger('Done\n')
-
             my_env = os.environ.copy()
 
             if not getExecutable('cmake') or int(os.popen('cmake --version').read().split()[2].split('.')[0]) < 3:
@@ -303,9 +311,10 @@ def install_externals() :
                 my_env["PATH"] = externals_dir + ':' + my_env["PATH"]
 
             subprocess.Popen('bash build.sh -l {0}'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, cwd='HAPO-G-1.2',  env=my_env).communicate()
+                             stderr=subprocess.PIPE, cwd='HAPO-G-{0}'.format(hapog_ver),  env=my_env).communicate()
 
-        subprocess.Popen('ln -fs HAPO-G-1.2/hapog.py ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('ln -fs HAPO-G-{0}/hapog.py ./hapog.py'.format(hapog_ver).split(),
+                         stderr=subprocess.PIPE).communicate()
         subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
 
         logger('Done\n')
@@ -434,14 +443,19 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable(externals['samtools'].split()) :
-        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.10/samtools-1.10.tar.bz2'
+        # Needed by hapog, which does not seem to work with version 1.15
+        samtools_version = '1.10'
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/{0}/samtools-{0}.tar.bz2'.format(samtools_version)
         logger('Downloading samtools from {0}'.format(samtools_url))
-        subprocess.Popen('curl -Lo samtools-1.10.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo samtools-{0}.tar.bz2 {1}'.format(samtools_version, samtools_url).split(),
+                         stderr=subprocess.PIPE).communicate()
         logger('Unpackaging samtools package')
-        subprocess.Popen('tar -xjf samtools-1.10.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('samtools-1.10.tar.bz2')
-        subprocess.Popen('cd samtools-1.10 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
-        subprocess.Popen('ln -fs samtools-1.10/samtools ./samtools'.split()).communicate()
+        subprocess.Popen('tar -xjf samtools-{0}.tar.bz2'.format(samtools_version).split(),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-{0}.tar.bz2'.format(samtools_version))
+        subprocess.Popen('cd samtools-{0} && ./configure --disable-bz2 --disable-lzma --without-curses && make'.
+                         format(samtools_version), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-{0}/samtools ./samtools'.format(samtools_version).split()).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['nextpolish']]):
