@@ -87,7 +87,7 @@ class mainprocess(object) :
                 if r is not None :
                     logger('Run minimap2 with: {0}'.format(r))
                     if clean :
-                        cmd = '{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@{n_cpu} - - | {samtools} sort -m 4G -@ {n_cpu} -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@{n_cpu} -O BAM - {o}'.format(
+                        cmd = '{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} |{enbler_filter} {max_diff} {excluded} | {samtools} fixmate -m -@{n_cpu} - - | {samtools} sort -m 1G -@ {n_cpu} -O bam -l 0 -T {prefix} - | {samtools} markdup -r -@ {n_cpu} -O BAM - {o}'.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         for line in st_run[1].split('\n') :
