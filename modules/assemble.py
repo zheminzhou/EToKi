@@ -395,7 +395,7 @@ class mainprocess(object) :
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
 
-        cmd = '{python} {spades} -t {n_cpu} --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
+        cmd = '{python} {spades} -t {n_cpu}  {read_input} -k {kmer} -o {outdir}'.format(
               python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
@@ -538,19 +538,24 @@ class mainprocess(object) :
                   universal_newlines=True, stdout=PIPE, stderr=PIPE, env=my_env).communicate()
             if len(err):
                 logger(err)
+            changes = 0
             try :
-                n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE, universal_newlines=True).communicate()
+                n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE,
+                          universal_newlines=True).communicate()
                 diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
-                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs ]
-                for n, i, o, r in diffs[::-1] :
-                    if not onlySNP or len(r) == 1 :
+                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', ''),
+                           float(p[6][7:]),float(p[7][7:])] for p in diffs ]
+                for n, i, o, r, r1, r2 in diffs[::-1] :
+                    if (not onlySNP or len(r) == 1) and r1 > 0.7:
+                        changes += 1
                         seq[n][i] = r
-            except :
+            except Exception as e:
                 diffs = []
             with open('etoki.fasta', 'wt') as fout :
                 for n, s in seq.items():
                     fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
-            return 'etoki.fasta', len(diffs)
+            return 'etoki.fasta', changes
+
 
 
     def get_ave_depth(self, sites, accurate_depth=False, isMetagenome=False) :
