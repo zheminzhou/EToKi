@@ -745,20 +745,20 @@ class postprocess(object) :
         n_seq = len(seq)
         n_base = sum([s[0] for s in seq])
         n50, acc = 0, [0, 0]
-        l50 = 0
-        for l50, s in enumerate(seq) :
-            acc[0], acc[1] = acc[0] + s[0], acc[1] + s[0]*s[1]
-            if acc[0] * 2 >= n_base :
-                n50 = s[0]
-                break
-        l50 += 1
-        ave_depth = acc[1]/acc[0]
-        n_low = 0
-        for s in seq :
-            if len(s) > 3 :
-                n_low += np.sum( (np.vectorize(ord)(s[3]) < 43) | (np.array(list(s[2])) == 'N') )
-            else :
-                n_low += np.sum( (np.array(list(s[2])) == 'N') )
+        l50, ave_depth, n_low = 0, 0, 0
+        if n_seq > 0:
+            for l50, s in enumerate(seq) :
+                acc[0], acc[1] = acc[0] + s[0], acc[1] + s[0]*s[1]
+                if acc[0] * 2 >= n_base :
+                    n50 = s[0]
+                    break
+            l50 += 1
+            ave_depth = acc[1]/acc[0]
+            for s in seq :
+                if len(s) > 3 :
+                    n_low += np.sum( (np.vectorize(ord)(s[3]) < 43) | (np.array(list(s[2])) == 'N') )
+                else :
+                    n_low += np.sum( (np.array(list(s[2])) == 'N') )
         return dict(n_contig = n_seq,
                     n_base = n_base,
                     ave_depth = ave_depth,
