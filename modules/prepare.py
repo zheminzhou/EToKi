@@ -137,15 +137,18 @@ class preprocess(object) :
                             universal_newlines=True)
                     )
                 if bb_run.returncode == 0 :
-                    with open('SE.refstats') as fin:
-                        fin.readline()
-                        for line in fin:
-                            logger(line.strip())
                     for fname in library_file['SE'] :
                         try:
                             os.unlink(fname)
                         except :
                             pass
+                    with open('SE.refstats') as fin:
+                        fin.readline()
+                        for line in fin:
+                            if line.strip() == "#Reads\t0":
+                                library_file2.pop('SE')
+                                library_file.pop('SE')
+                            logger(line.strip())
                     library_file.update(library_file2)
                 else :
                     
