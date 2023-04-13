@@ -357,13 +357,17 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
-        url = 'https://github.com/ablab/spades/releases/download/v3.15.2/SPAdes-3.15.2-Linux.tar.gz'
-        logger('Downloading SPAdes-3.15.2 package from {0}'.format(url))
-        subprocess.Popen('curl -Lo SPAdes-3.15.2-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging SPAdes-3.15.2-Linux package'.format(url))
-        subprocess.Popen('tar -xzf SPAdes-3.15.2-Linux.tar.gz'.split()).communicate()
-        os.unlink('SPAdes-3.15.2-Linux.tar.gz')
-        subprocess.Popen('ln -fs SPAdes-3.15.2-Linux/bin/spades.py ./spades.py'.split()).communicate()
+        release = '3.15.2'
+        url = 'https://github.com/ablab/spades/releases/download/v{release}/SPAdes-{release}-Linux.tar.gz'. \
+            format(release=release)
+        logger('Downloading SPAdes-{release} package from {url}'.format(release=release, url=url))
+        subprocess.Popen('curl -Lo SPAdes-{release}-Linux.tar.gz {url}'.format(release=release, url=url).split(),
+                         stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging SPAdes-{release}-Linux package'.format(release=release))
+        subprocess.Popen('tar -xzf SPAdes-{release}-Linux.tar.gz'.format(release=release).split()).communicate()
+        os.unlink('SPAdes-{release}-Linux.tar.gz'.format(release=release))
+        subprocess.Popen('ln -fs SPAdes-{release}-Linux/bin/spades.py ./spades.py'.
+                         format(release=release).split()).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]) or not getExecutable([externals['repair']]):
@@ -444,7 +448,7 @@ def install_externals() :
 
     if not getExecutable(externals['samtools'].split()) :
         # Needed by hapog, which does not seem to work with version 1.15
-        samtools_version = '1.10'
+        samtools_version = '1.11'
         samtools_url = 'https://github.com/samtools/samtools/releases/download/{0}/samtools-{0}.tar.bz2'.format(samtools_version)
         logger('Downloading samtools from {0}'.format(samtools_url))
         subprocess.Popen('curl -Lo samtools-{0}.tar.bz2 {1}'.format(samtools_version, samtools_url).split(),

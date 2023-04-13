@@ -603,9 +603,9 @@ def nomenclature(genome, refAllele, parameters) :
     try :
         qry = os.path.join(dirPath, 'query')
         ref = os.path.join(dirPath, 'reference')
-        with open(qry, 'w') as fout :
+        with open(qry, 'w') as fout:
             fout.write(genome)
-        with open(ref, 'w') as fout :
+        with open(ref, 'wb') as fout:
             fout.write(refAllele)
         blasttab = dualBlast().run_comparison(dirPath, qry, ref, parameters['min_iden']-0.1, parameters['min_frag_len']-10)
     

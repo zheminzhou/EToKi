@@ -389,23 +389,25 @@ class mainprocess(object) :
         read_input = []
         for lib_id, lib in enumerate(reads) :
             if len(lib) == 1 :
-                read_input.append('--s{0} {1}'.format(lib_id+1, lib[0]))
+                read_input.append('--pe-s {0} {1}'.format(lib_id+1, lib[0]))
             elif len(lib) == 2 :
-                read_input.append('--pe{0}-1 {1} --pe{0}-2 {2}'.format(lib_id+1, lib[0], lib[1]))
+                read_input.append('--pe-1 {0} {1} --pe-2 {0} {2}'.format(lib_id+1, lib[0], lib[1]))
             elif len(lib) == 3 :
-                read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
+                read_input.append('--pe-1 {0} {1} --pe-2 {0} {2} --pe-s {0} {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
 
-        cmd = '{python} {spades} -t {n_cpu} --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
-              python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
+        # code used to try with --only-assemble, and if this failed, try without but this was found to giver poorer
+        # performance with SRR23242239 and no samples where it improved performance so this is now skipped
+        cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
+             python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
-            cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
-                python=sys.executable, read_input=' '.join(read_input), kmer=kmer,
-                outdir=outdir, **parameters)
-            spades_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
-            spades_run.communicate()
-            if spades_run.returncode != 0 :
+            # cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
+            #    python=sys.executable, read_input=' '.join(read_input), kmer=kmer,
+            #    outdir=outdir, **parameters)
+            # spades_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
+            # spades_run.communicate()
+            # if spades_run.returncode != 0 :
                 sys.exit(20123)
         try :
             shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
@@ -538,19 +540,29 @@ class mainprocess(object) :
                   universal_newlines=True, stdout=PIPE, stderr=PIPE, env=my_env).communicate()
             if len(err):
                 logger(err)
+            changes = 0
             try :
-                n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE, universal_newlines=True).communicate()
+                n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE,
+                          universal_newlines=True).communicate()
+                # Hapog is designed to produce a new assembly with both major and minor alleles
+                # we just want an updated assembly which is consistent with the major allele, so update
+                # assembly using the changes file which records where there were specific nucleotides
+                # found more in the reads than the reference, implying that the reference is the
+                # minor allele.  Hapog outputs two ratios, just use the value from the first.
                 diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
-                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs ]
-                for n, i, o, r in diffs[::-1] :
-                    if not onlySNP or len(r) == 1 :
+                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', ''),
+                           float(p[6][7:]),float(p[7][7:])] for p in diffs ]
+                for n, i, o, r, r1, r2 in diffs[::-1] :
+                    if (not onlySNP or len(r) == 1) and r1 > 0.6:
+                        changes += 1
                         seq[n][i] = r
-            except :
-                diffs = []
+            except Exception as e:
+                logger('Problem while parsing Hapog output {0}'.format(str(e)))
             with open('etoki.fasta', 'wt') as fout :
                 for n, s in seq.items():
                     fout.write('>{0}\n{1}\n'.format(n, ''.join(s)))
-            return 'etoki.fasta', len(diffs)
+            return 'etoki.fasta', changes
+
 
 
     def get_ave_depth(self, sites, accurate_depth=False, isMetagenome=False) :
@@ -733,20 +745,20 @@ class postprocess(object) :
         n_seq = len(seq)
         n_base = sum([s[0] for s in seq])
         n50, acc = 0, [0, 0]
-        l50 = 0
-        for l50, s in enumerate(seq) :
-            acc[0], acc[1] = acc[0] + s[0], acc[1] + s[0]*s[1]
-            if acc[0] * 2 >= n_base :
-                n50 = s[0]
-                break
-        l50 += 1
-        ave_depth = acc[1]/acc[0]
-        n_low = 0
-        for s in seq :
-            if len(s) > 3 :
-                n_low += np.sum( (np.vectorize(ord)(s[3]) < 43) | (np.array(list(s[2])) == 'N') )
-            else :
-                n_low += np.sum( (np.array(list(s[2])) == 'N') )
+        l50, ave_depth, n_low = 0, 0, 0
+        if n_seq > 0:
+            for l50, s in enumerate(seq) :
+                acc[0], acc[1] = acc[0] + s[0], acc[1] + s[0]*s[1]
+                if acc[0] * 2 >= n_base :
+                    n50 = s[0]
+                    break
+            l50 += 1
+            ave_depth = acc[1]/acc[0]
+            for s in seq :
+                if len(s) > 3 :
+                    n_low += np.sum( (np.vectorize(ord)(s[3]) < 43) | (np.array(list(s[2])) == 'N') )
+                else :
+                    n_low += np.sum( (np.array(list(s[2])) == 'N') )
         return dict(n_contig = n_seq,
                     n_base = n_base,
                     ave_depth = ave_depth,
