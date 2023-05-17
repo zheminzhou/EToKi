@@ -711,9 +711,18 @@ class postprocess(object) :
         return seq, fasfile
 
     def do_kraken(self, assembly, seq) :
+        window_size = 10000
         with open(assembly+'.filter', 'w') as fout :
+            #  Kraken calculates species percentages based on the number of contigs
+            #  so large contigs, such as found with long read assemblies are not
+            #  appropriately represented
             for n, s in sorted(seq.items()) :
-                if s[0] > 1000 :
+                if s[0] > (2 * window_size):
+                    N = s[0]/window_size
+                    size = s[0]/N
+                    for i in range(N):
+                        fout.write('>{0}_{1}\n{2}\n'.format(n, i, s[2][i*size:((i+1)*size)-1]))
+                elif s[0] > 1000 :
                     fout.write('>{0}\n{1}\n'.format(n, s[2]))
         cmd = '{kraken2} -db {kraken_database} --threads {n_cpu} --output - --report {assembly}.kraken {assembly}.filter'.format(
             assembly=assembly, **parameters
