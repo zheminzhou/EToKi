@@ -718,8 +718,8 @@ class postprocess(object) :
             #  appropriately represented
             for n, s in sorted(seq.items()) :
                 if s[0] > (2 * window_size):
-                    N = s[0]/window_size
-                    size = s[0]/N
+                    N = s[0]//window_size
+                    size = s[0]//N
                     for i in range(N):
                         fout.write('>{0}_{1}\n{2}\n'.format(n, i, s[2][i*size:((i+1)*size)-1]))
                 elif s[0] > 1000 :
