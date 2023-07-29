@@ -292,7 +292,7 @@ def install_externals() :
             #  but fails with a segmentation fault when processing data
             #  Use precompiled which works with a locally compileed htslib
             os.makedirs('HAPO-G-{0}/build'.format(hapog_ver), exist_ok=True)
-            shutil.copy('../bin/hapog','HAPO-G-1.2/build')
+            shutil.copy('../bin/hapog','HAPO-G-{0}/build'.format(hapog_ver))
             os.makedirs('HAPO-G-{0}/bin'.format(hapog_ver), exist_ok=True)
             subprocess.Popen('ln -fs ../build/hapog HAPO-G-{0}/bin/hapog'.format(hapog_ver).
                              split(), stderr=subprocess.PIPE).communicate()
