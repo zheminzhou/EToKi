@@ -261,7 +261,7 @@ def install_externals() :
     if not getExecutable([externals['hapog']]) :
 
         # HAPO depends on installed htslib which may not be available on host, so do a local install
-        htslib_ver = '1.3.2'
+        htslib_ver = '1.15.1'
         url = 'https://github.com/samtools/htslib/releases/download/{0}/htslib-{0}.tar.bz2'.format(htslib_ver)
         logger('Downloading htslib from {0}'.format(url))
         subprocess.Popen('curl -Lo htslib.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
@@ -285,35 +285,23 @@ def install_externals() :
         subprocess.Popen('tar -xzf hapog.tar.gz'.split()).communicate()
 
         os.unlink('hapog.tar.gz')
-        gcc_ver = int(subprocess.Popen(['gcc', '-dumpversion'], stdout=subprocess.PIPE).communicate()[0].
-                      strip().split(b'.')[0])
-        if gcc_ver < 9:
-            #  Compiling hapog with earlier versions of gcc creates an executable that runs
-            #  but fails with a segmentation fault when processing data
-            #  Use precompiled which works with a locally compileed htslib
-            os.makedirs('HAPO-G-{0}/build'.format(hapog_ver), exist_ok=True)
-            shutil.copy('../bin/hapog','HAPO-G-{0}/build'.format(hapog_ver))
-            os.makedirs('HAPO-G-{0}/bin'.format(hapog_ver), exist_ok=True)
-            subprocess.Popen('ln -fs ../build/hapog HAPO-G-{0}/bin/hapog'.format(hapog_ver).
-                             split(), stderr=subprocess.PIPE).communicate()
-        else:
-            my_env = os.environ.copy()
+        my_env = os.environ.copy()
 
-            if not getExecutable('cmake') or int(os.popen('cmake --version').read().split()[2].split('.')[0]) < 3:
-                url = 'https://github.com/Kitware/CMake/releases/download/v3.25.1/cmake-3.25.1-linux-x86_64.tar.gz'
-                logger('Installing cmake from {0} for hapog installation'.format(url))
-                subprocess.Popen('curl -Lo cmake.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-                logger('Unpackaging cmake package')
-                subprocess.Popen('tar -xzf cmake.tar.gz'.split()).communicate()
-                subprocess.Popen('ln -fs cmake-3.25.1-linux-x86_64/bin/cmake .'.split(),
-                                 stderr=subprocess.PIPE).communicate()
-                os.unlink('cmake.tar.gz')
-                my_env["PATH"] = externals_dir + ':' + my_env["PATH"]
+        if not getExecutable('cmake') or int(os.popen('cmake --version').read().split()[2].split('.')[0]) < 3:
+            url = 'https://github.com/Kitware/CMake/releases/download/v3.25.1/cmake-3.25.1-linux-x86_64.tar.gz'
+            logger('Installing cmake from {0} for hapog installation'.format(url))
+            subprocess.Popen('curl -Lo cmake.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+            logger('Unpackaging cmake package')
+            subprocess.Popen('tar -xzf cmake.tar.gz'.split()).communicate()
+            subprocess.Popen('ln -fs cmake-3.25.1-linux-x86_64/bin/cmake .'.split(),
+                             stderr=subprocess.PIPE).communicate()
+            os.unlink('cmake.tar.gz')
+            my_env["PATH"] = externals_dir + ':' + my_env["PATH"]
 
-            subprocess.Popen('bash build.sh -l {0}'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, cwd='HAPO-G-{0}'.format(hapog_ver),  env=my_env).communicate()
+        subprocess.Popen('bash build.sh -l {0}'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, cwd='HAPO-G-{0}'.format(hapog_ver),  env=my_env).communicate()
 
-        subprocess.Popen('ln -fs HAPO-G-{0}/hapog.py ./hapog.py'.format(hapog_ver).split(),
+        subprocess.Popen('ln -s HAPO-G-{0}/hapog.py ./hapog.py'.format(hapog_ver).split(),
                          stderr=subprocess.PIPE).communicate()
         subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
 
