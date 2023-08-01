@@ -385,7 +385,9 @@ class mainprocess(object) :
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
         read_len = min(self.__get_read_len(reads), 140)
-        kmer = ','.join([str(max(min(int(read_len*float(x)/200)*2+1, 127),17)) for x in parameters['kmers'].split(',')])
+        kmer = [str(max(min(int(read_len * float(x) / 200) * 2 + 1, 127), 17)) for x in parameters['kmers'].split(',')]
+        # Ensure there are no duplicate kmers
+        kmer = ','.join(list(dict.fromkeys(kmer)))
         read_input = []
         for lib_id, lib in enumerate(reads) :
             if len(lib) == 1 :
