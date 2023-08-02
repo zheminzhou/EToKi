@@ -216,7 +216,7 @@ def download_krakenDB() :
         os.makedirs('minikraken2')
     os.chdir(os.path.join(moveTo, 'minikraken2'))
     if not os.path.exists('hash.k2d') or  not os.path.getsize('hash.k2d') == 8000000032:
-        minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_v2_8GB_201904.tgz'
+        minikraken_url = 'https://genome-idx.s3.amazonaws.com/kraken/minikraken2_v2_8GB_201904.tgz'
         logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))
         subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging minikraken2.')
@@ -463,7 +463,7 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
-        blast_url = 'ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
+        blast_url = 'https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.8.1/ncbi-blast-2.8.1+-x64-linux.tar.gz'
         logger('Downloading ncbi-blast package from {0}'.format(blast_url))
         subprocess.Popen('curl -Lo ncbi-blast-2.8.1+-x64-linux.tar.gz {0}'.format(blast_url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging ncbi-blast package'.format(blast_url))
