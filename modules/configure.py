@@ -1,4 +1,4 @@
-import os, sys, subprocess, numpy as np, pandas as pd, argparse, glob, gzip, io, re
+import os, sys, subprocess, numpy as np, pandas as pd, argparse, shutil, gzip, io, re
 from datetime import datetime
 
 if sys.version_info[0] < 3:
@@ -215,27 +215,28 @@ def download_krakenDB() :
     if not os.path.exists('minikraken2') :
         os.makedirs('minikraken2')
     os.chdir(os.path.join(moveTo, 'minikraken2'))
-    minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_v2_8GB_201904.tgz'
-    logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))    
-    subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
-    logger('Unpackaging minikraken2.')
-    subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).communicate()
-    subprocess.Popen('mv minikraken2_v2_8GB_*/* ./', shell=True).communicate()
-    os.unlink('minikraken2_v2_8GB.tgz')
+    if not os.path.exists('hash.k2d') or  not os.path.getsize('hash.k2d') == 8000000032:
+        minikraken_url = 'ftp://ftp.ccb.jhu.edu/pub/data/kraken2_dbs/old/minikraken2_v2_8GB_201904.tgz'
+        logger('Downloading minikraken2 from {0}. This might take a long time.'.format(minikraken_url))
+        subprocess.Popen('curl -Lo minikraken2_v2_8GB.tgz {0}'.format(minikraken_url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging minikraken2.')
+        subprocess.Popen('tar -xzf minikraken2_v2_8GB.tgz'.split()).communicate()
+        subprocess.Popen('mv minikraken2_v2_8GB_*/* ./', shell=True).communicate()
+        os.unlink('minikraken2_v2_8GB.tgz')
     
     os.chdir(curdir)
 
 
 def install_externals() :
     curdir = os.path.abspath(os.curdir)
-    moveTo = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
-    os.chdir(moveTo)
+    externals_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'externals')
+    os.chdir(externals_dir)
 
     if not getExecutable(['java']) :
         logger('You have not installed Java runtime. Please install it first. ')
         sys.exit(1)
 
-    if not getExecutable([externals['treetime']]) :
+    if not getExecutable(externals['treetime'].split()) :
         url = 'https://github.com/neherlab/treetime/archive/refs/tags/v0.9.0.tar.gz'
         logger('Downloading treetime package from {0}'.format(url))
         subprocess.Popen('curl -Lo treetime.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
@@ -247,25 +248,87 @@ def install_externals() :
         os.unlink('treetime.tar.gz')
         logger('Done\n')
 
+    if not getExecutable(externals['minimap2'].split()) :
+        url = 'https://github.com/lh3/minimap2/releases/download/v2.26/minimap2-2.26.tar.bz2'
+        logger('Downloading minimap2 package from {0}'.format(url))
+        subprocess.Popen('curl -Lo minimap2.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging minimap2 package')
+        subprocess.Popen('tar -xjf minimap2.tar.bz2'.split()).communicate()
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='minimap2-2.26').communicate()
+        subprocess.Popen('ln -fs minimap2-2.26/minimap2 ./minimap2'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('minimap2.tar.bz2')
+        logger('Done\n')
+
     if not getExecutable([externals['hapog']]) :
-        url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/1.2.tar.gz'
+
+        # HAPO depends on installed htslib which may not be available on host, so do a local install
+        htslib_ver = '1.3.2'
+        url = 'https://github.com/samtools/htslib/releases/download/{0}/htslib-{0}.tar.bz2'.format(htslib_ver)
+        logger('Downloading htslib from {0}'.format(url))
+        subprocess.Popen('curl -Lo htslib.tar.bz2 {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging htslib package')
+        subprocess.Popen('tar -xjf htslib.tar.bz2'.split()).communicate()
+        subprocess.Popen('make', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         cwd='htslib-{0}'.format(htslib_ver)).communicate()
+        htslib_dir = '{0}/htslib'.format(externals_dir)
+        subprocess.Popen('make prefix={0} install'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, cwd='htslib-{0}'.format(htslib_ver)).communicate()
+        os.unlink('htslib.tar.bz2')
+        shutil.rmtree('htslib-{0}'.format(htslib_ver))
+        logger('Done\n')
+
+        hapog_ver = '1.2'
+        hapog_name = 'HAPO-G-'+hapog_ver
+        url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/{0}.tar.gz'.format(hapog_ver)
         logger('Downloading Hapo-G package from {0}'.format(url))
         subprocess.Popen('curl -Lo hapog.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging Hapo-G package')
         subprocess.Popen('tar -xzf hapog.tar.gz'.split()).communicate()
-        subprocess.Popen('bash build.sh', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='HAPO-G-1.2').communicate()
-        subprocess.Popen('ln -fs HAPO-G-1.2/hapog.py ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
-        subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
+
         os.unlink('hapog.tar.gz')
+        gcc_ver = int(subprocess.Popen(['gcc', '-dumpversion'], stdout=subprocess.PIPE).communicate()[0].
+                      strip().split(b'.')[0])
+        if gcc_ver < 9:
+            #  Compiling hapog with earlier versions of gcc creates an executable that runs
+            #  but fails with a segmentation fault when processing data
+            #  Use precompiled which works with a locally compileed htslib
+            os.makedirs('HAPO-G-{0}/build'.format(hapog_ver), exist_ok=True)
+            shutil.copy('../bin/hapog','HAPO-G-1.2/build')
+            os.makedirs('HAPO-G-{0}/bin'.format(hapog_ver), exist_ok=True)
+            subprocess.Popen('ln -fs ../build/hapog HAPO-G-{0}/bin/hapog'.format(hapog_ver).
+                             split(), stderr=subprocess.PIPE).communicate()
+        else:
+            my_env = os.environ.copy()
+
+            if not getExecutable('cmake') or int(os.popen('cmake --version').read().split()[2].split('.')[0]) < 3:
+                url = 'https://github.com/Kitware/CMake/releases/download/v3.25.1/cmake-3.25.1-linux-x86_64.tar.gz'
+                logger('Installing cmake from {0} for hapog installation'.format(url))
+                subprocess.Popen('curl -Lo cmake.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+                logger('Unpackaging cmake package')
+                subprocess.Popen('tar -xzf cmake.tar.gz'.split()).communicate()
+                subprocess.Popen('ln -fs cmake-3.25.1-linux-x86_64/bin/cmake .'.split(),
+                                 stderr=subprocess.PIPE).communicate()
+                os.unlink('cmake.tar.gz')
+                my_env["PATH"] = externals_dir + ':' + my_env["PATH"]
+
+            subprocess.Popen('bash build.sh -l {0}'.format(htslib_dir), shell=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, cwd='HAPO-G-{0}'.format(hapog_ver),  env=my_env).communicate()
+
+        subprocess.Popen('ln -fs HAPO-G-{0}/hapog.py ./hapog.py'.format(hapog_ver).split(),
+                         stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./hapog.py'.split(), stderr=subprocess.PIPE).communicate()
+
         logger('Done\n')
 
 
     if not getExecutable([externals['raxml_ng']]) :
         url = 'https://github.com/amkozlov/raxml-ng/releases/download/1.0.1/raxml-ng_v1.0.1_linux_x86_64.zip'
         logger('Downloading raxml-ng package from {0}'.format(url))
-        subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo raxml-ng_v1.0.1_linux_x86_64.zip {0}'.format(url).split(),
+                         stderr=subprocess.PIPE).communicate()
         logger('Unpackaging raxml-ng package')
-        subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('unzip raxml-ng_v1.0.1_linux_x86_64.zip -d raxml-ng_v1.0.1'.split(),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         subprocess.Popen('ln -fs raxml-ng_v1.0.1/raxml-ng ./raxml-ng'.split(), stderr=subprocess.PIPE).communicate()
         os.unlink('raxml-ng_v1.0.1_linux_x86_64.zip')
         logger('Done\n')
@@ -295,19 +358,23 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable([externals['spades']]) :
-        url = 'https://github.com/ablab/spades/releases/download/v3.15.2/SPAdes-3.15.2-Linux.tar.gz'
-        logger('Downloading SPAdes-3.15.2 package from {0}'.format(url))
-        subprocess.Popen('curl -Lo SPAdes-3.15.2-Linux.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
-        logger('Unpackaging SPAdes-3.15.2-Linux package'.format(url))
-        subprocess.Popen('tar -xzf SPAdes-3.15.2-Linux.tar.gz'.split()).communicate()
-        os.unlink('SPAdes-3.15.2-Linux.tar.gz')
-        subprocess.Popen('ln -fs SPAdes-3.15.2-Linux/bin/spades.py ./spades.py'.split()).communicate()
+        release = '3.15.2'
+        url = 'https://github.com/ablab/spades/releases/download/v{release}/SPAdes-{release}-Linux.tar.gz'. \
+            format(release=release)
+        logger('Downloading SPAdes-{release} package from {url}'.format(release=release, url=url))
+        subprocess.Popen('curl -Lo SPAdes-{release}-Linux.tar.gz {url}'.format(release=release, url=url).split(),
+                         stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging SPAdes-{release}-Linux package'.format(release=release))
+        subprocess.Popen('tar -xzf SPAdes-{release}-Linux.tar.gz'.format(release=release).split()).communicate()
+        os.unlink('SPAdes-{release}-Linux.tar.gz'.format(release=release))
+        subprocess.Popen('ln -fs SPAdes-{release}-Linux/bin/spades.py ./spades.py'.
+                         format(release=release).split()).communicate()
         logger('Done\n')
 
     if not getExecutable([externals['bbduk']]) or not getExecutable([externals['bbmerge']]) or not getExecutable([externals['repair']]):
         url = 'https://netcologne.dl.sourceforge.net/project/bbmap/BBMap_38.90.tar.gz'
         logger('Downloading BBmap package from {0}'.format(url))
-        subprocess.Popen('curl -Lo BBMap_38.90.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lko BBMap_38.90.tar.gz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
         logger('Unpackaging BBmap package'.format(url))
         subprocess.Popen('tar -xzf BBMap_38.90.tar.gz'.split()).communicate()
         os.unlink('BBMap_38.90.tar.gz')
@@ -381,14 +448,31 @@ def install_externals() :
         logger('Done\n')
 
     if not getExecutable(externals['samtools'].split()) :
-        samtools_url = 'https://github.com/samtools/samtools/releases/download/1.15/samtools-1.15.tar.bz2'
+        # Needed by hapog, which does not seem to work with version 1.15
+        samtools_version = '1.11'
+        samtools_url = 'https://github.com/samtools/samtools/releases/download/{0}/samtools-{0}.tar.bz2'.format(samtools_version)
         logger('Downloading samtools from {0}'.format(samtools_url))
-        subprocess.Popen('curl -Lo samtools-1.15.tar.bz2 {0}'.format(samtools_url).split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('curl -Lo samtools-{0}.tar.bz2 {1}'.format(samtools_version, samtools_url).split(),
+                         stderr=subprocess.PIPE).communicate()
         logger('Unpackaging samtools package')
-        subprocess.Popen('tar -xjf samtools-1.15.tar.bz2'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        os.unlink('samtools-1.15.tar.bz2')
-        subprocess.Popen('cd samtools-1.15 && ./configure --disable-bz2 --disable-lzma --without-curses && make', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
-        subprocess.Popen('ln -fs samtools-1.15/samtools ./samtools'.split()).communicate()
+        subprocess.Popen('tar -xjf samtools-{0}.tar.bz2'.format(samtools_version).split(),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        os.unlink('samtools-{0}.tar.bz2'.format(samtools_version))
+        subprocess.Popen('cd samtools-{0} && ./configure --disable-bz2 --disable-lzma --without-curses && make'.
+                         format(samtools_version), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True).communicate()
+        subprocess.Popen('ln -fs samtools-{0}/samtools ./samtools'.format(samtools_version).split()).communicate()
+        logger('Done\n')
+
+    if not getExecutable([externals['nextpolish']]):
+        url = 'https://github.com/Nextomics/NextPolish/releases/download/v1.4.1/NextPolish.tgz'
+        logger('Downloading nextPolish package from {0}'.format(url))
+        subprocess.Popen('curl -Lo nextpolish-1.4.1.tgz {0}'.format(url).split(), stderr=subprocess.PIPE).communicate()
+        logger('Unpackaging nextPolish package')
+        subprocess.Popen('tar -xzf nextpolish-1.4.1.tgz'.split()).communicate()
+        subprocess.Popen('make'.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd='NextPolish').communicate()
+        subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish1.py'.split(), stderr=subprocess.PIPE).communicate()
+        subprocess.Popen('chmod 755 ./NextPolish/lib/nextpolish2.py'.split(), stderr=subprocess.PIPE).communicate()
+        os.unlink('nextpolish-1.4.1.tgz')
         logger('Done\n')
 
     if not getExecutable([externals['blastn']]) or not getExecutable([externals['makeblastdb']]) :
@@ -425,7 +509,7 @@ def configure(args) :
         if fname not in {'kraken_database', 'enbler_filter', 'pigz'} :
             if not getExecutable(flinks) :
                 logger('ERROR - {0} ("{1}") is not present. '.format(fname, flinks[-1]))
-                #sys.exit(0)
+                sys.exit(1)
             else :
                 logger('{0} ("{1}") is present. '.format(fname, flinks[-1]))
     if not os.path.exists(externals['kraken_database']) :

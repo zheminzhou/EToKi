@@ -47,7 +47,7 @@ class preprocess(object) :
                     reads = 'in={0} in2={1}'.format(*library_file['PE'])
                     outputs = 'out={0} out2={1}'.format(*library_file2['PE'])
                     bb_run, bb_out = monitor_proc(
-                        Popen('{repair} overwrite=t ain=t {reads} {outputs}'.format(reads=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                        Popen('{repair} -Xmx{memory} overwrite=t ain=t {reads} {outputs}'.format(reads=reads, outputs=outputs, **parameters).split(), stdout=PIPE, stderr=PIPE, universal_newlines=True)
                     )
                     if bb_run.returncode == 0 :
                         for fname in library_file['PE'] :
@@ -137,15 +137,18 @@ class preprocess(object) :
                             universal_newlines=True)
                     )
                 if bb_run.returncode == 0 :
-                    with open('SE.refstats') as fin:
-                        fin.readline()
-                        for line in fin:
-                            logger(line.strip())
                     for fname in library_file['SE'] :
                         try:
                             os.unlink(fname)
                         except :
                             pass
+                    with open('SE.refstats') as fin:
+                        fin.readline()
+                        for line in fin:
+                            if line.strip() == "#Reads\t0":
+                                library_file2.pop('SE')
+                                library_file.pop('SE')
+                            logger(line.strip())
                     library_file.update(library_file2)
                 else :
                     
