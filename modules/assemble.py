@@ -384,8 +384,8 @@ class mainprocess(object) :
         output_file = 'spades.fasta'
         if os.path.isdir(outdir) :
             shutil.rmtree(outdir)
-        read_len = min(self.__get_read_len(reads), 140)
-        kmer = ','.join([str(max(min(int(read_len*float(x)/200)*2+1, 127),17)) for x in parameters['kmers'].split(',')])
+        #read_len = min(self.__get_read_len(reads), 140)
+        #kmer = ','.join([str(max(min(int(read_len*float(x)/200)*2+1, 127),17)) for x in parameters['kmers'].split(',')])
         read_input = []
         for lib_id, lib in enumerate(reads) :
             if len(lib) == 1 :
@@ -395,18 +395,12 @@ class mainprocess(object) :
             elif len(lib) == 3 :
                 read_input.append('--pe{0}-1 {1} --pe{0}-2 {2} --pe{0}-s {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
 
-        cmd = '{python} {spades} -t {n_cpu} --only-assembler {read_input} -k {kmer} -o {outdir}'.format(
-              python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
+        cmd = '{python} {spades} -t {n_cpu} {read_input} -o {outdir}'.format(
+              python=sys.executable, read_input=' '.join(read_input), outdir=outdir, **parameters)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
-            cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
-                python=sys.executable, read_input=' '.join(read_input), kmer=kmer,
-                outdir=outdir, **parameters)
-            spades_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
-            spades_run.communicate()
-            if spades_run.returncode != 0 :
-                sys.exit(20123)
+            sys.exit(20123)
         try :
             shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
         except :
@@ -539,7 +533,7 @@ class mainprocess(object) :
             try :
                 n = Popen('grep read etoki.hapog/hapog_results/hapog.changes'.split(), stdout=PIPE, universal_newlines=True).communicate()
                 diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
-                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs ]
+                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs if float(p[7][7:]) > 0.5 ]
                 for n, i, o, r in diffs[::-1] :
                     if not onlySNP or len(r) == 1 :
                         seq[n][i] = r
@@ -806,7 +800,7 @@ And
     parser.add_argument('-o', '--outgroup', help='Additional references presenting genetic diversities outside of the studied population. \nReads that are more similar to outgroups will be excluded from analysis. ', default='')
     
     parser.add_argument('-S', '--SNP', help='Exclusive set of SNPs. This will overwrite the polish process. \nRequired format:\n<cont_name> <site> <base_type>\n...', default=None)
-    parser.add_argument('-c', '--cont_depth', help='Allowed range of read depth variations relative to average value.\nDefault: 0.2,2.5\nContigs with read depths outside of this range will be removed from the final assembly.', default='')
+    parser.add_argument('-c', '--cont_depth', help='Allowed range of read depth variations relative to average value.\nDefault: 0.2,100\nContigs with read depths outside of this range will be removed from the final assembly.', default='')
     
     parser.add_argument('--excluded', help='A name of the file that contains reads to be excluded from the analysis.', default='')
     parser.add_argument('--metagenome', help='Reads are from metagenomic samples', action='store_true', default=False)
@@ -821,7 +815,7 @@ And
 
     args = parser.parse_args(a)
     if args.cont_depth == '' :
-        args.cont_depth = '0.2,2.5' if not args.metagenome else '0.0001,10000'
+        args.cont_depth = '0.2,100' if not args.metagenome else '0.0001,10000'
     if args.assembler == '' :
         args.assembler = 'spades' if not args.metagenome else 'megahit'
     if args.max_diff < 0 :

@@ -761,12 +761,11 @@ def run_raxml_ng(prefix, fastafile, invariants, n_start) :
     return fname
 
 
-def run_iqtree(prefix, fastafile, invariants):
+def run_iqtree(prefix, fastafile, invariants, n_proc):
     snv_cnt = invariants[-1]
     cnt = sum(invariants.values())
 
-    #cmd = '{raxml_ng} --thread 8 --redo --force --msa {0} --precision 8 --model GTR+G+ASC_STAM{{{1}}} --blmin 1e-8 --site-repeats on --tree pars{{{2}}}'.format(
-    cmd='{iqtree} -redo -fast -nt 8 -s {0} -m GTR+G+ASC '.format(fastafile, **externals)
+    cmd='{iqtree} -redo -fast -nt {1} -s {0} -m GTR+G+ASC '.format(fastafile, n_proc, **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile + '.treefile', format=0)
@@ -813,7 +812,7 @@ def phylo(args) :
             elif args.ng:
                 args.tree = run_raxml_ng(args.tree, fastafile, invariants, args.ng)
             else:
-                args.tree = run_iqtree(args.tree, fastafile, invariants)
+                args.tree = run_iqtree(args.tree, fastafile, invariants, args.n_proc)
         args.tree = get_root(args.prefix, args.tree)
     elif 'rescale' in args.tasks or 'ancestral' in args.tasks or 'ancestral_proportion' in args.tasks :
         tree = Tree(args.tree, format=1)
