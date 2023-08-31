@@ -395,29 +395,12 @@ class mainprocess(object) :
             elif len(lib) == 3 :
                 read_input.append('--pe-1 {0} {1} --pe-2 {0} {2} --pe-s {0} {3}'.format(lib_id+1, lib[0], lib[1], lib[2]))
 
-<<<<<<< HEAD
         cmd = '{python} {spades} -t {n_cpu} {read_input} -o {outdir}'.format(
               python=sys.executable, read_input=' '.join(read_input), outdir=outdir, **parameters)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
             sys.exit(20123)
-=======
-        # code used to try with --only-assemble, and if this failed, try without but this was found to giver poorer
-        # performance with SRR23242239 and no samples where it improved performance so this is now skipped
-        cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
-             python=sys.executable, read_input=' '.join(read_input), kmer=kmer, outdir=outdir, **parameters)
-        spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
-        spades_run.communicate()
-        if spades_run.returncode != 0 :
-            # cmd = '{python} {spades} -t {n_cpu} {read_input} -k {kmer} -o {outdir}'.format(
-            #    python=sys.executable, read_input=' '.join(read_input), kmer=kmer,
-            #    outdir=outdir, **parameters)
-            # spades_run = Popen(cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
-            # spades_run.communicate()
-            # if spades_run.returncode != 0 :
-                sys.exit(20123)
->>>>>>> 49ef6b9595e2c317a1a3960b145af8cd189d955e
         try :
             shutil.copyfile( '{outdir}/scaffolds.fasta'.format(outdir=outdir), output_file )
         except :
@@ -559,17 +542,9 @@ class mainprocess(object) :
                 # found more in the reads than the reference, implying that the reference is the
                 # minor allele.  Hapog outputs two ratios, just use the value from the first.
                 diffs = [ [p for p in nn.split('\t')] for nn in (n[0].split('\n')) if len(nn) ]
-<<<<<<< HEAD
                 diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', '')] for p in diffs if float(p[7][7:]) > 0.5 ]
                 for n, i, o, r in diffs[::-1] :
                     if not onlySNP or len(r) == 1 :
-=======
-                diffs = [ [names[int(p[0])], int(p[1]), p[2][4:], p[3][5:].upper().replace('-', ''),
-                           float(p[6][7:]),float(p[7][7:])] for p in diffs ]
-                for n, i, o, r, r1, r2 in diffs[::-1] :
-                    if (not onlySNP or len(r) == 1) and r1 > 0.6:
-                        changes += 1
->>>>>>> 49ef6b9595e2c317a1a3960b145af8cd189d955e
                         seq[n][i] = r
             except Exception as e:
                 logger('Problem while parsing Hapog output {0}'.format(str(e)))

@@ -603,9 +603,9 @@ def nomenclature(genome, refAllele, parameters) :
     try :
         qry = os.path.join(dirPath, 'query')
         ref = os.path.join(dirPath, 'reference')
-        with open(qry, 'w') as fout:
+        with open(qry, 'wt') as fout:
             fout.write(genome)
-        with open(ref, 'wb') as fout:
+        with open(ref, 'wt') as fout:
             fout.write(refAllele)
         blasttab = dualBlast().run_comparison(dirPath, qry, ref, parameters['min_iden']-0.1, parameters['min_frag_len']-10)
     
@@ -649,7 +649,7 @@ def MLSType(args) :
         elif parameters['output'].upper().endswith('GZ') :
             fout = gzip.open(parameters['output'], 'wt')
         else :
-            fout = open(parameters['output'], 'w')
+            fout = open(parameters['output'], 'wt')
 
         fout.write(alleles + '\n')
         fout.close()
