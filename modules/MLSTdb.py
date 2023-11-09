@@ -130,30 +130,49 @@ def buildReference(alleles, references, max_iden=0.9,  min_iden=0.6, coverage=0.
     return '\n'.join(alleles), '\n'.join(refsets)
 
 
+# Read a fasta into an array whose elements are a dict with keys:
+#   fieldname: seqname (STRING)
+#   value_id:  allele (STRING)
+#   value:     sequence (STRING)
 def readFasta(fastaText) :
     sequence = []
     for line in fastaText :
+        # Get the defline
         if line.startswith('>') :
+            # The name of this sequence starts in position 1 (after the >)
+            # but then we remove anything after whitespace to just keep the unique seqid
             name = line[1:].strip().split()[0]
+            # part evaluates to the whole seqid and then the part after the last underscore
             part = name.rsplit('_', 1)
             if len(part) > 1 :
+                # If there is the part after the last underscore, save that as
+                # the allele number into 'value_id'
+                # and the seqid minus the allele into 'fieldname'
                 sequence.append({'fieldname':part[0], 'value_id':part[1], 'value':[]})
             else :
+                # If there is no allele, just save the seqid into fieldname
                 sequence.append({'fieldname':name, 'value_id':None, 'value':[]})
         elif len(line) > 0 :
+            # add the sequence onto the latest element of the sequence array
+            # into 'value'
             sequence[-1]['value'].extend(line.strip().split())
     for s in sequence :
+        # Turn 'value' into a string
         s['value'] = ''.join(s['value'])
     return sequence
 
 
 def MLSTdb(args) :
     params = getParams(args)
-    database, refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd=params['database'], params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
+    database, refset, alleleFasta, refstrain, max_iden, min_iden, coverage, paralog, relaxEnd = \
+        params['database'], params['refset'], params['alleleFasta'], params['refstrain'], params['max_iden'], params['min_iden'], params['coverage'], params['paralog'], params['relaxEnd']
+    # Read the fasta from either a path or a string and I guess 'alleleFasta' could be either
     if os.path.isfile(alleleFasta) :
         alleles = readFasta(uopen(alleleFasta))
     else :
         alleles = readFasta(StringIO(alleleFasta))
+    # filter the alleles array for those with an allele (value_id.isdigit())
+    # and whose allele is greater than 0 and whose locus name does not have '/'
     alleles = [allele for allele in alleles \
                    if allele['value_id'].isdigit() and int(allele['value_id']) > 0 and allele['fieldname'].find('/') < 0]
     refAlleles = ''
@@ -175,9 +194,15 @@ def MLSTdb(args) :
             with open(str(refset), 'w') as fout :
                 fout.write(refAlleles + '\n')
         logger('A file of reference alleles has been generated:  {0}'.format(refset))
+
+    # Create a file for lookup table of all alleles
     if database :
+        # Conversion is an array of arrays:
+        #   0 - md5sums of allele sequences
+        #   1 - array: [locus, allele]
         conversion = [[], []]
         for allele in alleles :
+            # If this fasta entry has a locus name...
             if allele['fieldname'] :
                 conversion[0].append(get_md5(allele['value']))
                 conversion[1].append([allele['fieldname'], int(allele['value_id'])])

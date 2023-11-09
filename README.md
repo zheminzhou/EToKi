@@ -105,6 +105,19 @@ python EToKi.py assemble --se examples/meta_out_L1_MP.fastq.gz --metagenome \
 ~~~~~~~~~~~
 python EToKi.py MLSTdb -i examples/Escherichia.Achtman.alleles.fasta -r examples/Escherichia.Achtman.references.fasta -d examples/Escherichia.Achtman.convert.tab
 ~~~~~~~~~~~
+
+#### Database format
+
+The database format is in three columns, in a comma separated format,
+where each row is an allele from the input fasta file.
+The input fasta file must have deflines in the format of `>locus_number extra` or `>locus_optional_number extra`
+where `extra` is not used, and `optional` is an optional part of the locus name.
+Only the last underscore separates the locus name from the allele.
+
+1. md5sum of the sequence. Dashes separate the md5sum into characters of lengths 8, 4, 4, 4, and 12.
+2. locus name which is the sequence identifier up until the last underscore.
+3. allele number
+
 ### Calculate 7 Gene MLST genotype for a queried genome
 ~~~~~~~~~~~
 gzip -cd examples/GCF_001566635.1_ASM156663v1_genomic.fna.gz > examples/GCF_001566635.1_ASM156663v1_genomic.fna && \
