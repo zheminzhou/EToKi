@@ -277,7 +277,7 @@ def install_externals() :
         shutil.rmtree('htslib-{0}'.format(htslib_ver))
         logger('Done\n')
 
-        hapog_ver = '1.2'
+        hapog_ver = '1.3.6'
         hapog_name = 'HAPO-G-'+hapog_ver
         url = 'https://github.com/institut-de-genomique/HAPO-G/archive/refs/tags/{0}.tar.gz'.format(hapog_ver)
         logger('Downloading Hapo-G package from {0}'.format(url))

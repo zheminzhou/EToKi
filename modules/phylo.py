@@ -1,4 +1,4 @@
-import shutil
+import shutil, gzip
 import subprocess
 
 from ete3 import Tree
@@ -401,7 +401,27 @@ def read_ancestor(fname, names, snps) :
             snp_array = np.concatenate([snp_array, np.array([list(seq)])])
     return dict(zip(branches, snp_array)), [n[0] for n in snps]
 
-def get_mut(final_tree, names, states, sites) :
+def get_mut(final_tree, names, states, sites, snp_file=None) :
+    gene_info = {}
+    if snp_file :
+        col_ids = []
+        with gzip.open(snp_file, 'rt') as fin :
+            for line in fin :
+                if line.startswith('##') :
+                    continue
+                p = line.strip().split('\t')
+                if p[-1] == '#Genes:Site:Category' :
+                    col_ids = np.array([0, 1, 2, len(p)-1])
+                break
+            if len(col_ids) :
+                for ss in pd.read_csv(fin, sep='\t', usecols=col_ids, header=None, chunksize=30000, dtype=str, na_filter=False) :
+                    for s in ss.values :
+                        site = (s[0], s[1])
+                        if site not in gene_info :
+                            gene_info[site] = [s[3] if s[3].find('Intergenic') < 0 else '']
+                        else :
+                            gene_info[site].append(s[3] if s[3].find('Intergenic') < 0 else '')
+    
     mutations = {}
     branches = []
     name_ids = { n:id for id, n in enumerate(names) }
@@ -413,7 +433,6 @@ def get_mut(final_tree, names, states, sites) :
     states = states.T
     for node in final_tree.iter_descendants('postorder') :
         for id, (m, n) in enumerate(zip(states[name_ids[node.name]], states[name_ids[node.up.name]])) :
-            #m, n = chr(m), chr(n)
             if m != n and m not in (0, 45) and n not in (0, 45) :
                 if id not in mutations :
                     mutations[id] = []
@@ -428,10 +447,23 @@ def get_mut(final_tree, names, states, sites) :
             len_m[s] = len_m.get(s, 0) + 1
         if l.size == 0 :
             for mut in m :
-                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(chr(mut[1][0]), chr(mut[1][1]))])
+                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(chr(mut[1][0]), chr(mut[1][1])), gene_info.get((c, str(p)), [''])[0] ])
         else :
+            mtype = gene_info.get((c, str(p)), [''])[-1]
             for mut in m :
-                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(l[mut[1][0]], l[mut[1][1]])])
+                indels = l[mut[1][0]], l[mut[1][1]]
+                indel_sizes = [0, 0]
+                for i, d in enumerate(indels) :
+                    if d == '.' :
+                        indel_sizes[i] = 0
+                    elif d[1] == '[' :
+                        indel_sizes[i] = int(d[0] + d[2:-4])
+                    else :
+                        indel_sizes[i] = int(d[0] + str(len(d[1:])))
+                delta_size = abs(indel_sizes[0] - indel_sizes[1])
+                if delta_size % 3 > 0 :
+                    mtype = mtype.replace('Indel', 'Frameshift')
+                outputs.append([mut[0], c, p, len_m[mut[-1]], '{0}->{1}'.format(*indels), mtype])
     return sorted(outputs)
 
 def write_states(fname, names, states, sites, seqLens, missing) :
@@ -476,9 +508,15 @@ def read_states(fname) :
                 break
         for line in fin :
             seq, site, snp_str = line.strip().split('\t', 2)
+            snps = snp_str.split('\t')
+            if '.' in snps :
+                encodes, encoded = np.unique(snps, return_inverse=True)
+                snp_str = '\t'.join([chr(x) for x in encoded])
+            else :
+                encodes = np.array([])
             if snp_str not in ss :
                 ss[snp_str] = len(ss)
-            sites.append([seq, int(site), ss[snp_str]])
+            sites.append([seq, int(site), ss[snp_str], encodes])
     states = []
     for s, id in sorted(ss.items(), key=lambda x:x[1]) :
         states.append(np.array(s.split('\t')).view(asc2int))
@@ -530,8 +568,24 @@ snp2mut: phylogeny,ancestral,mutation [default]''', default='snp2mut')
     return args
 
 
+def remove_short_branch(tree) :
+    for n in tree.get_descendants('postorder') :
+        if n.dist <= 1e-8 :
+            if n.is_leaf() :
+                n.dist = 1e-8
+            else :
+                p = n.up
+                for c in n.get_children() :
+                    p.add_child(c)
+                    c.up = p
+                p.remove_child(n)
+                n.up = None
+    return tree
+
 def infer_ancestral(prefix, tree, names, snps) :
     tree = Tree(tree, format=1)
+    tree = remove_short_branch(tree)
+
     node_names = {}
     for id, branch in enumerate(tree.traverse('postorder')) :
         digit = ''
@@ -557,7 +611,9 @@ def infer_ancestral(prefix, tree, names, snps) :
         p = subprocess.Popen('{treetime} ancestral --aln {0} --tree {1}.labelled.nwk --outdir {1}.treetime --aa --reconstruct-tip-states'.format(
             fastafile, prefix, **externals).split(), stdout=subprocess.PIPE)
         p.communicate()
-        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
+        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences.fasta')) :
+            indels = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences.fasta'))
+        elif os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
             indels = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta'))
     else :
         indels = None
@@ -567,7 +623,9 @@ def infer_ancestral(prefix, tree, names, snps) :
         p = subprocess.Popen('{treetime} ancestral --aln {0} --tree {1}.labelled.nwk --outdir {1}.treetime --reconstruct-tip-states'.format(
             fastafile, prefix, **externals).split(), stdout=subprocess.PIPE)
         p.communicate()
-        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
+        if os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences.fasta')) :
+            seqs = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences.fasta'))
+        elif os.path.isfile(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta')) :
             seqs = readFasta(os.path.join('{0}.treetime'.format(prefix), 'ancestral_sequences{}.fasta'))
         names = [n for n in seqs.keys()]
         decode = {x:i for i, x in enumerate('-ACDEFGHIKLMNPQRSTVWXY')}
@@ -764,18 +822,18 @@ def run_raxml_ng(prefix, fastafile, invariants, n_start) :
 def run_iqtree(prefix, fastafile, invariants, n_proc):
     snv_cnt = invariants[-1]
     cnt = sum(invariants.values())
-
-    cmd='{iqtree} -redo -fast -nt {1} -s {0} -m GTR+G+ASC '.format(fastafile, n_proc, **externals)
+    inv = [str(int(invariants[65]+0.5)), str(int(invariants[67]+0.5)), str(int(invariants[71]+0.5)), str(int(invariants[84]+0.5)), ]
+    cmd='{iqtree} -redo -fast --polytomy --runs 3 -fconst {2} -nt {1} -s {0} -m GTR+G '.format(fastafile, n_proc, ','.join(inv), **externals)
     run = Popen(cmd.split(), universal_newlines=True)
     run.communicate()
     tre = Tree(fastafile + '.treefile', format=0)
 
     fname = '{0}.unrooted.nwk'.format(prefix)
     for node in tre.traverse():
-        if -0.05 < node.dist * snv_cnt < 0.05:
+        if -0.05 < node.dist * cnt < 0.05:
             node.dist = 0.0
-        else :
-            node.dist *= snv_cnt/cnt
+        # else :
+        #     node.dist *= snv_cnt/cnt
     tre.write(outfile=fname, format=5)
     return fname
 
@@ -833,13 +891,8 @@ def phylo(args) :
         final_tree = Tree(args.tree, format=1)
         node_names, states, sites = read_states(args.ancestral)
 
-    # if 'ancestral_proportion' in args.tasks :
-    #     final_tree, node_names, states = infer_ancestral(args.tree, names, snps, sites, infer='marginal')
-    #     final_tree.write(format=1, outfile=args.prefix + '.labelled.nwk')
-    #     write_ancestral_proportion(args.prefix+'.ancestral_proportion.gz', node_names, states, sites, seqLens, missing)
-
     if 'mutation' in args.tasks :
-        mutations = get_mut(final_tree, node_names, states, sites)
+        mutations = get_mut(final_tree, node_names, states, sites, args.snp)
         with uopen(args.prefix + '.mutations.gz', 'w') as fout :
             for sl in seqLens :
                 fout.write('## Sequence_length: {0} {1}\n'.format(*sl))

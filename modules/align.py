@@ -21,11 +21,15 @@ def parseArgs(argv) :
     parser.add_argument('-c', '--core', help='[PARAM] percentage of presences for core genome. [DEFAULT: 0.95]', type=float, default=0.95)
     parser.add_argument('-n', '--n_proc', help='[PARAM] number of processes to use. [DEFAULT: 5]', default=5, type=int)
     parser.add_argument('-q', '--lowq', help='[OPTIONAL; INPUT] Genome of low quality. [DEFAULT: ]', default=[], action='append')
+    parser.add_argument('-d', '--divergent', help='[OPTIONAL] Alignment for divergent sequences. [DEFAULT: False]', default=False, action='store_true')
     parser.add_argument('queries', metavar='queries', nargs='*', help='queried genomes. Use <Tag>:<Filename> format to feed in a tag for each genome. Otherwise filenames will be used as tags for genomes. ')
     args = parser.parse_args(argv)
     args.reference = args.reference.split(':', 1) if args.reference.find(':')>0 else [os.path.basename(args.reference), args.reference]
     args.lowq = sorted([ [qt, qf] for qt, qf in [ qry.split(':', 1) if qry.find(':')>0 else [os.path.basename(qry), qry] for qry in args.lowq ] if qt != args.reference[0] ])
     args.aligner = externals['minimap2'] if not args.last else [externals['lastdb'], externals['lastal']]
+    if args.divergent :
+        global divergent
+        divergent = True
     return args
 
 class last_package(object) :
@@ -496,8 +500,15 @@ def alignAgainst(data) :
     if os.path.isfile( '{0}.gff.gz'.format(prefix) ) :
         return [tag, prefix + '.gff.gz']
     refSeq, refQual = readFastq(reference)
-    proc = subprocess.Popen('{0} -c -t1 --frag=yes -A1 -B14 -O24,60 -E2,1 -r100 -g1000 -P -N5000 -f1000,5000 -n2 -m50 -s200 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
-                                aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    
+    if not divergent :
+        proc = subprocess.Popen('{0} -k13 -w5 -c -t1 --frag=yes -A1 -B14 -O24,60 -E2,1 -r100 -g1000 -P -N5000 -f1000,5000 -n2 -m50 -s200 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+                                    aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    else :
+#        print('diver')
+        proc = subprocess.Popen('{0} -k13 -w5 -c -t1 --frag=yes -A1 -B4 -O8,16 -E2,1 -r20k,40k --rmq -g10k -P -N5000 -f1000,5000 -n2 -m50 -s100 -z200 -2K10m --heap-sort=yes --secondary=yes {1} {2}'.format(
+                                    aligner, db, query).split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
     alignments = []
     for lineId, line in enumerate(proc.stdout) :
         part = line.strip().split('\t')
@@ -757,10 +768,10 @@ def readMap(data) :
                 ori = re.findall(r'origin="([^"]+)"', part[8])
                 if len(alt) and len(ori) :
                     mutations.append([mTag, part[0], part[3], ori[0], alt[0]])
-    return presences, sorted(absences), mutations
+    return mTag, presences, sorted(absences), mutations
 
 def readGFF(fname) :
-    seq, cds = {}, {}
+    cds = []
     names = {}
     fnames = fname.split(',')
     fname = fnames[0]
@@ -778,23 +789,24 @@ def readGFF(fname) :
                             parent = re.findall(r'Parent=([^;]+)', part[8])
                             if len(parent) and parent[0] in names :
                                 name = names[parent[0]]
-                        if len(name) == 0 :
-                            name = re.findall(r'Name=([^;]+)', part[8])
+                        # if len(name) == 0 :
+                        #     name = re.findall(r'Name=([^;]+)', part[8])
                         if len(name) == 0 :
                             name = re.findall(r'ID=([^;]+)', part[8])
                         if part[2] == 'CDS' :
                             assert len(name) > 0, 'Error: CDS has no name. {0}'.format(line)
                             gname = name[0]
-                            if gname not in cds :
-                                cds[gname] = [fname, part[0], int(part[3]), int(part[4]), part[6], 0, [], int(part[3]), int(part[4])]
-                            elif part[0] == cds[gname][1] and fname == cds[gname][0] :
-                                cds[gname].extend([int(part[3]), int(part[4])])
-                                cds[gname][3] = max(cds[gname][3], int(part[4]))
+                            # if gname not in cds :
+                            cds.append([gname, part[0], int(part[3]), int(part[4]), part[6], 0, [], int(part[3]), int(part[4]), fname])
+                            # cds[gname] = [gname, part[0], int(part[3]), int(part[4]), part[6], 0, [], int(part[3]), int(part[4])]
+                            # elif part[0] == cds[gname][1] and fname == cds[gname][0] :
+                            #     cds[gname].extend([int(part[3]), int(part[4])])
+                            #     cds[gname][3] = max(cds[gname][3], int(part[4]))
                         else :
                             ids = re.findall(r'ID=([^;]+)', part[8])
                             if len(ids) :
                                 names[ids[0]] = name
-    return cds
+    return sorted(cds, key=lambda c:c[1:3])
 
 
 
@@ -804,14 +816,15 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
     coreSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     matSites = { n:np.zeros(len(refSeq[n]), dtype=int) for n in refSeq }
     alnId = { aln[0]:id for id, aln in enumerate(alignments+lowq_aligns) }
-    res = pool.map(readMap, alignments+lowq_aligns)
-    res, low_res = res[:len(alignments)], res[len(alignments):]
-    
+
     matrix = {}
-    for r in (res, low_res) :
-        for presences, absences, mutations in r :
+    presence_dict = {}
+    for gid, aln in enumerate((alignments, lowq_aligns)) :
+        for mTag, presences, absences, mutations in pool.imap_unordered(readMap, aln) :
+            j = alnId[mTag]
+            presence_dict[(gid, j)] = [presences, absences]
+
             for mut in mutations :
-                j = alnId[mut[0]]
                 site = tuple(mut[1:3])
                 if site not in matrix :
                     matrix[site] = [[], []]
@@ -824,29 +837,29 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
                     if len(matrix[site][1]) == 0 :
                         matrix[site][1] = ['-' for id in alnId]
                     matrix[site][1][j] = mut[4]
-    for gid, aln, r in ((0, alignments, res), (1, lowq_aligns, low_res)) :
-        for (mTag, mFile), (presences, absences, mutations) in zip(aln, r) :
-            j = alnId[mTag]
-            for n, s, e in presences :
-                if gid == 0 :
-                    coreSites[n][s-1:e] +=1
-                mutations = matSites[n][s-1:e]
-                for kk in mutations[mutations > 0] :
-                    k = (n, kk)
-                    if len(matrix[k][0]) and matrix[k][0][j] == '-' :
-                        matrix[k][0][j] = '.'
-                    if len(matrix[k][1]) and matrix[k][1][j] == '-' :
-                        matrix[k][1][j] = '.'
-            for n, s, e, m in absences :
-                if gid == 0 :
-                    coreSites[n][s-1:e] -= (1 if mTag not in reference else len(alignments)+1)
-                mutations = matSites[n][s-1:e]
-                for kk in mutations[mutations > 0] :
-                    k = (n, kk)
-                    if len(matrix[k][0]) and matrix[k][0][j] == '.' :
-                        matrix[k][0][j] = '-'
-                    if len(matrix[k][1]) and matrix[k][1][j] == '.' :
-                        matrix[k][1][j] = '-'
+    
+    for (gid, j), (presences, absences) in presence_dict.items() :
+        for n, s, e in presences :
+            if gid == 0 :
+                coreSites[n][s-1:e] +=1
+            mutations = matSites[n][s-1:e]
+            for kk in mutations[mutations > 0] :
+                k = (n, kk)
+                if len(matrix[k][0]) and matrix[k][0][j] == '-' :
+                    matrix[k][0][j] = '.'
+                if len(matrix[k][1]) and matrix[k][1][j] == '-' :
+                    matrix[k][1][j] = '.'
+        for n, s, e, m in absences :
+            if gid == 0 :
+                coreSites[n][s-1:e] -= (1 if mTag not in reference else len(alignments)+1)
+            mutations = matSites[n][s-1:e]
+            for kk in mutations[mutations > 0] :
+                k = (n, kk)
+                if len(matrix[k][0]) and matrix[k][0][j] == '.' :
+                    matrix[k][0][j] = '-'
+                if len(matrix[k][1]) and matrix[k][1][j] == '.' :
+                    matrix[k][1][j] = '-'
+    
     coreNum = max(len(alignments) * core, 1)
     for n in sorted(coreSites) :
         sites = coreSites[n]
@@ -942,7 +955,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
 
 
 def get_mut_gff_info(genes, matrix, refSeq, gcode) :
-    gene = sorted([ [g] + info[1:] for g, info in genes.items()], key=lambda g:g[1:4])
+    gene = genes # sorted([ [g] + info[1:] for g, info in genes.items()], key=lambda g:g[1:4])
     gi = 0
     site_genes = {}
     for (cont, site), (mut, indel) in sorted(matrix.items()) :
@@ -1073,9 +1086,11 @@ def prepReference(prefix, ref_tag, reference, aligner, pilercr, trf, **args) :
                 ))
     return alignments
 
+divergent = False
+
 def align(argv) :
     args = parseArgs(argv)
-
+    #print(divergent)
     if args.qry_list == None :
         queries = args.queries
     else :

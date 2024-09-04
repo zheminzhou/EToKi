@@ -23,7 +23,7 @@ class mainprocess(object) :
         self.snps = None
         if not result and len(reads) > 0 :
             if parameters['assembler'] == 'spades' :
-                result = self.do_spades(reads)
+                result = self.do_spades(reads, parameters['nohammer'])
             else :
                 result = self.do_megahit(reads)
         if sum([len(lr) for lr in longReads]) > 0 :
@@ -95,7 +95,7 @@ class mainprocess(object) :
                         outputs.append(o) #self.__markDuplicates(o1, o))
                         Popen('{samtools} index {o}'.format(o=o, **parameters).split(), stdout=PIPE).communicate()
                     else :
-                        cmd = '''{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} | awk '$2 %8 < 4'| {samtools} view -bo {o} -'''.format(
+                        cmd = '''{minimap2} -t{n_cpu} -ax sr --sr --frag=yes -A2 -B4 -O8,16 -E2,1 -r50 -p.6 -N 1 -f2000,10000 -Y -n1 -m19 -s40 -g200 -2K10m --heap-sort=yes --secondary=yes {reference}.mmi {r} | {enbler_filter} -1 | {samtools} view -bo {o} -'''.format(
                                 r = r, o = o, reference = reference, **parameters)
                         st_run = Popen( cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True ).communicate()
                         outputs.append(o)
@@ -379,7 +379,7 @@ class mainprocess(object) :
         logger('Flye assembly in {0}'.format(output_file))
         return output_file
 
-    def do_spades(self, reads) :
+    def do_spades(self, reads, nohammer) :
         outdir = 'spades'
         output_file = 'spades.fasta'
         if os.path.isdir(outdir) :
@@ -397,6 +397,9 @@ class mainprocess(object) :
 
         cmd = '{python} {spades} -t {n_cpu} {read_input} -o {outdir}'.format(
               python=sys.executable, read_input=' '.join(read_input), outdir=outdir, **parameters)
+        if nohammer :
+            cmd += ' --only-assembler'
+        print(cmd)
         spades_run = Popen( cmd.split(' '), stdout=PIPE, bufsize=0, universal_newlines=True)
         spades_run.communicate()
         if spades_run.returncode != 0 :
@@ -803,6 +806,7 @@ And
     parser.add_argument('-p', '--prefix', help='prefix for the outputs. Default: EToKi_assemble', default='EToKi_assemble')
     parser.add_argument('-a', '--assembler', help='Assembler used for de novo assembly. \nDisabled if you specify a reference. \nDefault: spades for single colony isolates, megahit for metagenome. \n Long reads will always be assembled with Flye', default='')
     parser.add_argument('-r', '--reference', help='Reference for read mapping. Specify this for reference mapping module. ', default=None)
+    parser.add_argument('--nohammer', help='Flag to disable read correction in spades. ', default=False, action='store_true')
     parser.add_argument('-k', '--kmers', help='relative lengths of kmers used in SPAdes. Default: 30,50,70,90', default='30,50,70,90')
     parser.add_argument('-m', '--mapper', help='aligner used for read mapping.\noptions are: miminap (default), bwa or bowtie2', default='minimap2')
     parser.add_argument('-d', '--max_diff', help='Maximum proportion of variations allowed for a aligned reads. \nDefault: 0.1 for single isolates, 0.05 for metagenome', type=float, default=-1)

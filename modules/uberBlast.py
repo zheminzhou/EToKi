@@ -12,6 +12,17 @@ makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
 diamond = externals['diamond']
 
+def rev_transeq(s, transl_table=11):
+    if transl_table == 4:
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXY*YSSSSWCWCLFLF-'))
+    else:
+        gtable = np.array(list('KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVXY*YSSSSXCWCLFLF-'))
+    rev_seq = {}
+    na = ['A', 'C', 'G', 'T', '-']
+    for aa, codon in zip(*np.unique(gtable, return_index=True)):
+        rev_seq[aa] = ''.join([na[int(codon / 16)], na[int((codon % 16) / 4)], na[codon % 4]])
+    return ''.join([rev_seq.get(x, '---') for x in s])
+
 
 def parseDiamond(data):
     fn, refseq, qryseq, min_id, min_cov, min_ratio = data
@@ -326,7 +337,7 @@ class RunBlast(object) :
     def __init__(self) :
         self.qrySeq = self.refSeq = None
     def run(self, ref, qry, methods, min_id, min_cov, min_ratio, table_id=11, n_thread=8, useProcess=False, re_score=0, filter=[False, 0.9, 0.], linear_merge=[False, 300.,1.2], return_overlap=[True, 300, 0.6], fix_end=[6., 6.]) :
-        tools = dict(blastn=self.runBlast, diamond=self.runDiamond, diamondself=self.runDiamondSELF)
+        tools = dict(blastn=self.runBlast, diamond=self.runDiamond, diamondself=self.runDiamondSELF, diamondx=self.runDiamondx)
         self.min_id = min_id
         self.min_cov = min_cov
         self.min_ratio = min_ratio
@@ -512,6 +523,56 @@ class RunBlast(object) :
 
     def runDiamondSELF(self, ref, qry) :
         return self.runDiamond(ref, qry, nhits=200, frames='F')
+    
+    
+    def runDiamondx(self, ref, qry, nhits=5, frames='7'):
+        refAA = os.path.join(self.dirPath, 'refAA')
+        qryAA = os.path.join(self.dirPath, 'qryAA')
+        aaMatch = os.path.join(self.dirPath, 'aaMatch')
+
+        if not self.qrySeq:
+            qryAASeq, self.qryAAQual = readFastq(qry)
+            self.qrySeq = {n: rev_transeq(s) for n, s in qryAASeq.items()}
+        if not self.refSeq:
+            self.refSeq, self.refQual = readFastq(ref)
+
+        with open(qryAA, 'w') as fout:
+            for n, ss in sorted(qryAASeq.items()):
+                fout.write('>{0}:1\n{1}\n'.format(n, ss))
+
+        diamond_fmt = '{diamond} makedb --db {qryAA} --in {qryAA}'.format(
+            diamond=diamond, qryAA=qryAA)
+        p = Popen(diamond_fmt.split(), stderr=PIPE, stdout=PIPE, universal_newlines=True).communicate()
+
+        refAASeq = transeq(self.refSeq, frames, transl_table=self.table_id)
+        toWrite = []
+        for n, ss in sorted(refAASeq.items()):
+            for id, s in enumerate(ss):
+                cdss = re.findall('.{1000,}?X|.{1,1000}$', s + 'X')
+                cdss[-1] = cdss[-1][:-1]
+                cdsi = np.cumsum([0] + list(map(len, cdss[:-1])))
+                for ci, cs in zip(cdsi, cdss):
+                    if len(cs):
+                        toWrite.append('>{0}:{1}:{2}\n{3}\n'.format(n, id + 1, ci, cs))
+
+        for id in range(5):
+            with open('{0}.{1}'.format(refAA, id), 'w') as fout:
+                for line in toWrite[id::5]:
+                    fout.write(line)
+            diamond_cmd = '{diamond} blastp --gapopen 9 --no-self-hits --threads {n_thread} --db {refAA} --query {qryAA} --out {aaMatch} --id {min_id} --query-cover {min_ratio} --evalue 1 -k {nhits} --max-hsps {nhits} --dbsize 5000000 --outfmt 101'.format(
+                diamond=diamond, refAA='{0}.{1}'.format(refAA, id), qryAA=qryAA, aaMatch='{0}.{1}'.format(aaMatch, id),
+                n_thread=self.n_thread, min_id=self.min_id * 100., nhits=nhits, min_ratio=self.min_ratio * 100.)
+            Popen(diamond_cmd.split(), stdout=PIPE, stderr=PIPE, universal_newlines=True).communicate()
+        blastab = []
+        for r in self.pool.imap_unordered(parseDiamond, [
+            ['{0}.{1}'.format(aaMatch, id), self.refSeq, self.qrySeq, self.min_id, self.min_cov, self.min_ratio] for id
+            in range(5)]):
+            if r is not None:
+                blastab.append(np.load(r, allow_pickle=True))
+                os.unlink(r)
+        blastab = np.vstack(blastab) if len(blastab) else []
+        return blastab
+
     def runDiamond(self, ref, qry, nhits=10, frames='7') :
         logger('Run diamond starts')
 
@@ -571,6 +632,7 @@ def uberBlast(args, extPool=None) :
     parser.add_argument('-o', '--output', help='[OUTPUT; Default: None] save result to a file or to screen (stdout). Default do nothing. ', default=None)
     parser.add_argument('--blastn',       help='Run BLASTn. Slowest. Good for identities between [70, 100]', action='store_true', default=False)
     parser.add_argument('--diamond',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
+    parser.add_argument('--diamondx',      help='Run diamond on BLASTx mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--diamondSELF',      help='Run diamond on tBLASTn mode. Fast. Good for identities between [30-100]', action='store_true', default=False)
     parser.add_argument('--gtable',       help='[DEFAULT: 11] genetic table to use. 11 for bacterial genomes and 4 for Mycoplasma', default=11, type=int)
     
@@ -596,13 +658,14 @@ def uberBlast(args, extPool=None) :
     if extPool is not None :
         args.process =extPool
     methods = []
-    for method in ('blastn', 'diamond', 'diamondSELF') :
+    for method in ('blastn', 'diamond', 'diamondSELF', 'diamondx') :
         if args.__dict__[method] :
             methods.append(method)
     for opt in ('fix_end',) :
         args.__dict__[opt] = args.__dict__[opt].split(',')
         args.__dict__[opt][-2:] = list(map(float, args.__dict__[opt][-2:]))
-    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.min_ratio, args.gtable, args.n_thread, args.process, args.re_score, \
+    data = RunBlast().run(args.reference, args.query, methods, args.min_id, args.min_cov, args.min_ratio, args.gtable, 
+                          args.n_thread, args.process, args.re_score, \
                              [args.filter, args.filter_cov, args.filter_score], \
                              [args.linear_merge, args.merge_gap, args.merge_diff], \
                              [args.return_overlap, args.overlap_length, args.overlap_proportion], \

@@ -10,10 +10,20 @@ except :
 
 pairs = {}
 
+sq_name = {}
+
 for line in sys.stdin :
     if line.startswith('@') :
+        if line.startswith('@SQ') :
+            if line.strip() not in sq_name :
+                sq_name[line.strip()] = 1
+            else :
+                continue
         sys.stdout.write(line)
     else :
+        if cutoff < 0 :
+            sys.stdout.write(line)
+            sys.stdout.flush()
         part = line.strip().split('\t', 10)
         flag = int(part[1])
         if flag & 4 > 0 :

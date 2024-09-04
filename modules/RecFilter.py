@@ -12,6 +12,7 @@ def parse_arg(a) :
     parser = argparse.ArgumentParser(description='Generate a matrix of only vertically inherited SNPs. ', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--prefix', '-p', help='prefix for the output', required=True)
     parser.add_argument('--snp', '-s', dest='matrix', help='SNP matrix', required=True)
+    parser.add_argument('--mutation', '-m', help='mutation list (gzip), to skip mutation calling stage', default=None, type=str)
     parser.add_argument('--tree', '-t', help='Labeled tree', required=True)
     parser.add_argument('--rec', '-r', help='Recombinant sketches', required=True)
     parser.add_argument('--prob', '-b', help='Minimum probability for rec sketches. Default: 0.5', default=0.5, type=float)
