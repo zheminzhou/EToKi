@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os, sys, tempfile, shutil, numpy as np, pandas as pd, re
 from numba import jit
 from subprocess import Popen, PIPE

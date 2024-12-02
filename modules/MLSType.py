@@ -9,6 +9,7 @@ except :
 usearch = externals['usearch']
 makeblastdb = externals['makeblastdb']
 blastn = externals['blastn']
+blastp = externals['blastp']
 
 
 def transeq(seq, frames=[1,2,3,4,5,6]) :
@@ -149,6 +150,7 @@ class dualBlast(object) :
             for n,s in qrySeq.items() :
                 fout.write('>{0}\n{1}\n'.format(n, s))
         
+        # Format a blast database for query genome
         Popen('{makeblastdb} -dbtype nucl -in {qry}'.format(makeblastdb=makeblastdb, qry=qryNA).split(), stderr=PIPE, stdout=PIPE).communicate()
 
         refs = [ [os.path.join(dirPath, 'ref.{0}'.format(id)), os.path.join(dirPath, 'ref.{0}.out'.format(id)), []] for id in range(n_thread)]
@@ -158,6 +160,7 @@ class dualBlast(object) :
             with open(r, 'w') as fout :
                 for n, s in refSeq2[id::n_thread] :
                     fout.write('>{0}\n{1}\n'.format(n, s))
+            # Blastn reference alleles vs query assembly
             blast_cmd = '{blastn} -db {qry} -query {ref} -out {out} -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq" -task blastn -evalue 1e-3 -dbsize 5000000 -reward 2 -penalty -2 -gapopen 6 -gapextend 2'.format(
                 blastn=blastn, qry=qryNA, ref=r, out=o)
             p.append(Popen(blast_cmd, stdout=PIPE, shell=True))
@@ -178,10 +181,21 @@ class dualBlast(object) :
                 p[0].communicate()
                 fout.write(open(o).read())
                 os.unlink(o)
-        ublast_cmd = '{usearch} -threads {n_thread} -db {qryAA} -ublast {refAA} -evalue 1e-3 -accel 0.9 -maxhits 6 -userout {aaMatch} -ka_dbsize 5000000 -userfields query+target+id+alnlen+mism+opens+qlo+qhi+tlo+thi+evalue+raw+ql+tl+qrow+trow+qstrand'.format(
-            usearch=usearch, qryAA=qryAA, refAA=refAA, aaMatch=aaMatch, n_thread=n_thread)
-        pp = Popen(ublast_cmd.split(), stderr=PIPE, stdout=PIPE)
-        pp.communicate()
+        # emulating usearch with blastp
+        makeblastdb_cmd = '{makeblastdb} -in {query} -dbtype prot'.format(makeblastdb=makeblastdb, query=qryAA)
+        pp = Popen(makeblastdb_cmd.split(), stderr=PIPE, stdout=PIPE)
+        res = pp.communicate()
+        # print(res)
+
+        blastp_cmd_arr = '{blastp} -num_threads {n_thread} -query {refAA} -db {qryAA} -evalue 1e-3 -out {aaMatch}'.format(
+            blastp=blastp, n_thread=n_thread,  qryAA=qryAA, refAA=refAA, aaMatch=aaMatch
+        ).split()
+        blastp_cmd_arr.append('-outfmt')
+        blastp_cmd_arr.append('6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue score qlen slen qseq sseq sstrand')
+        # print(blastp_cmd_arr)
+        pp = Popen(blastp_cmd_arr, stderr=PIPE, stdout=PIPE)
+        res = pp.communicate()
+        #print(res)
         
         blastab = self.parseBlast(open(naMatch), min_iden, min_len)
         blastab.extend(self.parseUBlast(open(aaMatch), qrySeq, refSeq, min_iden, min_len))
@@ -599,8 +613,10 @@ class seqOperation(object) :
 
 def nomenclature(genome, refAllele, parameters) :
     # write query
+    # TODO make this NS_ tempdir somewhere like /tmp instead of cluttering up the cwd
     dirPath = tempfile.mkdtemp(prefix='NS_', dir='.')
     try :
+        # Put the query genome and reference alleles into the tempdir
         qry = os.path.join(dirPath, 'query')
         ref = os.path.join(dirPath, 'reference')
         with open(qry, 'wt') as fout:
