@@ -639,7 +639,7 @@ def alignAgainst(data) :
                 alnSite = e
             elif ct == 'I' :
                 q = qry[0][alnSite[1]:alnSite[1]+cl] if d < 0 else rc(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)] )
-                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[0][(alnSite[1]-cl+1):(alnSite[1]+1)] ))
+                q1 = qry[1][alnSite[1]:alnSite[1]+cl] if d > 0 else ''.join(reversed(qry[1][(alnSite[1]-cl+1):(alnSite[1]+1)] ))
                 
                 e = alnSite[1] + cl*d
                 for qid in xrange(len(qryRepeat)-1, -1, -1) :
@@ -946,7 +946,7 @@ def getMatrix(prefix, reference, alignments, lowq_aligns, core, matrixOut, align
         with uopen(prefix + '.fasta.gz', 'w') as fout :
             for id, n in enumerate(sorted(refSeq)) :
                 if id :
-                    fout.write('=\n')
+                    fout.write('\n')
                 for (mTag, mFile), seq in zip(alignments, sequences) :
                     fout.write('>{0}:{1}\n{2}\n'.format(mTag, n, ''.join(seq[n])))
                 for (mTag, mFile), seq in zip(lowq_aligns, low_seq) :
